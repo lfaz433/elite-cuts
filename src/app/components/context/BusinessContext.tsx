@@ -29,6 +29,8 @@ export interface Barber {
   rating: number;
   image: string;
   shiftStart?: string; // HH:MM
+  shiftEnd?: string; // HH:MM
+  workingDays?: number[]; // 0 = Sunday, 1 = Monday, etc.
   username?: string;
   password?: string;
   phone?: string;
@@ -194,6 +196,8 @@ const defaultBarbers: Barber[] = [
     rating: 4.9,
     image: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&h=300&fit=crop',
     shiftStart: '09:00',
+    shiftEnd: '18:00',
+    workingDays: [1, 2, 3, 4, 5, 6],
     username: 'marcus',
     password: 'password123',
     phone: '+33 6 12 34 56 78',
@@ -209,6 +213,8 @@ const defaultBarbers: Barber[] = [
     rating: 4.8,
     image: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=300&h=300&fit=crop',
     shiftStart: '09:30',
+    shiftEnd: '18:30',
+    workingDays: [1, 2, 3, 4, 5],
     username: 'andre',
     password: 'password123',
     phone: '+33 6 87 65 43 21',

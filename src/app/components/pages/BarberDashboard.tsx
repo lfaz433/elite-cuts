@@ -248,7 +248,7 @@ const WalkInModal = ({ onClose, services, currentBarber, commissionRate, addBook
 
 export default function BarberDashboard() {
   const { user, logout } = useAuth();
-  const { bookings, addBooking, services, barbers, updateBooking, updateBookingStatus, products, addSale, addAttendance, attendance, businessInfo, addSettlement, settlements, updateBarberStatus } = useBusiness();
+  const { bookings, addBooking, services, barbers, updateBarber, updateBooking, updateBookingStatus, products, addSale, addAttendance, attendance, businessInfo, addSettlement, settlements, updateBarberStatus } = useBusiness();
   const navigate = useNavigate();
   
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -634,20 +634,73 @@ export default function BarberDashboard() {
         {activeTab === 'horaires' && (
           <div className="space-y-6">
             <h3 className="text-xl font-bold text-white mb-4">Mes Horaires</h3>
-            <div className="bg-[#141414] p-6 rounded-xl border border-white/10">
-              <label className="block text-white/60 text-sm mb-2">Heure de début (Shift Start)</label>
-              <div className="flex gap-4">
-                <input 
-                  type="time" 
-                  defaultValue={currentBarber?.shiftStart || '09:00'} 
-                  onChange={(e) => {
-                    updateBarberStatus(currentBarber.id, currentBarber.status || 'available'); // dummy trigger
-                    toast.success('✅ Action completed successfully');
-                  }}
-                  className="bg-white/5 border border-white/10 text-white px-4 py-2 rounded-lg focus:border-[#D4AF37] focus:outline-none"
-                />
+            <div className="bg-[#141414] p-6 rounded-xl border border-white/10 space-y-6">
+              
+              <div>
+                <label className="block text-white font-bold mb-3">Jours de travail</label>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { id: 1, label: 'Lun' },
+                    { id: 2, label: 'Mar' },
+                    { id: 3, label: 'Mer' },
+                    { id: 4, label: 'Jeu' },
+                    { id: 5, label: 'Ven' },
+                    { id: 6, label: 'Sam' },
+                    { id: 0, label: 'Dim' }
+                  ].map(day => {
+                    const isWorking = currentBarber?.workingDays?.includes(day.id) ?? true;
+                    return (
+                      <button
+                        key={day.id}
+                        onClick={() => {
+                          const currentDays = currentBarber?.workingDays || [1,2,3,4,5,6];
+                          const newDays = isWorking 
+                            ? currentDays.filter((d: number) => d !== day.id)
+                            : [...currentDays, day.id];
+                          updateBarber(currentBarber.id, { workingDays: newDays });
+                          toast.success('✅ Action completed successfully');
+                        }}
+                        className={`w-12 h-12 rounded-lg font-bold flex items-center justify-center transition-all ${
+                          isWorking 
+                            ? 'bg-[#D4AF37] text-black shadow-lg shadow-[#D4AF37]/20' 
+                            : 'bg-white/5 text-white/40 border border-white/10 hover:bg-white/10'
+                        }`}
+                      >
+                        {day.label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-              <p className="text-white/40 text-xs mt-4">La modification des horaires est automatique. Les clients verront vos disponibilités à partir de cette heure.</p>
+
+              <div className="grid grid-cols-2 gap-4 pt-4 border-t border-white/5">
+                <div>
+                  <label className="block text-white/60 text-sm mb-2">Heure de début</label>
+                  <input 
+                    type="time" 
+                    defaultValue={currentBarber?.shiftStart || '09:00'} 
+                    onChange={(e) => {
+                      updateBarber(currentBarber.id, { shiftStart: e.target.value });
+                      toast.success('✅ Action completed successfully');
+                    }}
+                    className="w-full bg-white/5 border border-white/10 text-white px-4 py-3 rounded-lg focus:border-[#D4AF37] focus:outline-none font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="block text-white/60 text-sm mb-2">Heure de fin</label>
+                  <input 
+                    type="time" 
+                    defaultValue={currentBarber?.shiftEnd || '18:00'} 
+                    onChange={(e) => {
+                      updateBarber(currentBarber.id, { shiftEnd: e.target.value });
+                      toast.success('✅ Action completed successfully');
+                    }}
+                    className="w-full bg-white/5 border border-white/10 text-white px-4 py-3 rounded-lg focus:border-[#D4AF37] focus:outline-none font-bold"
+                  />
+                </div>
+              </div>
+
+              <p className="text-white/40 text-xs mt-4">La modification des horaires est automatique. Les clients verront vos disponibilités en temps réel.</p>
             </div>
           </div>
         )}
