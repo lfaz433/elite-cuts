@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { X, Calendar, Clock, User, Phone, Mail, CheckCircle2 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { X, Calendar, User, Phone, Mail, CheckCircle2, ChevronRight, ChevronLeft } from 'lucide-react';
 import { useBusiness } from '../context/BusinessContext';
 import { toast } from 'sonner';
 
 export default function BookingModal({ onClose }: { onClose: () => void }) {
   const { services, barbers, bookings, addBooking, getAvailableTimeSlots, getAvailableBarbers } = useBusiness();
+
   const [step, setStep] = useState(1);
   const [selectedServiceId, setSelectedServiceId] = useState('');
   const [selectedBarberId, setSelectedBarberId] = useState('any');
@@ -13,258 +13,305 @@ export default function BookingModal({ onClose }: { onClose: () => void }) {
   const [selectedTime, setSelectedTime] = useState('');
   const [clientInfo, setClientInfo] = useState({ name: '', email: '', phone: '' });
   const [isSuccess, setIsSuccess] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // ✅ Correctly derived display values
   const selectedService = services.find(s => s.id === selectedServiceId);
-  const selectedBarber = selectedBarberId === 'any' ? 'Premier disponible' : barbers.find(b => b.id === selectedBarberId)?.name || '';
-  const availableTimeSlots = getAvailableTimeSlots(selectedDate, selectedBarberId, selectedServiceId);
+  const selectedBarberName = selectedBarberId === 'any'
+    ? 'Premier disponible'
+    : barbers.find(b => b.id === selectedBarberId)?.name || '';
 
-  const handleSubmit = (e: React.FormEvent) => {
+  let availableTimeSlots: string[] = [];
+  try {
+    availableTimeSlots = getAvailableTimeSlots(selectedDate, selectedBarberId, selectedServiceId);
+  } catch {
+    availableTimeSlots = [];
+  }
+
+  const canGoNext =
+    (step === 1 && !!selectedServiceId) ||
+    (step === 2 && !!selectedBarberId) ||
+    (step === 3 && !!selectedDate && !!selectedTime) ||
+    step === 4;
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    let finalBarberId = selectedBarberId;
-
-    if (selectedBarberId === 'any') {
-      const candidates = getAvailableBarbers(selectedDate, selectedTime);
-      if (candidates.length === 0) {
-        toast.error('Plus de coiffeur disponible à cette heure.');
-        return;
+    if (!clientInfo.name || !clientInfo.email || !clientInfo.phone) return;
+    setIsSubmitting(true);
+    try {
+      let finalBarberId = selectedBarberId;
+      if (selectedBarberId === 'any') {
+        const candidates = getAvailableBarbers(selectedDate, selectedTime);
+        if (candidates.length > 0) {
+          finalBarberId = candidates.reduce((prev, curr) => {
+            const pc = bookings.filter(b => b.barberId === prev.id && b.date === selectedDate).length;
+            const cc = bookings.filter(b => b.barberId === curr.id && b.date === selectedDate).length;
+            return pc <= cc ? prev : curr;
+          }).id;
+        } else {
+          toast.error('Aucun coiffeur disponible à cette heure.');
+          setIsSubmitting(false);
+          return;
+        }
       }
-      // Balanced: pick the one with fewest bookings that day
-      finalBarberId = candidates.reduce((prev, curr) => {
-        const prevCount = bookings.filter(b => b.barberId === prev.id && b.date === selectedDate).length;
-        const currCount = bookings.filter(b => b.barberId === curr.id && b.date === selectedDate).length;
-        return prevCount <= currCount ? prev : curr;
-      }).id;
+      await addBooking({
+        clientName: clientInfo.name,
+        clientEmail: clientInfo.email,
+        clientPhone: clientInfo.phone,
+        serviceId: selectedServiceId,
+        barberId: finalBarberId,
+        date: selectedDate,
+        time: selectedTime,
+      });
+      setIsSuccess(true);
+      toast.success('Réservation envoyée !');
+      setTimeout(onClose, 3000);
+    } catch {
+      toast.error('Erreur lors de la réservation. Réessayez.');
     }
-
-    addBooking({
-      clientName: clientInfo.name,
-      clientEmail: clientInfo.email,
-      clientPhone: clientInfo.phone,
-      serviceId: selectedServiceId,
-      barberId: finalBarberId,
-      date: selectedDate,
-      time: selectedTime,
-    });
-
-    setIsSuccess(true);
-    toast.success('Réservation envoyée avec succès !');
-    setTimeout(() => onClose(), 3000);
+    setIsSubmitting(false);
   };
 
+  // --- Success Screen ---
   if (isSuccess) {
     return (
-      <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4 bg-black/80 backdrop-blur-sm">
-        <motion.div initial={{ opacity: 0, y: 100 }} animate={{ opacity: 1, y: 0 }} className="relative w-full md:max-w-md bg-gradient-to-br from-[#141414] to-[#1a1a1a] rounded-t-3xl md:rounded-2xl border border-[#D4AF37]/30 p-8 text-center pb-12 md:pb-8">
-          <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
-            <CheckCircle2 className="w-10 h-10 text-green-500" />
+      <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.85)' }}>
+        <div style={{ background: '#141414', border: '1px solid rgba(212,175,55,0.3)', borderRadius: 24, padding: 40, maxWidth: 420, width: '90%', textAlign: 'center' }}>
+          <div style={{ width: 72, height: 72, background: 'rgba(34,197,94,0.15)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px' }}>
+            <CheckCircle2 style={{ width: 36, height: 36, color: '#22c55e' }} />
           </div>
-          <h2 className="text-3xl font-bold mb-4 text-white">Réservation Reçue !</h2>
-          <p className="text-white/60 mb-8">
-            Merci, {clientInfo.name}. Votre réservation pour <strong className="text-[#D4AF37]">{selectedService?.name}</strong> le {selectedDate} à {selectedTime} est en attente de confirmation.
+          <h2 style={{ fontSize: 24, fontWeight: 700, color: 'white', marginBottom: 12 }}>Réservation Reçue !</h2>
+          <p style={{ color: 'rgba(255,255,255,0.6)', marginBottom: 24 }}>
+            Merci {clientInfo.name}. Votre rendez-vous le {selectedDate} à {selectedTime} est en attente de confirmation.
           </p>
-          <button onClick={onClose} className="w-full px-6 py-3 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black rounded-lg font-bold">Fermer</button>
-        </motion.div>
+          <button onClick={onClose} style={{ width: '100%', padding: '12px 24px', background: 'linear-gradient(to right, #D4AF37, #FFD700)', color: 'black', borderRadius: 12, fontWeight: 700, border: 'none', cursor: 'pointer' }}>
+            Fermer
+          </button>
+        </div>
       </div>
     );
   }
 
+  // --- Progress Steps ---
+  const stepLabels = ['Service', 'Coiffeur', 'Date & Heure', 'Vos infos'];
+
   return (
-    <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4 bg-black/80 backdrop-blur-sm">
-        <motion.div
-          initial={{ opacity: 0, y: 100 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 100 }}
-          className="relative w-full md:max-w-2xl bg-gradient-to-br from-[#141414] to-[#1a1a1a] rounded-t-3xl md:rounded-2xl border border-[#D4AF37]/30 p-6 md:p-8 max-h-[90vh] overflow-y-auto pb-12 md:pb-8"
-        >
-          <button onClick={onClose} className="absolute top-4 right-4 text-white/60 hover:text-white z-10"><X className="w-6 h-6" /></button>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 9999, overflowY: 'auto', background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: '0' }} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ background: 'linear-gradient(135deg, #141414, #1a1a1a)', border: '1px solid rgba(212,175,55,0.3)', borderRadius: '24px 24px 0 0', width: '100%', maxWidth: 640, maxHeight: '90vh', overflowY: 'auto', padding: '32px 24px 40px' }}>
 
-          <h2 className="text-3xl font-bold mb-2 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] bg-clip-text text-transparent">Prendre Rendez-vous</h2>
-          <p className="text-white/60 mb-8">
-            {step === 1 && 'Sélectionnez votre service'}
-            {step === 2 && 'Choisissez votre coiffeur'}
-            {step === 3 && 'Choisissez une date et une heure'}
-            {step === 4 && 'Vos coordonnées'}
-          </p>
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <h2 style={{ fontSize: 22, fontWeight: 700, background: 'linear-gradient(to right, #D4AF37, #FFD700)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+            Prendre Rendez-vous
+          </h2>
+          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.05)', border: 'none', borderRadius: 8, padding: 8, cursor: 'pointer', color: 'rgba(255,255,255,0.6)', display: 'flex' }}>
+            <X style={{ width: 20, height: 20 }} />
+          </button>
+        </div>
+        <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 14, marginBottom: 24 }}>Étape {step} sur 4 — {stepLabels[step - 1]}</p>
 
-          {/* Progress Steps */}
-          <div className="flex items-center gap-2 mb-8">
-            {[1, 2, 3, 4].map((s) => (
-              <div key={s} className="flex items-center flex-1">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold ${step >= s ? 'bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black' : 'bg-white/10 text-white/40'}`}>{s}</div>
-                {s < 4 && <div className={`flex-1 h-0.5 ${step > s ? 'bg-[#D4AF37]' : 'bg-white/10'}`} />}
-              </div>
-            ))}
-          </div>
+        {/* Progress Bar */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: 28 }}>
+          {[1,2,3,4].map(s => (
+            <div key={s} style={{ flex: 1, height: 4, borderRadius: 99, background: s <= step ? '#D4AF37' : 'rgba(255,255,255,0.1)' }} />
+          ))}
+        </div>
 
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Step 1: Service */}
-            {step === 1 && (
-              <div className="space-y-4">
-                <label className="block text-white font-medium">Sélectionnez un Service</label>
-                {services.length === 0 && (
-                  <p className="text-white/40 italic text-center py-8">Aucun service disponible pour le moment.</p>
-                )}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {services.map((service) => (
-                    <button
-                      key={service.id}
-                      type="button"
-                      onClick={() => setSelectedServiceId(service.id)}
-                      className={`p-4 rounded-lg text-left transition-all ${selectedServiceId === service.id ? 'bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black scale-[1.02]' : 'bg-white/5 text-white border border-[#D4AF37]/20 hover:bg-white/10'}`}
-                    >
-                      <div className="font-bold">{service.name}</div>
-                      <div className="text-sm opacity-70">{service.duration} • {service.price}</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
+        <form onSubmit={handleSubmit}>
 
-            {/* Step 2: Barber */}
-            {step === 2 && (
-              <div className="space-y-4">
-                <label className="block text-white font-medium">Sélectionnez un Coiffeur</label>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {/* Step 1: Service */}
+          {step === 1 && (
+            <div>
+              <p style={{ color: 'rgba(255,255,255,0.7)', fontWeight: 600, marginBottom: 16 }}>Choisissez un service</p>
+              {services.length === 0 && (
+                <p style={{ color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '32px 0', fontStyle: 'italic' }}>Aucun service disponible pour le moment.</p>
+              )}
+              <div style={{ display: 'grid', gap: 10 }}>
+                {services.map(service => (
                   <button
+                    key={service.id}
                     type="button"
-                    onClick={() => setSelectedBarberId('any')}
-                    className={`p-4 rounded-lg flex items-center gap-4 transition-all ${selectedBarberId === 'any' ? 'bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black scale-[1.02]' : 'bg-white/5 text-white border border-[#D4AF37]/20 hover:bg-white/10'}`}
+                    onClick={() => setSelectedServiceId(service.id)}
+                    style={{
+                      padding: '14px 16px',
+                      borderRadius: 12,
+                      textAlign: 'left',
+                      border: `2px solid ${selectedServiceId === service.id ? '#D4AF37' : 'rgba(255,255,255,0.08)'}`,
+                      background: selectedServiceId === service.id ? 'rgba(212,175,55,0.1)' : 'rgba(255,255,255,0.03)',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                    }}
                   >
-                    <div className="w-12 h-12 rounded-full flex items-center justify-center border border-[#D4AF37]/30 bg-[#141414]">
-                      <User className="w-6 h-6 text-[#D4AF37]" />
-                    </div>
-                    <div className="text-left">
-                      <div className="font-bold">N'importe quel coiffeur</div>
-                      <div className="text-sm opacity-70">Le premier disponible</div>
+                    <div style={{ fontWeight: 700, color: 'white', marginBottom: 4 }}>{service.name}</div>
+                    <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)' }}>{service.duration} • <span style={{ color: '#D4AF37' }}>{service.price}</span></div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: Barber */}
+          {step === 2 && (
+            <div>
+              <p style={{ color: 'rgba(255,255,255,0.7)', fontWeight: 600, marginBottom: 16 }}>Choisissez un coiffeur</p>
+              <div style={{ display: 'grid', gap: 10 }}>
+                {/* Any barber option */}
+                <button
+                  type="button"
+                  onClick={() => setSelectedBarberId('any')}
+                  style={{
+                    padding: '14px 16px', borderRadius: 12, textAlign: 'left',
+                    border: `2px solid ${selectedBarberId === 'any' ? '#D4AF37' : 'rgba(255,255,255,0.08)'}`,
+                    background: selectedBarberId === 'any' ? 'rgba(212,175,55,0.1)' : 'rgba(255,255,255,0.03)',
+                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12,
+                  }}
+                >
+                  <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'rgba(212,175,55,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <User style={{ width: 20, height: 20, color: '#D4AF37' }} />
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 700, color: 'white' }}>N'importe quel coiffeur</div>
+                    <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>Attribution automatique équilibrée</div>
+                  </div>
+                </button>
+                {barbers.filter(b => !b.archived && b.status !== 'offline').map(barber => (
+                  <button
+                    key={barber.id}
+                    type="button"
+                    onClick={() => setSelectedBarberId(barber.id)}
+                    style={{
+                      padding: '14px 16px', borderRadius: 12, textAlign: 'left',
+                      border: `2px solid ${selectedBarberId === barber.id ? '#D4AF37' : 'rgba(255,255,255,0.08)'}`,
+                      background: selectedBarberId === barber.id ? 'rgba(212,175,55,0.1)' : 'rgba(255,255,255,0.03)',
+                      cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12,
+                    }}
+                  >
+                    <img src={barber.image} alt={barber.name} style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover' }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                    <div>
+                      <div style={{ fontWeight: 700, color: 'white' }}>{barber.name}</div>
+                      <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>{barber.specialty}</div>
                     </div>
                   </button>
-                  {barbers.filter(b => !b.archived && b.status !== 'offline').map((barber) => (
-                    <button
-                      key={barber.id}
-                      type="button"
-                      onClick={() => setSelectedBarberId(barber.id)}
-                      className={`p-4 rounded-lg flex items-center gap-4 transition-all ${selectedBarberId === barber.id ? 'bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black scale-[1.02]' : 'bg-white/5 text-white border border-[#D4AF37]/20 hover:bg-white/10'}`}
-                    >
-                      <img src={barber.image} alt={barber.name} className="w-12 h-12 rounded-full object-cover border border-[#D4AF37]/30" />
-                      <div className="text-left">
-                        <div className="font-bold">{barber.name}</div>
-                        <div className="text-sm opacity-70">{barber.specialty}</div>
-                      </div>
-                    </button>
-                  ))}
-                </div>
+                ))}
               </div>
-            )}
+            </div>
+          )}
 
-            {/* Step 3: Date & Time */}
-            {step === 3 && (
-              <div className="space-y-6">
-                <div>
-                  <label className="block text-white mb-2 font-medium">Sélectionnez la Date</label>
-                  <div className="relative">
-                    <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#D4AF37]" />
+          {/* Step 3: Date & Time */}
+          {step === 3 && (
+            <div>
+              <div style={{ marginBottom: 20 }}>
+                <label style={{ display: 'block', color: 'rgba(255,255,255,0.7)', fontWeight: 600, marginBottom: 10 }}>Date</label>
+                <input
+                  type="date"
+                  value={selectedDate}
+                  min={new Date().toISOString().split('T')[0]}
+                  onChange={e => { setSelectedDate(e.target.value); setSelectedTime(''); }}
+                  style={{ width: '100%', padding: '12px 16px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(212,175,55,0.3)', borderRadius: 10, color: 'white', fontSize: 15, boxSizing: 'border-box' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', color: 'rgba(255,255,255,0.7)', fontWeight: 600, marginBottom: 10 }}>Créneau horaire</label>
+                {availableTimeSlots.length === 0 ? (
+                  <p style={{ color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '24px 0', fontStyle: 'italic' }}>Aucun créneau disponible ce jour. Essayez une autre date.</p>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+                    {availableTimeSlots.map(time => (
+                      <button
+                        key={time}
+                        type="button"
+                        onClick={() => setSelectedTime(time)}
+                        style={{
+                          padding: '10px 4px', borderRadius: 10, textAlign: 'center', fontSize: 14,
+                          border: `2px solid ${selectedTime === time ? '#D4AF37' : 'rgba(255,255,255,0.08)'}`,
+                          background: selectedTime === time ? 'rgba(212,175,55,0.15)' : 'rgba(255,255,255,0.03)',
+                          color: selectedTime === time ? '#D4AF37' : 'white',
+                          cursor: 'pointer', fontWeight: selectedTime === time ? 700 : 400,
+                        }}
+                      >
+                        {time}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Step 4: Client Info */}
+          {step === 4 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {[
+                { label: 'Nom complet', key: 'name', type: 'text', placeholder: 'Votre nom', Icon: User },
+                { label: 'Email', key: 'email', type: 'email', placeholder: 'votre@email.com', Icon: Mail },
+                { label: 'Téléphone', key: 'phone', type: 'tel', placeholder: '+33 6 ...' , Icon: Phone },
+              ].map(({ label, key, type, placeholder, Icon }) => (
+                <div key={key}>
+                  <label style={{ display: 'block', color: 'rgba(255,255,255,0.6)', fontSize: 13, marginBottom: 6 }}>{label}</label>
+                  <div style={{ position: 'relative' }}>
+                    <Icon style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', width: 18, height: 18, color: '#D4AF37' }} />
                     <input
-                      type="date"
-                      value={selectedDate}
-                      onChange={(e) => { setSelectedDate(e.target.value); setSelectedTime(''); }}
-                      min={new Date().toISOString().split('T')[0]}
-                      className="w-full pl-12 pr-4 py-3 bg-white/5 border border-[#D4AF37]/20 rounded-lg text-white focus:border-[#D4AF37] focus:outline-none"
+                      type={type}
+                      placeholder={placeholder}
+                      value={(clientInfo as any)[key]}
+                      onChange={e => setClientInfo({ ...clientInfo, [key]: e.target.value })}
+                      required
+                      style={{ width: '100%', padding: '12px 12px 12px 40px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(212,175,55,0.2)', borderRadius: 10, color: 'white', fontSize: 15, boxSizing: 'border-box' }}
                     />
                   </div>
                 </div>
-                <div>
-                  <label className="block text-white mb-3 font-medium">Sélectionnez l'Heure</label>
-                  {availableTimeSlots.length === 0 ? (
-                    <p className="text-white/40 italic text-center py-4">Aucun créneau disponible ce jour-là. Essayez une autre date.</p>
-                  ) : (
-                    <div className="grid grid-cols-4 gap-2">
-                      {availableTimeSlots.map((time) => (
-                        <button
-                          key={time}
-                          type="button"
-                          onClick={() => setSelectedTime(time)}
-                          className={`p-3 rounded-lg text-center transition-all ${selectedTime === time ? 'bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black font-bold' : 'bg-white/5 text-white border border-[#D4AF37]/20 hover:bg-white/10'}`}
-                        >
-                          {time}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+              ))}
+              {/* Summary */}
+              <div style={{ marginTop: 8, padding: '16px', background: 'rgba(255,255,255,0.04)', borderRadius: 12, border: '1px solid rgba(212,175,55,0.15)' }}>
+                <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, lineHeight: 2 }}>
+                  <span style={{ color: '#D4AF37' }}>Service :</span> {selectedService?.name} — {selectedService?.price}<br/>
+                  <span style={{ color: '#D4AF37' }}>Coiffeur :</span> {selectedBarberName}<br/>
+                  <span style={{ color: '#D4AF37' }}>Date :</span> {selectedDate} à {selectedTime}
+                </p>
               </div>
-            )}
-
-            {/* Step 4: Client Info */}
-            {step === 4 && (
-              <div className="space-y-4">
-                {[
-                  { label: 'Nom Complet', icon: User, key: 'name', type: 'text', placeholder: 'Entrez votre nom' },
-                  { label: 'Adresse Email', icon: Mail, key: 'email', type: 'email', placeholder: 'Entrez votre email' },
-                  { label: 'Numéro de Téléphone', icon: Phone, key: 'phone', type: 'tel', placeholder: 'Entrez votre numéro' },
-                ].map(({ label, icon: Icon, key, type, placeholder }) => (
-                  <div key={key} className="space-y-2">
-                    <label className="block text-white font-medium">{label}</label>
-                    <div className="relative">
-                      <Icon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#D4AF37]" />
-                      <input
-                        type={type}
-                        placeholder={placeholder}
-                        value={(clientInfo as any)[key]}
-                        onChange={(e) => setClientInfo({ ...clientInfo, [key]: e.target.value })}
-                        className="w-full pl-12 pr-4 py-3 bg-white/5 border border-[#D4AF37]/20 rounded-lg text-white focus:border-[#D4AF37] focus:outline-none"
-                        required
-                      />
-                    </div>
-                  </div>
-                ))}
-                <div className="mt-4 p-5 bg-white/5 rounded-xl border border-[#D4AF37]/20">
-                  <h3 className="text-white font-bold mb-3">Résumé</h3>
-                  <div className="space-y-1 text-sm text-white/60">
-                    <p><span className="text-[#D4AF37]">Service :</span> {selectedService?.name} — {selectedService?.price}</p>
-                    <p><span className="text-[#D4AF37]">Coiffeur :</span> {selectedBarber}</p>
-                    <p><span className="text-[#D4AF37]">Date :</span> {selectedDate}</p>
-                    <p><span className="text-[#D4AF37]">Heure :</span> {selectedTime}</p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Navigation Buttons */}
-            <div className="flex gap-4 pt-4">
-              {step > 1 && (
-                <button type="button" onClick={() => setStep(step - 1)} className="flex-1 px-6 py-3 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-all font-bold">
-                  Retour
-                </button>
-              )}
-              {step < 4 ? (
-                <button
-                  type="button"
-                  onClick={() => setStep(step + 1)}
-                  disabled={
-                    (step === 1 && !selectedServiceId) ||   // ✅ Fixed: use selectedServiceId
-                    (step === 2 && !selectedBarberId) ||    // ✅ Fixed: use selectedBarberId
-                    (step === 3 && (!selectedDate || !selectedTime))
-                  }
-                  className="flex-1 px-6 py-3 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black rounded-lg hover:shadow-lg hover:shadow-[#D4AF37]/50 transition-all disabled:opacity-40 disabled:cursor-not-allowed font-bold"
-                >
-                  Suivant
-                </button>
-              ) : (
-                <button
-                  type="submit"
-                  disabled={!clientInfo.name || !clientInfo.email || !clientInfo.phone}
-                  className="flex-1 px-6 py-3 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black rounded-lg hover:shadow-lg hover:shadow-[#D4AF37]/50 transition-all disabled:opacity-40 disabled:cursor-not-allowed font-bold"
-                >
-                  Confirmer la Réservation
-                </button>
-              )}
             </div>
-          </form>
-        </motion.div>
+          )}
+
+          {/* Navigation */}
+          <div style={{ display: 'flex', gap: 10, marginTop: 28 }}>
+            {step > 1 && (
+              <button
+                type="button"
+                onClick={() => setStep(step - 1)}
+                style={{ flex: 1, padding: '13px 20px', background: 'rgba(255,255,255,0.07)', border: 'none', borderRadius: 12, color: 'white', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+              >
+                <ChevronLeft style={{ width: 18, height: 18 }} /> Retour
+              </button>
+            )}
+            {step < 4 ? (
+              <button
+                type="button"
+                onClick={() => canGoNext && setStep(step + 1)}
+                disabled={!canGoNext}
+                style={{
+                  flex: 1, padding: '13px 20px', background: canGoNext ? 'linear-gradient(to right, #D4AF37, #FFD700)' : 'rgba(255,255,255,0.1)',
+                  border: 'none', borderRadius: 12, color: canGoNext ? 'black' : 'rgba(255,255,255,0.3)',
+                  fontWeight: 700, cursor: canGoNext ? 'pointer' : 'not-allowed',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                }}
+              >
+                Suivant <ChevronRight style={{ width: 18, height: 18 }} />
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={isSubmitting || !clientInfo.name || !clientInfo.email || !clientInfo.phone}
+                style={{
+                  flex: 1, padding: '13px 20px', background: 'linear-gradient(to right, #D4AF37, #FFD700)',
+                  border: 'none', borderRadius: 12, color: 'black', fontWeight: 700,
+                  cursor: isSubmitting ? 'wait' : 'pointer', opacity: isSubmitting ? 0.7 : 1,
+                }}
+              >
+                {isSubmitting ? 'Envoi...' : '✓ Confirmer la Réservation'}
+              </button>
+            )}
+          </div>
+        </form>
       </div>
-    </AnimatePresence>
+    </div>
   );
 }
