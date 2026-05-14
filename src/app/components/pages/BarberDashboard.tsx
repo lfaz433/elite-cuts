@@ -21,7 +21,7 @@ import { useAuth } from '../context/AuthContext';
 import { useBusiness } from '../context/BusinessContext';
 import { useNavigate } from 'react-router';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Html5QrcodeScanner } from 'html5-qrcode';
+import { Html5QrcodeScanner, Html5Qrcode } from 'html5-qrcode';
 import { useEffect } from 'react';
 
 export default function BarberDashboard() {
@@ -244,31 +244,49 @@ export default function BarberDashboard() {
   };
 
   const ScannerModal = ({ onClose }: { onClose: () => void }) => {
-    useEffect(() => {
-      const scanner = new Html5QrcodeScanner(
-        "qr-reader",
-        { fps: 10, qrbox: { width: 250, height: 250 } },
-        /* verbose= */ false
-      );
+    const [isLoading, setIsLoading] = useState(true);
 
-      scanner.render(async (decodedText) => {
+    useEffect(() => {
+      const html5QrCode = new Html5Qrcode("qr-reader");
+      const config = { fps: 15, qrbox: { width: 250, height: 250 } };
+
+      const startScanner = async () => {
         try {
-          const data = JSON.parse(decodedText);
-          if (data.type === 'check-in' && data.barberId === currentBarber?.id) {
-            scanner.clear();
-            handleCheckIn(data.station);
-          } else {
-            toast.error("QR Code invalide pour votre session");
-          }
-        } catch (e) {
-          toast.error("Format de QR Code invalide");
+          // Give a small delay to ensure DOM is ready
+          await new Promise(r => setTimeout(r, 500));
+          
+          await html5QrCode.start(
+            { facingMode: "environment" },
+            config,
+            async (decodedText) => {
+              try {
+                const data = JSON.parse(decodedText);
+                if (data.type === 'check-in' && data.barberId === currentBarber?.id) {
+                  await html5QrCode.stop();
+                  handleCheckIn(data.station);
+                } else {
+                  toast.error("QR Code invalide");
+                }
+              } catch (e) {
+                toast.error("Format invalide");
+              }
+            },
+            () => {}
+          );
+          setIsLoading(false);
+        } catch (err) {
+          console.error("Camera start error:", err);
+          toast.error("Erreur caméra. Vérifiez les permissions.");
+          setIsLoading(false);
         }
-      }, (error) => {
-        // Silently handle scan errors (common during scanning)
-      });
+      };
+
+      startScanner();
 
       return () => {
-        scanner.clear();
+        if (html5QrCode.isScanning) {
+          html5QrCode.stop().catch(err => console.error(err));
+        }
       };
     }, []);
 
@@ -341,7 +359,31 @@ export default function BarberDashboard() {
             </p>
           </div>
 
-          <div id="qr-reader" className="overflow-hidden rounded-2xl border-2 border-[#D4AF37]/20 bg-black"></div>
+          <div className="relative group">
+            {isLoading && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-10 rounded-2xl">
+                <div className="text-center">
+                  <div className="w-8 h-8 border-4 border-[#D4AF37] border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+                  <p className="text-white/40 text-xs">Initialisation caméra...</p>
+                </div>
+              </div>
+            )}
+            <div id="qr-reader" className="overflow-hidden rounded-2xl border-2 border-[#D4AF37]/20 bg-black aspect-square [&>video]:object-cover [&>video]:w-full [&>video]:h-full"></div>
+            
+            {/* Viewfinder Overlay */}
+            <div className="absolute inset-0 pointer-events-none">
+              <div className="absolute top-0 left-0 w-10 h-10 border-t-4 border-l-4 border-[#D4AF37] rounded-tl-xl m-4"></div>
+              <div className="absolute top-0 right-0 w-10 h-10 border-t-4 border-r-4 border-[#D4AF37] rounded-tr-xl m-4"></div>
+              <div className="absolute bottom-0 left-0 w-10 h-10 border-b-4 border-l-4 border-[#D4AF37] rounded-bl-xl m-4"></div>
+              <div className="absolute bottom-0 right-0 w-10 h-10 border-b-4 border-r-4 border-[#D4AF37] rounded-br-xl m-4"></div>
+              
+              <motion.div 
+                animate={{ top: ['10%', '90%', '10%'] }} 
+                transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+                className="absolute left-4 right-4 h-0.5 bg-[#D4AF37]/50 shadow-[0_0_15px_#D4AF37]"
+              />
+            </div>
+          </div>
           
           <div className="mt-6 p-4 bg-[#D4AF37]/5 rounded-xl border border-[#D4AF37]/10">
             <p className="text-xs text-[#D4AF37]/70 uppercase font-bold tracking-wider mb-1">Votre Station</p>
