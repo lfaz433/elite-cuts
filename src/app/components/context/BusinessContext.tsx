@@ -478,27 +478,30 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       }
     }
     
-    // Seed dummy bookings if services and barbers exist
-    if (services.length > 0 && barbers.length > 0) {
+    // Seed dummy bookings if services exist
+    if (services.length > 0 || defaultServices.length > 0) {
+      const activeServices = services.length > 0 ? services : defaultServices;
+      const activeBarbers = barbers.length > 0 ? barbers : defaultBarbers;
+      
       const statuses = ['completed', 'completed', 'completed', 'pending', 'approved'];
       for (let i = 0; i < 20; i++) {
         const d = new Date();
         d.setDate(d.getDate() - Math.floor(Math.random() * 14)); // Past 14 days
         const status = statuses[Math.floor(Math.random() * statuses.length)];
-        const service = services[Math.floor(Math.random() * services.length)];
+        const service = activeServices[Math.floor(Math.random() * activeServices.length)];
         const b: any = {
           clientName: `Client Test ${i+1}`,
           clientEmail: `client${i}@test.com`,
           clientPhone: '0600000000',
           serviceId: service.id,
-          barberId: barbers[0].id,
+          barberId: activeBarbers[0].id,
           date: d.toISOString().split('T')[0],
           time: '14:00',
           status: status,
           createdAt: new Date().toISOString()
         };
         if (status === 'completed') {
-          b.pricePaid = parseInt(service.price.replace(/[^0-9]/g, '')) || 15;
+          b.pricePaid = parseInt((service.price || '').replace(/[^0-9]/g, '')) || 15;
           b.tip = Math.floor(Math.random() * 5);
           b.paymentMethod = Math.random() > 0.5 ? 'cash' : 'card';
         }
