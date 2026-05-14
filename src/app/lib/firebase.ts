@@ -1,0 +1,17 @@
+import { initializeApp } from 'firebase/app';
+import { getFirestore } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
+
+// TODO: Replace with your actual Firebase config
+const firebaseConfig = {
+  apiKey: "AIzaSyB455BHQ7ZIACo0jwXYbYuzlcvXKt2Qpx4",
+  authDomain: "elite-cuts-app.firebaseapp.com",
+  projectId: "elite-cuts-app",
+  storageBucket: "elite-cuts-app.firebasestorage.app",
+  messagingSenderId: "499181564992",
+  appId: "1:499181564992:web:9107775a6be461f6874ba5"
+};
+
+const app = initializeApp(firebaseConfig);
+export const db = getFirestore(app);
+export const auth = getAuth(app);

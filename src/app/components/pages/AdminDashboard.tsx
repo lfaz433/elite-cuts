@@ -19,12 +19,18 @@ import {
   Phone,
   Star,
   ShoppingBag,
+  Plus,
+  Mail,
+  Lock,
+  Wallet,
+  Archive,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useBusiness } from '../context/BusinessContext';
 import { useNavigate } from 'react-router';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { toast } from 'sonner';
+import { QRCodeCanvas } from 'qrcode.react';
 
 export default function AdminDashboard() {
   const { user, logout } = useAuth();
@@ -50,12 +56,17 @@ export default function AdminDashboard() {
     addProduct,
     updateProduct,
     deleteProduct,
-    addSale
+    addSale,
+    attendance,
+    settlements,
+    addSettlement,
+    resetBarberBalance
   } = useBusiness();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [dateFilter, setDateFilter] = useState<'all' | 'day' | 'week' | 'month' | 'custom'>('all');
   const [customDateRange, setCustomDateRange] = useState({ start: '', end: '' });
+  const [barberFilter, setBarberFilter] = useState('all');
 
   const parsePrice = (priceStr: string | undefined) => priceStr ? (parseInt(priceStr.replace(/[^0-9]/g, ''), 10) || 0) : 0;
   
@@ -102,8 +113,37 @@ export default function AdminDashboard() {
     return date >= start && date <= end;
   };
 
-  const filteredBookings = useMemo(() => bookings.filter(b => isDateInRange(b.date)), [bookings, dateFilter, customDateRange]);
-  const filteredSales = useMemo(() => sales.filter(s => isDateInRange(s.date)), [sales, dateFilter, customDateRange]);
+  const filteredBookings = useMemo(() => {
+    return bookings.filter(b => {
+      const dateMatch = isDateInRange(b.date);
+      const barberMatch = barberFilter === 'all' || b.barberId === barberFilter;
+      return dateMatch && barberMatch;
+    });
+  }, [bookings, dateFilter, customDateRange, barberFilter]);
+
+  const filteredSales = useMemo(() => {
+    return sales.filter(s => {
+      const dateMatch = isDateInRange(s.date);
+      const barberMatch = barberFilter === 'all' || s.sellerId === barberFilter;
+      return dateMatch && barberMatch;
+    });
+  }, [sales, dateFilter, customDateRange, barberFilter]);
+
+  const filteredAttendance = useMemo(() => {
+    return (attendance || []).filter(a => {
+      const dateMatch = isDateInRange(a.date);
+      const barberMatch = barberFilter === 'all' || a.barberId === barberFilter;
+      return dateMatch && barberMatch;
+    });
+  }, [attendance, dateFilter, customDateRange, barberFilter]);
+
+  const filteredSettlements = useMemo(() => {
+    return (settlements || []).filter(s => {
+      const dateMatch = isDateInRange(s.date);
+      const barberMatch = barberFilter === 'all' || s.barberId === barberFilter;
+      return dateMatch && barberMatch;
+    });
+  }, [settlements, dateFilter, customDateRange, barberFilter]);
 
   const approvedBookings = filteredBookings.filter(b => b.status === 'completed' || b.status === 'approved');
 
@@ -252,6 +292,7 @@ export default function AdminDashboard() {
           <div className="hidden md:block lg:col-span-1 space-y-2">
             {[
               { id: 'dashboard', icon: LayoutDashboard, label: 'Tableau de bord' },
+              { id: 'attendance', icon: Clock, label: 'Pointage' },
               { id: 'bookings', icon: Calendar, label: 'Réservations' },
               { id: 'reports', icon: TrendingUp, label: 'Rapports' },
               { id: 'barbers', icon: Users, label: 'Coiffeurs' },
@@ -504,117 +545,171 @@ export default function AdminDashboard() {
             {activeTab === 'reports' && (
               <div className="space-y-6">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <h2 className="text-3xl font-bold text-white">Rapports & Analytiques</h2>
-                  {renderDateFilterSelector()}
-                </div>
-
-                <div className="grid md:grid-cols-3 gap-6 mb-6">
-                  <div className="bg-gradient-to-br from-[#141414] to-[#1a1a1a] rounded-2xl border border-[#D4AF37]/20 p-6">
-                    <p className="text-white/60 mb-2">Chiffre d'affaires Boutique</p>
-                    <p className="text-3xl font-bold text-green-400">
-                      €{filteredSales.reduce((sum, s) => sum + s.sellPrice * s.quantity, 0).toFixed(2)}
-                    </p>
+                  <div>
+                    <h2 className="text-3xl font-bold text-white">Rapports Avancés</h2>
+                    <p className="text-white/60">Analyse détaillée des performances et de la finance.</p>
                   </div>
-                  <div className="bg-gradient-to-br from-[#141414] to-[#1a1a1a] rounded-2xl border border-[#D4AF37]/20 p-6">
-                    <p className="text-white/60 mb-2">Coût d'achat Total</p>
-                    <p className="text-3xl font-bold text-red-400">
-                      €{filteredSales.reduce((sum, s) => sum + s.buyPrice * s.quantity, 0).toFixed(2)}
-                    </p>
-                  </div>
-                  <div className="bg-gradient-to-br from-[#141414] to-[#1a1a1a] rounded-2xl border border-[#D4AF37]/20 p-6">
-                    <p className="text-white/60 mb-2">Bénéfice Net Boutique</p>
-                    <p className="text-3xl font-bold text-[#D4AF37]">
-                      €{filteredSales.reduce((sum, s) => sum + (s.sellPrice - s.buyPrice) * s.quantity, 0).toFixed(2)}
-                    </p>
-                  </div>
-                </div>
-
-                <h3 className="text-2xl font-bold text-white mt-8 mb-4">Ventes Boutique</h3>
-                <div className="bg-gradient-to-br from-[#141414] to-[#1a1a1a] rounded-2xl border border-[#D4AF37]/20 p-6 overflow-x-auto">
-                  <table className="w-full text-left text-white">
-                    <thead>
-                      <tr className="border-b border-[#D4AF37]/20">
-                        <th className="pb-4 opacity-70 font-medium">Date</th>
-                        <th className="pb-4 opacity-70 font-medium">Produit</th>
-                        <th className="pb-4 opacity-70 font-medium">Vendeur</th>
-                        <th className="pb-4 opacity-70 font-medium">Qté</th>
-                        <th className="pb-4 opacity-70 font-medium">Profit</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredSales.map((sale) => (
-                        <tr key={sale.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
-                          <td className="py-4">
-                            <div>{sale.date}</div>
-                            <div className="text-sm opacity-60">{sale.time}</div>
-                          </td>
-                          <td className="py-4 text-[#D4AF37]">{products.find(p => p.id === sale.productId)?.name || 'Produit Inconnu'}</td>
-                          <td className="py-4">{sale.sellerId === 'admin' ? 'Admin' : (barbers.find(b => b.id === sale.sellerId)?.name || 'Inconnu')}</td>
-                          <td className="py-4">{sale.quantity}</td>
-                          <td className="py-4 text-green-400 font-bold">+€{((sale.sellPrice - sale.buyPrice) * sale.quantity).toFixed(2)}</td>
-                        </tr>
+                  <div className="flex flex-wrap gap-4">
+                    <select 
+                      value={barberFilter}
+                      onChange={(e) => setBarberFilter(e.target.value)}
+                      className="px-4 py-2 bg-[#141414] border border-[#D4AF37]/20 rounded-lg text-white"
+                    >
+                      <option value="all">Tous les Coiffeurs</option>
+                      {barbers.map(b => (
+                        <option key={b.id} value={b.id}>{b.name}</option>
                       ))}
-                      {sales.length === 0 && (
-                        <tr>
-                          <td colSpan={5} className="py-8 text-center opacity-50">Aucune vente enregistrée.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
+                    </select>
+                    {renderDateFilterSelector()}
+                  </div>
                 </div>
 
-                <h3 className="text-2xl font-bold text-white mt-8 mb-4">Historique des Réservations</h3>
-                <div className="bg-gradient-to-br from-[#141414] to-[#1a1a1a] rounded-2xl border border-[#D4AF37]/20 p-6 overflow-x-auto">
+                <div className="grid md:grid-cols-4 gap-6">
+                  <div className="bg-[#141414] rounded-2xl border border-[#D4AF37]/20 p-6">
+                    <p className="text-white/60 text-xs mb-1 uppercase">Revenu Global</p>
+                    <p className="text-2xl font-bold text-white">€{(
+                      filteredBookings.reduce((sum, b) => sum + (b.pricePaid || 0), 0) + 
+                      filteredSales.reduce((sum, s) => sum + s.sellPrice * s.quantity, 0)
+                    ).toFixed(2)}</p>
+                  </div>
+                  <div className="bg-[#141414] rounded-2xl border border-[#D4AF37]/20 p-6">
+                    <p className="text-white/60 text-xs mb-1 uppercase">Commissions Coiffeurs</p>
+                    <p className="text-2xl font-bold text-[#D4AF37]">€{
+                      filteredSettlements.reduce((sum, s) => sum + s.earnings, 0).toFixed(2)
+                    }</p>
+                  </div>
+                  <div className="bg-[#141414] rounded-2xl border border-red-500/20 p-6">
+                    <p className="text-white/60 text-xs mb-1 uppercase">Soldes Impayés</p>
+                    <p className="text-2xl font-bold text-red-400">€{
+                      filteredSettlements.reduce((sum, s) => sum + s.balance, 0).toFixed(2)
+                    }</p>
+                  </div>
+                  <div className="bg-[#141414] rounded-2xl border border-green-500/20 p-6">
+                    <p className="text-white/60 text-xs mb-1 uppercase">Taux Ponctualité</p>
+                    <p className="text-2xl font-bold text-green-400">
+                      {filteredAttendance.length > 0 
+                        ? Math.round((filteredAttendance.filter(a => a.status === 'on-time').length / filteredAttendance.length) * 100) 
+                        : 100}%
+                    </p>
+                  </div>
+                </div>
 
-                  <table className="w-full text-left text-white">
-                    <thead>
-                      <tr className="border-b border-[#D4AF37]/20">
-                        <th className="pb-4 opacity-70 font-medium">Client</th>
-                        <th className="pb-4 opacity-70 font-medium">Service</th>
-                        <th className="pb-4 opacity-70 font-medium">Coiffeur</th>
-                        <th className="pb-4 opacity-70 font-medium">Date & Heure</th>
-                        <th className="pb-4 opacity-70 font-medium">Statut</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {bookings.map((booking) => (
-                        <tr key={booking.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
-                          <td className="py-4">
-                            <div className="font-bold">{booking.clientName}</div>
-                            <div className="text-sm opacity-60">{booking.clientPhone}</div>
-                          </td>
-                          <td className="py-4 text-[#D4AF37]">{services.find(s => s.id === booking.serviceId)?.name || 'N/A'}</td>
-                          <td className="py-4">{booking.barberId === 'any' ? 'N\'importe quel coiffeur' : (barbers.find(b => b.id === booking.barberId)?.name || 'N/A')}</td>
-                          <td className="py-4">
-                            <div>{booking.date}</div>
-                            <div className="text-sm opacity-60">{booking.time}</div>
-                          </td>
-                          <td className="py-4 flex items-center justify-between">
-                            <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                              booking.status === 'approved' ? 'bg-green-500/20 text-green-400' :
-                              booking.status === 'rejected' ? 'bg-red-500/20 text-red-400' :
-                              'bg-yellow-500/20 text-yellow-400'
-                            }`}>
-                              {booking.status === 'approved' ? 'Approuvée' : booking.status === 'rejected' ? 'Rejetée' : 'En attente'}
-                            </span>
-                            <button 
-                              onClick={() => {
-                                if (confirm('Supprimer de l\'historique ?')) deleteBooking(booking.id);
-                              }}
-                              className="p-2 hover:bg-white/10 rounded-lg transition-colors ml-4"
-                            >
-                              <Trash2 className="w-4 h-4 text-red-500" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                      {bookings.length === 0 && (
-                        <tr>
-                          <td colSpan={5} className="py-8 text-center opacity-50">Aucun historique de réservation.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
+                <div className="grid lg:grid-cols-2 gap-6">
+                  {/* Financial History */}
+                  <div className="bg-[#141414] rounded-2xl border border-[#D4AF37]/20 p-6">
+                    <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+                      <Wallet className="w-5 h-5 text-[#D4AF37]" />
+                      Clôtures de caisse (Barbiers)
+                    </h3>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left">
+                        <thead className="text-white/40 text-xs border-b border-white/10">
+                          <tr>
+                            <th className="pb-2">Date</th>
+                            <th className="pb-2">Barbier</th>
+                            <th className="pb-2">Gagné</th>
+                            <th className="pb-2">Dû</th>
+                            <th className="pb-2">Statut</th>
+                          </tr>
+                        </thead>
+                        <tbody className="text-white/80 text-sm">
+                          {filteredSettlements.map(s => (
+                            <tr key={s.id} className="border-b border-white/5">
+                              <td className="py-3">{s.date}</td>
+                              <td className="py-3 font-bold">{barbers.find(b => b.id === s.barberId)?.name}</td>
+                              <td className="py-3">€{s.earnings.toFixed(2)}</td>
+                              <td className="py-3 text-red-400">€{s.balance.toFixed(2)}</td>
+                              <td className="py-3">
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] ${s.status === 'settled' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                                  {s.status === 'settled' ? 'RÉGLÉ' : 'DÛ'}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                          {filteredSettlements.length === 0 && (
+                            <tr><td colSpan={5} className="py-8 text-center opacity-40 italic">Aucune clôture enregistrée.</td></tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Attendance Intelligence */}
+                  <div className="bg-[#141414] rounded-2xl border border-[#D4AF37]/20 p-6">
+                    <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+                      <Clock className="w-5 h-5 text-[#D4AF37]" />
+                      Retards & Présences
+                    </h3>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left">
+                        <thead className="text-white/40 text-xs border-b border-white/10">
+                          <tr>
+                            <th className="pb-2">Date</th>
+                            <th className="pb-2">Barbier</th>
+                            <th className="pb-2">Arrivée</th>
+                            <th className="pb-2">Statut</th>
+                          </tr>
+                        </thead>
+                        <tbody className="text-white/80 text-sm">
+                          {filteredAttendance.map(a => (
+                            <tr key={a.id} className="border-b border-white/5">
+                              <td className="py-3">{a.date}</td>
+                              <td className="py-3 font-bold">{barbers.find(b => b.id === a.barberId)?.name}</td>
+                              <td className="py-3">{a.checkInTime}</td>
+                              <td className="py-3">
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] ${a.status === 'on-time' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                                  {a.status === 'on-time' ? 'À l\'heure' : 'En retard'}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                          {filteredAttendance.length === 0 && (
+                            <tr><td colSpan={4} className="py-8 text-center opacity-40 italic">Aucun pointage enregistré.</td></tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Performance Charts */}
+                <div className="grid lg:grid-cols-2 gap-6">
+                  <div className="bg-[#141414] rounded-2xl border border-[#D4AF37]/20 p-6">
+                    <h3 className="text-xl font-bold text-white mb-6">Chiffre d'affaires (Services)</h3>
+                    <ResponsiveContainer width="100%" height={250}>
+                      <LineChart data={filteredBookings.reduce((acc: any[], b) => {
+                        const day = b.date.split('-')[2];
+                        const existing = acc.find(x => x.day === day);
+                        if (existing) existing.revenue += (b.pricePaid || 0);
+                        else acc.push({ day, revenue: (b.pricePaid || 0) });
+                        return acc;
+                      }, []).sort((a, b) => parseInt(a.day) - parseInt(b.day))}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#262626" />
+                        <XAxis dataKey="day" stroke="#a3a3a3" />
+                        <YAxis stroke="#a3a3a3" />
+                        <Tooltip contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid rgba(212, 175, 55, 0.2)', borderRadius: '8px' }} />
+                        <Line type="monotone" dataKey="revenue" stroke="#D4AF37" strokeWidth={3} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="bg-[#141414] rounded-2xl border border-[#D4AF37]/20 p-6">
+                    <h3 className="text-xl font-bold text-white mb-6">Ventes Produits</h3>
+                    <ResponsiveContainer width="100%" height={250}>
+                      <BarChart data={filteredSales.reduce((acc: any[], s) => {
+                        const day = s.date.split('-')[2];
+                        const existing = acc.find(x => x.day === day);
+                        if (existing) existing.sales += (s.sellPrice * s.quantity);
+                        else acc.push({ day, sales: (s.sellPrice * s.quantity) });
+                        return acc;
+                      }, []).sort((a, b) => parseInt(a.day) - parseInt(b.day))}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#262626" />
+                        <XAxis dataKey="day" stroke="#a3a3a3" />
+                        <YAxis stroke="#a3a3a3" />
+                        <Tooltip contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid rgba(212, 175, 55, 0.2)', borderRadius: '8px' }} />
+                        <Bar dataKey="sales" fill="#D4AF37" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
                 </div>
               </div>
             )}
@@ -699,81 +794,147 @@ export default function AdminDashboard() {
               </div>
             )}
 
-
             {activeTab === 'barbers' && (
               <div className="space-y-6">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-3xl font-bold text-white">Gestion des Coiffeurs</h2>
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div>
+                    <h2 className="text-3xl font-bold text-white">Gestion des Coiffeurs</h2>
+                    <p className="text-white/60">Gérez les comptes, les commissions et les soldes.</p>
+                  </div>
                   <button 
                     onClick={() => {
-                      const name = prompt('Nom du Coiffeur');
-                      const specialty = prompt('Spécialité');
-                      if (name && specialty) {
-                        addBarber({ 
-                          name, 
-                          specialty, 
-                          experience: 'Nouveau', 
-                          rating: 5.0, 
-                          image: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&h=300&fit=crop' 
+                      const name = prompt('Nom complet');
+                      const username = prompt('Nom d\'utilisateur');
+                      const password = prompt('Mot de passe');
+                      if (name && username && password) {
+                        addBarber({
+                          name,
+                          specialty: 'Coiffeur Senior',
+                          experience: '5 ans',
+                          rating: 5,
+                          image: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&h=300&fit=crop',
+                          username,
+                          password,
+                          station: (barbers.length + 1).toString(),
+                          commission: 50,
+                          archived: false
                         });
-                        toast.success('Coiffeur ajouté !');
+                        toast.success('Compte coiffeur créé !');
                       }
                     }}
                     className="px-6 py-2 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black rounded-lg hover:shadow-lg hover:shadow-[#D4AF37]/50 transition-all font-bold flex items-center gap-2"
                   >
                     <Plus className="w-4 h-4" />
-                    Ajouter un Coiffeur
+                    Nouveau Coiffeur
                   </button>
                 </div>
 
-                <div className="grid md:grid-cols-2 gap-4">
-                  {barbers.map((barber) => (
-                    <motion.div
-                      key={barber.id}
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      className="bg-gradient-to-br from-[#141414] to-[#1a1a1a] rounded-2xl border border-[#D4AF37]/20 p-6"
-                    >
-                      <div className="flex items-center gap-4">
-                        <img src={barber.image} alt={barber.name} className="w-20 h-20 rounded-full object-cover border-2 border-[#D4AF37]/30" />
-                        <div className="flex-1">
-                          <h3 className="text-xl font-bold text-white">{barber.name}</h3>
-                          <p className="text-[#D4AF37]">{barber.specialty}</p>
-                          <div className="flex items-center gap-4 mt-2 text-sm text-white/40">
-                            <span>{barber.experience}</span>
-                            <span className="flex items-center gap-1">
-                              <Star className="w-3 h-3 fill-current text-[#FFD700]" />
-                              {barber.rating}
-                            </span>
+                <div className="grid lg:grid-cols-2 gap-6">
+                  {barbers.map((barber) => {
+                    const balance = (settlements || [])
+                      .filter(s => s.barberId === barber.id)
+                      .reduce((sum, s) => sum + s.balance, 0);
+                    
+                    return (
+                      <motion.div
+                        key={barber.id}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className={`bg-gradient-to-br from-[#141414] to-[#1a1a1a] rounded-2xl border ${barber.archived ? 'border-red-500/20 grayscale' : 'border-[#D4AF37]/20'} p-6`}
+                      >
+                        <div className="flex items-start gap-4">
+                          <img src={barber.image} alt={barber.name} className="w-20 h-20 rounded-xl object-cover border border-[#D4AF37]/20" />
+                          <div className="flex-1">
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <h3 className="text-xl font-bold text-white">{barber.name}</h3>
+                                <p className="text-[#D4AF37] text-sm">{barber.specialty}</p>
+                              </div>
+                              <span className={`px-2 py-1 rounded-full text-[10px] font-bold ${barber.archived ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}`}>
+                                {barber.archived ? 'ARCHIVÉ' : 'ACTIF'}
+                              </span>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-4 mt-4">
+                              <div className="space-y-1">
+                                <p className="text-white/40 text-xs flex items-center gap-1"><Mail className="w-3 h-3" /> Email</p>
+                                <p className="text-white text-sm truncate">{barber.email || barber.username + '@shop.com'}</p>
+                              </div>
+                              <div className="space-y-1">
+                                <p className="text-white/40 text-xs flex items-center gap-1"><Lock className="w-3 h-3" /> Login</p>
+                                <p className="text-white text-sm">{barber.username}</p>
+                              </div>
+                            </div>
                           </div>
                         </div>
-                        <div className="flex gap-2">
+
+                        <div className="mt-6 grid grid-cols-3 gap-4 pt-6 border-t border-white/5">
+                          <div>
+                            <p className="text-white/40 text-[10px] uppercase">Commission</p>
+                            <p className="text-white font-bold">{barber.commission || 50}%</p>
+                          </div>
+                          <div>
+                            <p className="text-white/40 text-[10px] uppercase">Station</p>
+                            <p className="text-white font-bold">{barber.station || 'N/A'}</p>
+                          </div>
+                          <div>
+                            <p className="text-white/40 text-[10px] uppercase">Balance</p>
+                            <p className={`font-bold ${balance > 0 ? 'text-red-400' : 'text-green-400'}`}>€{balance.toFixed(2)}</p>
+                          </div>
+                        </div>
+
+                        <div className="mt-6 flex gap-2">
                           <button 
                             onClick={() => {
-                              const newName = prompt('Nouveau nom', barber.name);
-                              const newSpecialty = prompt('Nouvelle spécialité', barber.specialty);
-                              const newImage = prompt('Nouvelle URL d\'image', barber.image);
-                              if (newName && newSpecialty) {
-                                updateBarber(barber.id, { name: newName, specialty: newSpecialty, image: newImage || barber.image });
-                                toast.success('Coiffeur modifié !');
+                              const newName = prompt('Nom complet', barber.name);
+                              const newComm = prompt('Commission (%)', (barber.commission || 50).toString());
+                              if (newName) {
+                                updateBarber(barber.id, { 
+                                  name: newName, 
+                                  commission: parseInt(newComm || '50') 
+                                });
+                                toast.success('Profil mis à jour');
                               }
                             }}
-                            className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+                            className="flex-1 py-2 bg-white/5 text-white rounded-lg hover:bg-white/10 transition-all flex justify-center items-center gap-2 text-sm"
                           >
-                            <Edit className="w-5 h-5 text-[#D4AF37]" />
+                            <Edit className="w-4 h-4 text-[#D4AF37]" /> Modifier
                           </button>
+                          
                           <button 
                             onClick={() => {
-                              if (confirm('Supprimer ce coiffeur ?')) deleteBarber(barber.id);
+                              if (confirm('Réinitialiser la balance à 0€ ?')) resetBarberBalance(barber.id);
                             }}
-                            className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+                            className="flex-1 py-2 bg-white/5 text-white rounded-lg hover:bg-white/10 transition-all flex justify-center items-center gap-2 text-sm"
+                            title="Réinitialiser Balance"
                           >
-                            <Trash2 className="w-5 h-5 text-red-500" />
+                            <Wallet className="w-4 h-4 text-green-400" /> Solde
+                          </button>
+
+                          <button 
+                            onClick={() => {
+                              updateBarber(barber.id, { archived: !barber.archived });
+                              toast.info(barber.archived ? 'Coiffeur réactivé' : 'Coiffeur archivé');
+                            }}
+                            className={`p-2 rounded-lg transition-all ${barber.archived ? 'bg-green-500/10 text-green-400' : 'bg-white/5 text-red-400'}`}
+                            title={barber.archived ? "Désarchiver" : "Archiver"}
+                          >
+                            <Archive className="w-5 h-5" />
+                          </button>
+
+                          <button 
+                            onClick={() => {
+                              if (confirm('Supprimer définitivement ce compte ?')) deleteBarber(barber.id);
+                            }}
+                            className="p-2 bg-white/5 text-red-500 rounded-lg hover:bg-red-500/20 transition-all"
+                            title="Supprimer"
+                          >
+                            <Trash2 className="w-5 h-5" />
                           </button>
                         </div>
-                      </div>
-                    </motion.div>
-                  ))}
+                      </motion.div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -935,6 +1096,137 @@ export default function AdminDashboard() {
               </div>
             )}
 
+            {activeTab === 'attendance' && (
+              <div className="space-y-6">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <h2 className="text-3xl font-bold text-white">Pointage & Présence</h2>
+                  <div className="flex bg-[#141414] rounded-lg p-1 border border-[#D4AF37]/20">
+                    <button className="px-4 py-2 text-sm bg-[#D4AF37] text-black font-bold rounded-md">Aujourd'hui</button>
+                    <button className="px-4 py-2 text-sm text-white/60 hover:text-white">Historique</button>
+                  </div>
+                </div>
+
+                <div className="grid md:grid-cols-3 gap-6 mb-6">
+                  <div className="bg-[#141414] rounded-2xl border border-[#D4AF37]/20 p-6">
+                    <p className="text-white/60 text-sm mb-1">Présence Totale</p>
+                    <p className="text-3xl font-bold text-white">
+                      {(attendance || []).filter(a => a.date === new Date().toISOString().split('T')[0]).length} / {barbers.length}
+                    </p>
+                  </div>
+                  <div className="bg-[#141414] rounded-2xl border border-[#D4AF37]/20 p-6">
+                    <p className="text-white/60 text-sm mb-1">Retards aujourd'hui</p>
+                    <p className="text-3xl font-bold text-red-400">
+                      {(attendance || []).filter(a => a.date === new Date().toISOString().split('T')[0] && a.status === 'late').length}
+                    </p>
+                  </div>
+                  <div className="bg-[#141414] rounded-2xl border border-[#D4AF37]/20 p-6">
+                    <p className="text-white/60 text-sm mb-1">Taux de ponctualité</p>
+                    <p className="text-3xl font-bold text-green-400">
+                      {(attendance || []).length > 0 
+                        ? Math.round(((attendance || []).filter(a => a.status === 'on-time').length / (attendance || []).length) * 100) 
+                        : 100}%
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid lg:grid-cols-3 gap-6">
+                  {/* Left: Live Feed */}
+                  <div className="lg:col-span-2 space-y-6">
+                    <div className="bg-[#141414] rounded-2xl border border-[#D4AF37]/20 p-6 overflow-hidden">
+                      <h3 className="text-xl font-bold text-white mb-4">Présences du jour</h3>
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead>
+                            <tr className="text-left text-white/40 border-b border-white/10">
+                              <th className="pb-4 font-medium">Barbier</th>
+                              <th className="pb-4 font-medium">Station</th>
+                              <th className="pb-4 font-medium">Arrivée</th>
+                              <th className="pb-4 font-medium">Statut</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-white/5">
+                            {(attendance || [])
+                              .filter(a => a.date === new Date().toISOString().split('T')[0])
+                              .map((record) => {
+                                const barber = barbers.find(b => b.id === record.barberId);
+                                return (
+                                  <tr key={record.id} className="text-white">
+                                    <td className="py-4">
+                                      <div className="flex items-center gap-3">
+                                        <img src={barber?.image} alt="" className="w-8 h-8 rounded-full object-cover" />
+                                        <span>{barber?.name}</span>
+                                      </div>
+                                    </td>
+                                    <td className="py-4">{record.station}</td>
+                                    <td className="py-4">{record.checkInTime}</td>
+                                    <td className="py-4">
+                                      <span className={`px-2 py-1 rounded-full text-xs font-bold ${
+                                        record.status === 'on-time' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+                                      }`}>
+                                        {record.status === 'on-time' ? 'À l\'heure' : 'En retard'}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                             {(attendance || []).filter(a => a.date === new Date().toISOString().split('T')[0]).length === 0 && (
+                              <tr>
+                                <td colSpan={4} className="py-8 text-center text-white/40 italic">
+                                  Aucun pointage enregistré pour le moment.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right: QR Code Generation */}
+                  <div className="space-y-6">
+                    <div className="bg-gradient-to-br from-[#1a1a1a] to-[#0f0f0f] rounded-2xl border border-[#D4AF37]/30 p-6 shadow-2xl">
+                      <h3 className="text-xl font-bold text-[#D4AF37] mb-4">Générer QR Codes</h3>
+                      <p className="text-white/60 text-sm mb-6">
+                        Imprimez ces codes et placez-les sur chaque station de travail.
+                      </p>
+                      
+                      <div className="space-y-4">
+                        {barbers.map(barber => (
+                          <div key={barber.id} className="p-4 bg-white/5 rounded-xl border border-white/10 hover:border-[#D4AF37]/40 transition-all">
+                            <div className="flex items-center justify-between mb-4">
+                              <div>
+                                <p className="text-white font-bold">{barber.name}</p>
+                                <p className="text-white/40 text-xs">Station {barber.station || 'N/A'}</p>
+                              </div>
+                              <button 
+                                onClick={() => window.print()} 
+                                className="p-2 bg-[#D4AF37]/10 text-[#D4AF37] rounded-lg hover:bg-[#D4AF37]/20"
+                                title="Imprimer"
+                              >
+                                <ImageIcon className="w-4 h-4" />
+                              </button>
+                            </div>
+                            <div className="flex justify-center bg-white p-3 rounded-lg">
+                              <QRCodeCanvas 
+                                value={JSON.stringify({ 
+                                  barberId: barber.id, 
+                                  station: barber.station,
+                                  type: 'check-in'
+                                })}
+                                size={120}
+                                level="H"
+                                includeMargin={true}
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {activeTab === 'settings' && (
               <div className="space-y-6">
                 <h2 className="text-3xl font-bold text-white">Paramètres de l'entreprise</h2>
@@ -1051,6 +1343,43 @@ export default function AdminDashboard() {
                     </button>
                   </form>
                 </motion.div>
+
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-red-500/10 border border-red-500/30 rounded-2xl p-6"
+                >
+                  <h3 className="text-xl font-bold text-red-500 mb-2 flex items-center gap-2">
+                    <Trash2 className="w-5 h-5" />
+                    Actions de Danger
+                  </h3>
+                  <p className="text-white/60 text-sm mb-6">Ces actions sont irréversibles. Soyez prudent.</p>
+                  <div className="flex flex-wrap gap-4">
+                    <button
+                      onClick={() => {
+                        if (confirm('ATTENTION: Voulez-vous vraiment réinitialiser TOUTES les balances de TOUS les coiffeurs à 0€ ?')) {
+                          barbers.forEach(b => resetBarberBalance(b.id));
+                          toast.error('Toutes les balances ont été réinitialisées.');
+                        }
+                      }}
+                      className="px-6 py-3 bg-red-600/20 border border-red-500/50 hover:bg-red-600 text-white font-bold rounded-xl transition-all active:scale-95 flex items-center gap-2"
+                    >
+                      Réinitialiser les balances
+                    </button>
+
+                    <button
+                      onClick={async () => {
+                        if (confirm('Voulez-vous remplir la base de données avec les données par défaut (Services, Coiffeurs, Produits) ?')) {
+                          await seedDatabase();
+                          toast.success('Base de données initialisée !');
+                        }
+                      }}
+                      className="px-6 py-3 bg-[#D4AF37]/20 border border-[#D4AF37]/50 hover:bg-[#D4AF37] hover:text-black text-[#D4AF37] font-bold rounded-xl transition-all active:scale-95 flex items-center gap-2"
+                    >
+                      Initialiser avec les données par défaut
+                    </button>
+                  </div>
+                </motion.div>
               </div>
             )}
           </div>
@@ -1061,6 +1390,7 @@ export default function AdminDashboard() {
       <div className="md:hidden fixed bottom-0 left-0 right-0 bg-[#0f0f0f] border-t border-[#D4AF37]/20 flex overflow-x-auto snap-x snap-mandatory scrollbar-hide z-40">
         {[
           { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+          { id: 'attendance', icon: Clock, label: 'Pointage' },
           { id: 'bookings', icon: Calendar, label: 'Réservations' },
           { id: 'reports', icon: TrendingUp, label: 'Rapports' },
           { id: 'boutique', icon: ShoppingBag, label: 'Boutique' },

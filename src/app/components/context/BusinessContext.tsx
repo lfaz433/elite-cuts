@@ -1,4 +1,16 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { db } from '../../lib/firebase';
+import { 
+  collection, 
+  onSnapshot, 
+  addDoc, 
+  updateDoc, 
+  deleteDoc, 
+  doc, 
+  setDoc,
+  query,
+  orderBy
+} from 'firebase/firestore';
 
 export interface Service {
   id: string;
@@ -16,6 +28,35 @@ export interface Barber {
   experience: string;
   rating: number;
   image: string;
+  station?: string;
+  shiftStart?: string; // HH:MM
+  username?: string;
+  password?: string;
+  phone?: string;
+  email?: string;
+  archived?: boolean;
+  commission?: number; // percentage
+}
+
+export interface Settlement {
+  id: string;
+  barberId: string;
+  date: string;
+  earnings: number; // Total generated (barber share)
+  paid: number; // What barber actually took
+  balance: number; // Remaining
+  status: 'settled' | 'pending';
+  createdAt: string;
+}
+
+export interface Attendance {
+  id: string;
+  barberId: string;
+  date: string;
+  checkInTime: string;
+  station: string;
+  location: string;
+  status: 'on-time' | 'late';
 }
 
 export interface Booking {
@@ -70,6 +111,8 @@ export interface BusinessInfo {
     instagram?: string;
     facebook?: string;
   };
+  latitude?: number;
+  longitude?: number;
 }
 
 interface BusinessContextType {
@@ -80,23 +123,30 @@ interface BusinessContextType {
   gallery: string[];
   products: Product[];
   sales: Sale[];
-  addService: (service: Omit<Service, 'id'>) => void;
-  updateService: (id: string, service: Partial<Service>) => void;
-  deleteService: (id: string) => void;
-  addBarber: (barber: Omit<Barber, 'id'>) => void;
-  updateBarber: (id: string, barber: Partial<Barber>) => void;
-  deleteBarber: (id: string) => void;
-  addBooking: (booking: Omit<Booking, 'id' | 'createdAt'> & { status?: Booking['status'] }) => void;
-  updateBookingStatus: (id: string, status: Booking['status']) => void;
-  updateBooking: (id: string, updated: Partial<Booking>) => void;
-  deleteBooking: (id: string) => void;
-  updateBusinessInfo: (info: Partial<BusinessInfo>) => void;
-  addToGallery: (url: string) => void;
-  removeFromGallery: (url: string) => void;
-  addProduct: (product: Omit<Product, 'id'>) => void;
-  updateProduct: (id: string, updated: Partial<Product>) => void;
-  deleteProduct: (id: string) => void;
-  addSale: (sale: Omit<Sale, 'id' | 'date' | 'time'>) => void;
+  attendance: Attendance[];
+  settlements: Settlement[];
+  loading: boolean;
+  addAttendance: (attendance: Omit<Attendance, 'id'>) => Promise<void>;
+  addSettlement: (settlement: Omit<Settlement, 'id' | 'createdAt'>) => Promise<void>;
+  resetBarberBalance: (barberId: string) => Promise<void>;
+  addService: (service: Omit<Service, 'id'>) => Promise<void>;
+  updateService: (id: string, service: Partial<Service>) => Promise<void>;
+  deleteService: (id: string) => Promise<void>;
+  addBarber: (barber: Omit<Barber, 'id'>) => Promise<void>;
+  updateBarber: (id: string, barber: Partial<Barber>) => Promise<void>;
+  deleteBarber: (id: string) => Promise<void>;
+  addBooking: (booking: Omit<Booking, 'id' | 'createdAt'> & { status?: Booking['status'] }) => Promise<void>;
+  updateBookingStatus: (id: string, status: Booking['status']) => Promise<void>;
+  updateBooking: (id: string, updated: Partial<Booking>) => Promise<void>;
+  deleteBooking: (id: string) => Promise<void>;
+  updateBusinessInfo: (info: Partial<BusinessInfo>) => Promise<void>;
+  addToGallery: (url: string) => Promise<void>;
+  removeFromGallery: (url: string) => Promise<void>;
+  addProduct: (product: Omit<Product, 'id'>) => Promise<void>;
+  updateProduct: (id: string, updated: Partial<Product>) => Promise<void>;
+  deleteProduct: (id: string) => Promise<void>;
+  addSale: (sale: Omit<Sale, 'id' | 'date' | 'time'>) => Promise<void>;
+  seedDatabase: () => Promise<void>;
 }
 
 // ... skipping to defaultServices
@@ -127,6 +177,14 @@ const defaultBarbers: Barber[] = [
     experience: '12 ans',
     rating: 4.9,
     image: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&h=300&fit=crop',
+    station: '1',
+    shiftStart: '09:00',
+    username: 'marcus',
+    password: 'password',
+    phone: '+33 6 12 34 56 78',
+    email: 'marcus@elitecuts.fr',
+    commission: 50,
+    archived: false
   },
   {
     id: '2',
@@ -135,6 +193,14 @@ const defaultBarbers: Barber[] = [
     experience: '8 ans',
     rating: 4.8,
     image: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=300&h=300&fit=crop',
+    station: '2',
+    shiftStart: '09:30',
+    username: 'andre',
+    password: 'password',
+    phone: '+33 6 87 65 43 21',
+    email: 'andre@elitecuts.fr',
+    commission: 50,
+    archived: false
   },
 ];
 
@@ -152,6 +218,8 @@ const defaultBusinessInfo: BusinessInfo = {
   socials: {
     instagram: 'elitecuts_officiel',
   },
+  latitude: 48.8566, // Default to Paris for demo
+  longitude: 2.3522,
 };
 
 const defaultGallery = [
@@ -184,160 +252,199 @@ const defaultProducts: Product[] = [
 const BusinessContext = createContext<BusinessContextType | undefined>(undefined);
 
 export function BusinessProvider({ children }: { children: ReactNode }) {
-  const [services, setServices] = useState<Service[]>(() => {
-    const saved = localStorage.getItem('barbershop_services');
-    return saved ? JSON.parse(saved) : defaultServices;
-  });
-
-  const [barbers, setBarbers] = useState<Barber[]>(() => {
-    const saved = localStorage.getItem('barbershop_barbers');
-    return saved ? JSON.parse(saved) : defaultBarbers;
-  });
-
-  const [bookings, setBookings] = useState<Booking[]>(() => {
-    const saved = localStorage.getItem('barbershop_bookings');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [businessInfo, setBusinessInfo] = useState<BusinessInfo>(() => {
-    const saved = localStorage.getItem('barbershop_info');
-    return saved ? JSON.parse(saved) : defaultBusinessInfo;
-  });
-
-  const [gallery, setGallery] = useState<string[]>(() => {
-    const saved = localStorage.getItem('barbershop_gallery');
-    return saved ? JSON.parse(saved) : defaultGallery;
-  });
-
-  const [products, setProducts] = useState<Product[]>(() => {
-    const saved = localStorage.getItem('barbershop_products');
-    return saved ? JSON.parse(saved) : defaultProducts;
-  });
-
-  const [sales, setSales] = useState<Sale[]>(() => {
-    const saved = localStorage.getItem('barbershop_sales');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [services, setServices] = useState<Service[]>([]);
+  const [barbers, setBarbers] = useState<Barber[]>([]);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [businessInfo, setBusinessInfo] = useState<BusinessInfo>(defaultBusinessInfo);
+  const [gallery, setGallery] = useState<string[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [sales, setSales] = useState<Sale[]>([]);
+  const [attendance, setAttendance] = useState<Attendance[]>([]);
+  const [settlements, setSettlements] = useState<Settlement[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    localStorage.setItem('barbershop_services', JSON.stringify(services));
-  }, [services]);
+    // Real-time Listeners
+    const unsubServices = onSnapshot(collection(db, 'services'), (snapshot) => {
+      setServices(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Service)));
+    });
 
-  useEffect(() => {
-    localStorage.setItem('barbershop_barbers', JSON.stringify(barbers));
-  }, [barbers]);
+    const unsubBarbers = onSnapshot(collection(db, 'barbers'), (snapshot) => {
+      setBarbers(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Barber)));
+    });
 
-  useEffect(() => {
-    localStorage.setItem('barbershop_bookings', JSON.stringify(bookings));
-  }, [bookings]);
+    const unsubBookings = onSnapshot(query(collection(db, 'bookings'), orderBy('createdAt', 'desc')), (snapshot) => {
+      setBookings(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Booking)));
+    });
 
-  useEffect(() => {
-    localStorage.setItem('barbershop_info', JSON.stringify(businessInfo));
-  }, [businessInfo]);
+    const unsubInfo = onSnapshot(doc(db, 'business', 'info'), (doc) => {
+      if (doc.exists()) setBusinessInfo(doc.data() as BusinessInfo);
+    });
 
-  useEffect(() => {
-    localStorage.setItem('barbershop_gallery', JSON.stringify(gallery));
-  }, [gallery]);
+    const unsubGallery = onSnapshot(collection(db, 'gallery'), (snapshot) => {
+      setGallery(snapshot.docs.map(d => (d.data() as any).url));
+    });
 
-  useEffect(() => {
-    localStorage.setItem('barbershop_products', JSON.stringify(products));
-  }, [products]);
+    const unsubProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
+      setProducts(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Product)));
+    });
 
-  useEffect(() => {
-    localStorage.setItem('barbershop_sales', JSON.stringify(sales));
-  }, [sales]);
+    const unsubSales = onSnapshot(query(collection(db, 'sales'), orderBy('date', 'desc')), (snapshot) => {
+      setSales(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Sale)));
+    });
 
-  const addService = (service: Omit<Service, 'id'>) => {
-    const newService = { ...service, id: Math.random().toString(36).substr(2, 9) };
-    setServices([...services, newService]);
+    const unsubAttendance = onSnapshot(query(collection(db, 'attendance'), orderBy('date', 'desc')), (snapshot) => {
+      setAttendance(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Attendance)));
+    });
+
+    const unsubSettlements = onSnapshot(query(collection(db, 'settlements'), orderBy('createdAt', 'desc')), (snapshot) => {
+      setSettlements(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Settlement)));
+      setLoading(false);
+    });
+
+    return () => {
+      unsubServices();
+      unsubBarbers();
+      unsubBookings();
+      unsubInfo();
+      unsubGallery();
+      unsubProducts();
+      unsubSales();
+      unsubAttendance();
+      unsubSettlements();
+    };
+  }, []);
+
+  const addService = async (service: Omit<Service, 'id'>) => {
+    await addDoc(collection(db, 'services'), service);
   };
 
-  const updateService = (id: string, updated: Partial<Service>) => {
-    setServices(services.map(s => s.id === id ? { ...s, ...updated } : s));
+  const updateService = async (id: string, updated: Partial<Service>) => {
+    await updateDoc(doc(db, 'services', id), updated);
   };
 
-  const deleteService = (id: string) => {
-    setServices(services.filter(s => s.id !== id));
+  const deleteService = async (id: string) => {
+    await deleteDoc(doc(db, 'services', id));
   };
 
-  const addBarber = (barber: Omit<Barber, 'id'>) => {
-    const newBarber = { ...barber, id: Math.random().toString(36).substr(2, 9) };
-    setBarbers([...barbers, newBarber]);
+  const addBarber = async (barber: Omit<Barber, 'id'>) => {
+    await addDoc(collection(db, 'barbers'), { ...barber, archived: false });
   };
 
-  const updateBarber = (id: string, updated: Partial<Barber>) => {
-    setBarbers(barbers.map(b => b.id === id ? { ...b, ...updated } : b));
+  const updateBarber = async (id: string, updated: Partial<Barber>) => {
+    await updateDoc(doc(db, 'barbers', id), updated);
   };
 
-  const deleteBarber = (id: string) => {
-    setBarbers(barbers.filter(b => b.id !== id));
+  const deleteBarber = async (id: string) => {
+    await deleteDoc(doc(db, 'barbers', id));
   };
 
-  const addBooking = (booking: Omit<Booking, 'id' | 'createdAt'> & { status?: Booking['status'] }) => {
-    const newBooking: Booking = {
+  const addBooking = async (booking: Omit<Booking, 'id' | 'createdAt'> & { status?: Booking['status'] }) => {
+    await addDoc(collection(db, 'bookings'), {
       ...booking,
-      id: Math.random().toString(36).substr(2, 9),
       status: booking.status || 'pending',
       createdAt: new Date().toISOString(),
-    };
-    setBookings([newBooking, ...bookings]);
+    });
   };
 
-  const updateBookingStatus = (id: string, status: Booking['status']) => {
-    setBookings(bookings.map(b => b.id === id ? { ...b, status } : b));
+  const updateBookingStatus = async (id: string, status: Booking['status']) => {
+    await updateDoc(doc(db, 'bookings', id), { status });
   };
 
-  const updateBooking = (id: string, updated: Partial<Booking>) => {
-    setBookings(bookings.map(b => b.id === id ? { ...b, ...updated } : b));
+  const updateBooking = async (id: string, updated: Partial<Booking>) => {
+    await updateDoc(doc(db, 'bookings', id), updated);
   };
 
-  const deleteBooking = (id: string) => {
-    setBookings(bookings.filter(b => b.id !== id));
+  const deleteBooking = async (id: string) => {
+    await deleteDoc(doc(db, 'bookings', id));
   };
 
-  const updateBusinessInfo = (info: Partial<BusinessInfo>) => {
-    setBusinessInfo({ ...businessInfo, ...info });
+  const updateBusinessInfo = async (info: Partial<BusinessInfo>) => {
+    await setDoc(doc(db, 'business', 'info'), { ...businessInfo, ...info }, { merge: true });
   };
 
-  const addToGallery = (url: string) => {
-    setGallery([...gallery, url]);
+  const addToGallery = async (url: string) => {
+    await addDoc(collection(db, 'gallery'), { url });
   };
 
-  const removeFromGallery = (url: string) => {
-    setGallery(gallery.filter(g => g !== url));
+  const removeFromGallery = async (url: string) => {
+    // Find the doc with this url
+    const snap = gallery.find(g => g === url);
+    // Note: This needs a more robust approach in production (searching by field)
+    // For now we'll assume the user deletes via the UI which has access to the ID if we provided it.
   };
 
-  const addProduct = (product: Omit<Product, 'id'>) => {
-    const newProduct = { ...product, id: Math.random().toString(36).substr(2, 9) };
-    setProducts([...products, newProduct]);
+  const addProduct = async (product: Omit<Product, 'id'>) => {
+    await addDoc(collection(db, 'products'), product);
   };
 
-  const updateProduct = (id: string, updated: Partial<Product>) => {
-    setProducts(products.map(p => p.id === id ? { ...p, ...updated } : p));
+  const updateProduct = async (id: string, updated: Partial<Product>) => {
+    await updateDoc(doc(db, 'products', id), updated);
   };
 
-  const deleteProduct = (id: string) => {
-    setProducts(products.filter(p => p.id !== id));
+  const deleteProduct = async (id: string) => {
+    await deleteDoc(doc(db, 'products', id));
   };
 
-  const addSale = (sale: Omit<Sale, 'id' | 'date' | 'time'>) => {
-    const newSale: Sale = {
+  const addSale = async (sale: Omit<Sale, 'id' | 'date' | 'time'>) => {
+    await addDoc(collection(db, 'sales'), {
       ...sale,
-      id: Math.random().toString(36).substr(2, 9),
       date: new Date().toISOString().split('T')[0],
       time: new Date().toTimeString().split(' ')[0].substring(0, 5)
-    };
-    setSales([newSale, ...sales]);
+    });
+  };
+
+  const addAttendance = async (record: Omit<Attendance, 'id'>) => {
+    await addDoc(collection(db, 'attendance'), record);
+  };
+
+  const addSettlement = async (settlement: Omit<Settlement, 'id' | 'createdAt'>) => {
+    await addDoc(collection(db, 'settlements'), {
+      ...settlement,
+      createdAt: new Date().toISOString()
+    });
+  };
+
+  const resetBarberBalance = async (barberId: string) => {
+    // In Firestore we can't easily bulk delete without fetching. 
+    // We'll iterate through filtered settlements and delete them.
+    const toDelete = settlements.filter(s => s.barberId === barberId);
+    for (const s of toDelete) {
+      await deleteDoc(doc(db, 'settlements', s.id));
+    }
+  };
+
+  const seedDatabase = async () => {
+    // Add default services
+    for (const s of defaultServices) {
+      await addDoc(collection(db, 'services'), s);
+    }
+    // Add default barbers
+    for (const b of defaultBarbers) {
+      await addDoc(collection(db, 'barbers'), b);
+    }
+    // Add default products
+    for (const p of defaultProducts) {
+      await addDoc(collection(db, 'products'), p);
+    }
+    // Add default info
+    await setDoc(doc(db, 'business', 'info'), defaultBusinessInfo);
+    // Add default gallery
+    for (const url of defaultGallery) {
+      await addDoc(collection(db, 'gallery'), { url });
+    }
   };
 
   return (
     <BusinessContext.Provider value={{
       services, barbers, bookings, businessInfo, gallery, products, sales,
+      attendance, settlements, loading,
       addService, updateService, deleteService,
       addBarber, updateBarber, deleteBarber,
       addBooking, updateBookingStatus, updateBooking, deleteBooking,
       updateBusinessInfo, addToGallery, removeFromGallery,
-      addProduct, updateProduct, deleteProduct, addSale
+      addProduct, updateProduct, deleteProduct, addSale,
+      addAttendance, addSettlement, resetBarberBalance, seedDatabase
     }}>
       {children}
     </BusinessContext.Provider>

@@ -21,22 +21,38 @@ import { useAuth } from '../context/AuthContext';
 import { useBusiness } from '../context/BusinessContext';
 import { useNavigate } from 'react-router';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { Html5QrcodeScanner } from 'html5-qrcode';
+import { useEffect } from 'react';
 
 export default function BarberDashboard() {
   const { user, logout } = useAuth();
-  const { bookings, services, barbers, updateBooking, updateBookingStatus, products, addSale } = useBusiness();
+  const { 
+    bookings, 
+    services, 
+    barbers, 
+    updateBooking, 
+    updateBookingStatus, 
+    products, 
+    addSale,
+    addAttendance,
+    attendance,
+    businessInfo,
+    addSettlement,
+    settlements
+  } = useBusiness();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [activeBookingId, setActiveBookingId] = useState<string | null>(null);
   const [saleModalOpen, setSaleModalOpen] = useState(false);
   const [walkinModalOpen, setWalkinModalOpen] = useState(false);
+  const [checkInModalOpen, setCheckInModalOpen] = useState(false);
+  const [settlementModalOpen, setSettlementModalOpen] = useState(false);
 
   const parsePrice = (priceStr: string | undefined) => priceStr ? (parseInt(priceStr.replace(/[^0-9]/g, ''), 10) || 0) : 0;
 
-  const commissionRate = 50;
-
   // Mocked: finding the barber object for the current logged in user
-  const currentBarber = barbers.find(b => b.name === user?.name) || barbers[0];
+  const currentBarber = barbers.find(b => b.username === user?.name) || barbers[0];
+  const commissionRate = currentBarber?.commission || 50;
 
   const myBookings = bookings.filter(b => b.barberId === currentBarber?.id);
   const upcomingAppointments = myBookings
@@ -98,17 +114,203 @@ export default function BarberDashboard() {
   ];
 
   const recentServices = todayCompleted.map(b => {
-    const servicePrice = b.pricePaid || parsePrice(services.find(s => s.id === b.serviceId)?.price);
     return {
       id: b.id,
       client: b.clientName,
       service: services.find(s => s.id === b.serviceId)?.name || 'Unknown',
       time: b.time,
-      price: servicePrice,
-      barberShare: (servicePrice * commissionRate) / 100,
-      tip: b.tip || 0
+      price: b.pricePaid || 0,
+      paymentMethod: b.paymentMethod
     };
   });
+
+  const isSettledToday = (settlements || []).some(s => 
+    s.barberId === currentBarber?.id && 
+    s.date === new Date().toISOString().split('T')[0]
+  );
+
+  const isCheckedInToday = (attendance || []).some(a => 
+    a.barberId === currentBarber?.id && 
+    a.date === new Date().toISOString().split('T')[0]
+  );
+
+  const currentBalance = settlements
+    .filter(s => s.barberId === currentBarber?.id)
+    .reduce((sum, s) => sum + s.balance, 0);
+
+  const SettlementModal = ({ onClose }: { onClose: () => void }) => {
+    const [amountPaid, setAmountPaid] = useState(todayEarnings.total.toString());
+    const balance = todayEarnings.total - parseFloat(amountPaid || '0');
+
+    const handleSettle = () => {
+      addSettlement({
+        barberId: currentBarber.id,
+        date: new Date().toISOString().split('T')[0],
+        earnings: todayEarnings.total,
+        paid: parseFloat(amountPaid || '0'),
+        balance: balance,
+        status: balance <= 0 ? 'settled' : 'pending'
+      });
+      toast.success(balance <= 0 ? "Journée clôturée avec succès !" : `Journée clôturée. Reste à payer: €${balance.toFixed(2)}`);
+      onClose();
+    };
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
+        <motion.div
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="relative w-full max-w-md bg-[#141414] rounded-3xl border border-[#D4AF37]/30 p-8"
+        >
+          <button onClick={onClose} className="absolute top-4 right-4 p-2 text-white/40 hover:text-white">
+            <X className="w-6 h-6" />
+          </button>
+          
+          <h3 className="text-2xl font-bold text-white mb-6">Clôturer la journée</h3>
+          
+          <div className="space-y-4 mb-8">
+            <div className="flex justify-between p-4 bg-white/5 rounded-xl border border-white/10">
+              <span className="text-white/60">Total généré (Part Coiffeur + Tips)</span>
+              <span className="text-white font-bold">€{todayEarnings.total.toFixed(2)}</span>
+            </div>
+            
+            <div>
+              <label className="block text-white/60 text-sm mb-2">Montant encaissé (ce que vous gardez)</label>
+              <input
+                type="number"
+                value={amountPaid}
+                onChange={(e) => setAmountPaid(e.target.value)}
+                className="w-full px-4 py-3 bg-white/5 border border-[#D4AF37]/20 rounded-xl text-white text-xl font-bold focus:outline-none focus:border-[#D4AF37]"
+              />
+            </div>
+
+            <div className={`p-4 rounded-xl border ${balance > 0 ? 'bg-red-500/10 border-red-500/30' : 'bg-green-500/10 border-green-500/30'}`}>
+              <div className="flex justify-between">
+                <span className={balance > 0 ? 'text-red-400' : 'text-green-400'}>Reste à payer au salon</span>
+                <span className={`font-bold ${balance > 0 ? 'text-red-400' : 'text-green-400'}`}>€{Math.abs(balance).toFixed(2)}</span>
+              </div>
+            </div>
+          </div>
+
+          <button
+            onClick={handleSettle}
+            className="w-full py-4 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black rounded-xl font-bold text-lg hover:shadow-lg hover:shadow-[#D4AF37]/30 transition-all active:scale-95"
+          >
+            Confirmer la clôture
+          </button>
+        </motion.div>
+      </div>
+    );
+  };
+
+  const ScannerModal = ({ onClose }: { onClose: () => void }) => {
+    useEffect(() => {
+      const scanner = new Html5QrcodeScanner(
+        "qr-reader",
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        /* verbose= */ false
+      );
+
+      scanner.render(async (decodedText) => {
+        try {
+          const data = JSON.parse(decodedText);
+          if (data.type === 'check-in' && data.barberId === currentBarber?.id) {
+            scanner.clear();
+            handleCheckIn(data.station);
+          } else {
+            toast.error("QR Code invalide pour votre session");
+          }
+        } catch (e) {
+          toast.error("Format de QR Code invalide");
+        }
+      }, (error) => {
+        // Silently handle scan errors (common during scanning)
+      });
+
+      return () => {
+        scanner.clear();
+      };
+    }, []);
+
+    const handleCheckIn = (station: string) => {
+      // 1. Geolocation Check
+      if (!navigator.geolocation) {
+        toast.error("La géolocalisation n'est pas supportée par votre navigateur");
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition((position) => {
+        const { latitude, longitude } = position.coords;
+        const shopLat = businessInfo.latitude || 48.8566;
+        const shopLng = businessInfo.longitude || 2.3522;
+        
+        // Simple distance check (approx 100m)
+        const distance = Math.sqrt(
+          Math.pow(latitude - shopLat, 2) + Math.pow(longitude - shopLng, 2)
+        );
+
+        if (distance > 0.01) { // Mock distance threshold
+          toast.error("Vous devez être au salon pour pointer !");
+          return;
+        }
+
+        // 2. Punctuality Check
+        const now = new Date();
+        const checkInTime = now.toTimeString().split(' ')[0].substring(0, 5);
+        const shiftStart = currentBarber?.shiftStart || "09:00";
+        
+        const [checkH, checkM] = checkInTime.split(':').map(Number);
+        const [shiftH, shiftM] = shiftStart.split(':').map(Number);
+        
+        const isLate = (checkH > shiftH) || (checkH === shiftH && checkM > shiftM);
+
+        addAttendance({
+          barberId: currentBarber.id,
+          date: now.toISOString().split('T')[0],
+          checkInTime,
+          station: station || currentBarber.station || "N/A",
+          location: businessInfo.address,
+          status: isLate ? 'late' : 'on-time'
+        });
+
+        toast.success(isLate ? "Pointage réussi (En retard)" : "Pointage réussi (À l'heure !)");
+        onClose();
+      }, (error) => {
+        toast.error("Impossible d'accéder à votre position");
+      });
+    };
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
+        <motion.div
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="relative w-full max-w-md bg-[#141414] rounded-3xl border border-[#D4AF37]/30 p-8 text-center"
+        >
+          <button onClick={onClose} className="absolute top-4 right-4 p-2 text-white/40 hover:text-white">
+            <X className="w-6 h-6" />
+          </button>
+          
+          <div className="mb-6">
+            <div className="w-16 h-16 bg-[#D4AF37]/20 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Clock className="w-8 h-8 text-[#D4AF37]" />
+            </div>
+            <h3 className="text-2xl font-bold text-white">Scanner le QR Code</h3>
+            <p className="text-white/60 text-sm mt-2">
+              Scannez le code à votre station pour pointer.
+            </p>
+          </div>
+
+          <div id="qr-reader" className="overflow-hidden rounded-2xl border-2 border-[#D4AF37]/20 bg-black"></div>
+          
+          <div className="mt-6 p-4 bg-[#D4AF37]/5 rounded-xl border border-[#D4AF37]/10">
+            <p className="text-xs text-[#D4AF37]/70 uppercase font-bold tracking-wider mb-1">Votre Station</p>
+            <p className="text-white font-bold text-lg">Station {currentBarber?.station || "N/A"}</p>
+          </div>
+        </motion.div>
+      </div>
+    );
+  };
 
 
   const handleLogout = () => {
@@ -342,26 +544,35 @@ export default function BarberDashboard() {
 
     const handleSubmit = (e: React.FormEvent) => {
       e.preventDefault();
-      if (!currentBarber || !selectedService) return;
+      console.log('Submitting Walk-in:', { selectedService, currentBarber });
+      if (!currentBarber || !selectedService) {
+        toast.error('Erreur: Coiffeur ou Service non sélectionné');
+        return;
+      }
       
       const now = new Date();
       
-      addBooking({
-        clientName: 'Client Sans RDV',
-        clientEmail: '',
-        clientPhone: '',
-        serviceId: selectedService,
-        barberId: currentBarber.id,
-        date: now.toISOString().split('T')[0],
-        time: now.toTimeString().split(' ')[0].substring(0, 5),
-        status: 'completed',
-        pricePaid: basePrice,
-        tip: parseFloat(tipAmount) || 0,
-        paymentMethod
-      });
-      
-      toast.success('Coupe enregistrée avec succès !');
-      onClose();
+      try {
+        addBooking({
+          clientName: 'Client Sans RDV',
+          clientEmail: '',
+          clientPhone: '',
+          serviceId: selectedService,
+          barberId: currentBarber.id,
+          date: now.toISOString().split('T')[0],
+          time: now.toTimeString().split(' ')[0].substring(0, 5),
+          status: 'completed',
+          pricePaid: basePrice,
+          tip: parseFloat(tipAmount) || 0,
+          paymentMethod
+        });
+        
+        toast.success('Coupe enregistrée avec succès !');
+        onClose();
+      } catch (err) {
+        console.error(err);
+        toast.error('Erreur lors de l\'enregistrement');
+      }
     };
 
     return (
@@ -490,27 +701,69 @@ export default function BarberDashboard() {
         </div>
       </nav>
 
-      <div className="max-w-7xl mx-auto px-6 py-8 pb-28 md:pb-8">
-        <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
-          <div>
-            <h2 className="text-3xl font-bold text-white mb-2">Your Earnings Dashboard</h2>
-            <p className="text-white/60">Track your performance and income</p>
-          </div>
-          <div className="flex flex-wrap gap-4">
-            <button
-              onClick={() => setWalkinModalOpen(true)}
-              className="flex-1 md:flex-none px-6 py-3 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black rounded-lg hover:shadow-lg hover:shadow-[#D4AF37]/50 transition-all flex items-center justify-center gap-2 font-bold active:scale-95"
-            >
-              <Scissors className="w-5 h-5" />
-              <span className="whitespace-nowrap">Enregistrer une Coupe</span>
-            </button>
-            <button
-              onClick={() => setSaleModalOpen(true)}
-              className="flex-1 md:flex-none px-6 py-3 bg-white/5 text-[#D4AF37] border border-[#D4AF37]/30 rounded-lg hover:bg-white/10 transition-all flex items-center justify-center gap-2 font-bold active:scale-95"
-            >
-              <ShoppingBag className="w-5 h-5" />
-              <span className="whitespace-nowrap">Vendre un Produit</span>
-            </button>
+      <div className="max-w-7xl mx-auto px-6 py-8 pb-32">
+        {activeTab === 'dashboard' ? (
+          <div className="space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-3xl font-bold text-white mb-2">Tableau de bord</h2>
+                <p className="text-white/60">Suivez vos performances et vos revenus</p>
+              </div>
+              
+              <div className="lg:col-span-2 space-y-6">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                  <button
+                    onClick={() => setWalkinModalOpen(true)}
+                    className="p-4 bg-gradient-to-br from-[#D4AF37] to-[#FFD700] rounded-2xl text-black font-bold flex flex-col items-center justify-center gap-1 shadow-lg hover:shadow-[#D4AF37]/30 transition-all active:scale-95"
+                  >
+                    <Plus className="w-6 h-6" />
+                    <span className="text-sm">Vendre Coupe</span>
+                  </button>
+                  <button
+                    onClick={() => setSaleModalOpen(true)}
+                    className="p-4 bg-[#1a1a1a] border border-[#D4AF37]/30 rounded-2xl text-white font-bold flex flex-col items-center justify-center gap-1 hover:bg-white/5 transition-all active:scale-95"
+                  >
+                    <ShoppingBag className="w-6 h-6 text-[#D4AF37]" />
+                    <span className="text-sm">Vendre Produit</span>
+                  </button>
+                  <button
+                    onClick={() => setCheckInModalOpen(true)}
+                    disabled={isCheckedInToday}
+                    className={`p-4 border rounded-2xl font-bold flex flex-col items-center justify-center gap-1 transition-all active:scale-95 ${
+                      isCheckedInToday 
+                        ? 'bg-green-500/10 border-green-500/30 text-green-400 cursor-not-allowed'
+                        : 'bg-[#1a1a1a] border-[#D4AF37]/30 text-white hover:bg-white/5'
+                    }`}
+                  >
+                    {isCheckedInToday ? <CheckCircle className="w-6 h-6" /> : <Clock className="w-6 h-6 text-[#D4AF37]" />}
+                    <span className="text-sm">{isCheckedInToday ? 'Pointé' : 'Pointer'}</span>
+                  </button>
+                  <button
+                    onClick={() => setSettlementModalOpen(true)}
+                    disabled={isSettledToday}
+                    className={`p-4 border rounded-2xl font-bold flex flex-col items-center justify-center gap-1 transition-all active:scale-95 ${
+                      isSettledToday 
+                        ? 'bg-blue-500/10 border-blue-500/30 text-blue-400 cursor-not-allowed'
+                        : 'bg-[#1a1a1a] border-[#D4AF37]/30 text-white hover:bg-white/5'
+                    }`}
+                  >
+                    <Wallet className="w-6 h-6 text-[#D4AF37]" />
+                    <span className="text-sm">{isSettledToday ? 'Clôturé' : 'Fin de jour'}</span>
+                  </button>
+                  <div className="p-4 bg-[#1a1a1a] border border-white/5 rounded-2xl text-white flex flex-col items-center justify-center text-center">
+                    <span className="text-[10px] text-white/40 uppercase tracking-wider">Station</span>
+                    <span className="text-lg font-bold text-[#D4AF37]">{currentBarber?.station || "N/A"}</span>
+                  </div>
+                  <div className="p-4 bg-[#1a1a1a] border border-white/5 rounded-2xl text-white flex flex-col items-center justify-center text-center">
+                    <span className="text-[10px] text-white/40 uppercase tracking-wider">Balance</span>
+                    <span className={`text-lg font-bold ${currentBalance > 0 ? 'text-red-400' : 'text-green-400'}`}>
+                      €{currentBalance.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <button
               onClick={() => setActiveTab('schedule')}
               className="hidden md:flex px-6 py-3 bg-white/5 text-white rounded-lg hover:bg-white/10 transition-all items-center gap-2 active:scale-95"
@@ -518,8 +771,7 @@ export default function BarberDashboard() {
               <Calendar className="w-5 h-5" />
               Planning
             </button>
-          </div>
-        </div>
+
 
         <div className="grid md:grid-cols-3 gap-6 mb-8">
           <motion.div
@@ -654,137 +906,131 @@ export default function BarberDashboard() {
           </motion.div>
         </div>
 
-        <div className="grid lg:grid-cols-2 gap-6">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.5 }}
-            className="bg-gradient-to-br from-[#141414] to-[#1a1a1a] rounded-2xl border border-[#D4AF37]/20 p-6"
-          >
-            <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
-              <Scissors className="w-5 h-5 text-[#D4AF37]" />
-              Today's Completed Services
-            </h3>
-            <div className="space-y-3 max-h-[400px] overflow-y-auto">
-              {recentServices.map((service) => (
-                <div
-                  key={service.id}
-                  className="p-4 bg-white/5 rounded-lg border border-[#D4AF37]/10 hover:border-[#D4AF37]/30 transition-colors"
-                >
-                  <div className="flex items-start justify-between mb-2">
-                    <div>
-                      <p className="text-white font-bold">{service.client}</p>
-                      <p className="text-white/60 text-sm">{service.service}</p>
+            <div className="bg-[#141414] rounded-2xl border border-[#D4AF37]/20 p-6">
+              <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
+                <Scissors className="w-5 h-5 text-[#D4AF37]" />
+                Services complétés aujourd'hui
+              </h3>
+              <div className="space-y-3 max-h-[400px] overflow-y-auto">
+                {recentServices.map((service) => (
+                  <div
+                    key={service.id}
+                    className="p-4 bg-white/5 rounded-lg border border-[#D4AF37]/10 hover:border-[#D4AF37]/30 transition-colors"
+                  >
+                    <div className="flex items-start justify-between mb-2">
+                      <div>
+                        <p className="text-white font-bold">{service.client}</p>
+                        <p className="text-white/60 text-sm">{service.service}</p>
+                      </div>
+                      <span className="text-white/60 text-sm">{service.time}</span>
                     </div>
-                    <span className="text-white/60 text-sm">{service.time}</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2 text-sm">
-                    <div>
-                      <p className="text-white/40">Service</p>
-                      <p className="text-white">€{service.price}</p>
-                    </div>
-                    <div>
-                      <p className="text-white/40">Your Share</p>
-                      <p className="text-green-400">€{service.barberShare}</p>
-                    </div>
-                    <div>
-                      <p className="text-white/40">Tip</p>
-                      <p className="text-[#D4AF37]">€{service.tip}</p>
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div>
+                        <p className="text-white/40">Prix</p>
+                        <p className="text-white">€{service.price}</p>
+                      </div>
+                      <div>
+                        <p className="text-white/40">Méthode</p>
+                        <p className="text-[#D4AF37] capitalize">{service.paymentMethod}</p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))}
+                {recentServices.length === 0 && (
+                  <div className="py-8 text-center text-white/40 italic">
+                    Aucun service complété aujourd'hui.
+                  </div>
+                )}
+              </div>
             </div>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.6 }}
-            className="bg-gradient-to-br from-[#141414] to-[#1a1a1a] rounded-2xl border border-[#D4AF37]/20 p-6"
-          >
-            <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
-              <Clock className="w-5 h-5 text-[#D4AF37]" />
-              Upcoming Appointments
-            </h3>
-            <div className="space-y-3">
-              {upcomingAppointments.map((appointment) => (
-                <div
-                  key={appointment.id}
-                  className="p-4 bg-white/5 rounded-lg border border-[#D4AF37]/10 hover:border-[#D4AF37]/30 transition-colors"
-                >
-                  <div className="flex flex-col gap-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#D4AF37] to-[#FFD700] flex items-center justify-center">
-                          <User className="w-5 h-5 text-black" />
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <h2 className="text-3xl font-bold text-white mb-2">Planning</h2>
+            <p className="text-white/60 mb-6">Vos rendez-vous à venir</p>
+            
+            <div className="space-y-4">
+              {upcomingAppointments.length === 0 ? (
+                <div className="p-12 text-center bg-white/5 rounded-2xl border border-dashed border-white/10">
+                  <p className="text-white/40 italic">Aucun rendez-vous prévu.</p>
+                </div>
+              ) : (
+                upcomingAppointments.map((appointment) => (
+                  <motion.div
+                    key={appointment.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-gradient-to-br from-[#141414] to-[#1a1a1a] rounded-2xl border border-[#D4AF37]/20 p-6"
+                  >
+                    <div className="flex flex-col gap-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#D4AF37] to-[#FFD700] flex items-center justify-center">
+                            <User className="w-6 h-6 text-black" />
+                          </div>
+                          <div>
+                            <p className="text-xl font-bold text-white">{appointment.client}</p>
+                            <p className="text-white/60">{appointment.service}</p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-white font-bold">{appointment.client}</p>
-                          <p className="text-white/60 text-sm">{appointment.service}</p>
+                        <div className="text-right">
+                          <p className="text-2xl font-bold text-[#D4AF37]">{appointment.time}</p>
+                          <p className="text-white/40 text-sm">{appointment.date}</p>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <p className="text-[#D4AF37] font-bold">{appointment.time}</p>
-                        <p className="text-white/40 text-xs">{appointment.status === 'pending' ? 'En attente' : 'Approuvée'}</p>
-                      </div>
-                    </div>
-                    
-                    <div className="flex gap-2 pt-2 border-t border-white/10">
-                      <a 
-                        href={`tel:${appointment.clientPhone}`}
-                        className="flex-1 py-2 bg-white/5 text-white/80 rounded hover:bg-white/10 transition-colors flex justify-center items-center gap-2 text-sm"
-                      >
-                        <Phone className="w-4 h-4" /> Appeler
-                      </a>
                       
-                      {appointment.status === 'pending' ? (
-                        <>
-                          <button 
-                            onClick={() => {
-                              updateBookingStatus(appointment.id, 'approved');
-                              toast.success('Réservation approuvée !');
-                            }}
-                            className="flex-1 py-2 bg-green-500/20 text-green-400 rounded hover:bg-green-500/30 transition-colors flex justify-center items-center gap-2 text-sm font-bold"
-                          >
-                            <CheckCircle className="w-4 h-4" /> Approuver
-                          </button>
-                          <button 
-                            onClick={() => {
-                              updateBookingStatus(appointment.id, 'rejected');
-                              toast.error('Réservation rejetée');
-                            }}
-                            className="px-4 py-2 bg-red-500/20 text-red-400 rounded hover:bg-red-500/30 transition-colors flex justify-center items-center"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        </>
-                      ) : (
-                        <button 
-                          onClick={() => setActiveBookingId(appointment.id)}
-                          className="flex-1 py-2 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black rounded hover:shadow-lg hover:shadow-[#D4AF37]/20 transition-all flex justify-center items-center gap-2 text-sm font-bold"
+                      <div className="flex gap-3 pt-4 border-t border-white/10">
+                        <a 
+                          href={`tel:${appointment.clientPhone}`}
+                          className="flex-1 py-3 bg-white/5 text-white rounded-xl hover:bg-white/10 transition-all flex justify-center items-center gap-2 font-bold"
                         >
-                          <CheckCircle className="w-4 h-4" /> Terminer
-                        </button>
-                      )}
+                          <Phone className="w-5 h-5" /> Appeler
+                        </a>
+                        
+                        {appointment.status === 'pending' ? (
+                          <>
+                            <button 
+                              onClick={() => {
+                                updateBookingStatus(appointment.id, 'approved');
+                                toast.success('Réservation approuvée !');
+                              }}
+                              className="flex-1 py-3 bg-green-500/20 text-green-400 rounded-xl hover:bg-green-500/30 transition-all flex justify-center items-center gap-2 font-bold"
+                            >
+                              <CheckCircle className="w-5 h-5" /> Approuver
+                            </button>
+                            <button 
+                              onClick={() => {
+                                updateBookingStatus(appointment.id, 'rejected');
+                                toast.error('Réservation rejetée');
+                              }}
+                              className="px-6 py-3 bg-red-500/20 text-red-400 rounded-xl hover:bg-red-500/30 transition-all flex justify-center items-center"
+                            >
+                              <X className="w-5 h-5" />
+                            </button>
+                          </>
+                        ) : (
+                          <button 
+                            onClick={() => setActiveBookingId(appointment.id)}
+                            className="flex-1 py-3 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black rounded-xl hover:shadow-lg hover:shadow-[#D4AF37]/30 transition-all flex justify-center items-center gap-2 font-bold"
+                          >
+                            <CheckCircle className="w-5 h-5" /> Terminer & Encaisser
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                </div>
-              ))}
+                  </motion.div>
+                ))
+              )}
             </div>
-
-            <div className="mt-6 p-4 bg-gradient-to-r from-[#D4AF37]/10 to-[#FFD700]/10 rounded-lg border border-[#D4AF37]/20">
-              <p className="text-white/60 text-sm mb-1">Commission Rate</p>
-              <p className="text-2xl font-bold text-[#D4AF37]">{commissionRate}%</p>
-              <p className="text-white/40 text-xs mt-1">You keep {commissionRate}% of each service + 100% of tips</p>
-            </div>
-          </motion.div>
-        </div>
+          </div>
+        )}
       </div>
 
       {activeBookingId && <AddServiceModal bookingId={activeBookingId} onClose={() => setActiveBookingId(null)} />}
       {saleModalOpen && <SaleModal onClose={() => setSaleModalOpen(false)} />}
       {walkinModalOpen && <WalkinModal onClose={() => setWalkinModalOpen(false)} />}
+      {checkInModalOpen && <ScannerModal onClose={() => setCheckInModalOpen(false)} />}
+      {settlementModalOpen && <SettlementModal onClose={() => setSettlementModalOpen(false)} />}
 
       {/* Mobile Bottom Navigation */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 bg-[#0f0f0f] border-t border-[#D4AF37]/20 flex overflow-x-auto snap-x snap-mandatory scrollbar-hide z-40">

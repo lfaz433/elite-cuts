@@ -18,20 +18,25 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(() => {
+    const saved = localStorage.getItem('barbershop_user');
+    return saved ? JSON.parse(saved) : null;
+  });
 
   const login = (email: string, password: string, role: string) => {
     const mockUser: User = {
-      id: '1',
-      name: role === 'admin' ? 'Admin User' : role === 'barber' ? 'John Barber' : 'Client Name',
+      id: Math.random().toString(36).substr(2, 9),
+      name: role === 'admin' ? 'Admin User' : role === 'barber' ? (email.split('@')[0]) : 'Client Name',
       email,
       role: role as 'client' | 'admin' | 'barber',
     };
     setUser(mockUser);
+    localStorage.setItem('barbershop_user', JSON.stringify(mockUser));
   };
 
   const logout = () => {
     setUser(null);
+    localStorage.removeItem('barbershop_user');
   };
 
   return (
