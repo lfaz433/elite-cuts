@@ -31,6 +31,7 @@ import { useNavigate } from 'react-router';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { toast } from 'sonner';
 import { QRCodeCanvas } from 'qrcode.react';
+import type { Barber, Service, Product } from '../context/BusinessContext';
 
 export default function AdminDashboard() {
   const { user, logout } = useAuth();
@@ -67,6 +68,25 @@ export default function AdminDashboard() {
   const [dateFilter, setDateFilter] = useState<'all' | 'day' | 'week' | 'month' | 'custom'>('all');
   const [customDateRange, setCustomDateRange] = useState({ start: '', end: '' });
   const [barberFilter, setBarberFilter] = useState('all');
+
+  // Modals for adding/editing items
+  const [barberModalOpen, setBarberModalOpen] = useState(false);
+  const [editingBarber, setEditingBarber] = useState<Barber | null>(null);
+  
+  const [serviceModalOpen, setServiceModalOpen] = useState(false);
+  const [editingService, setEditingService] = useState<Service | null>(null);
+  
+  const [productModalOpen, setProductModalOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+
+  const handleImageUpload = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
 
   const parsePrice = (priceStr: string | undefined) => priceStr ? (parseInt(priceStr.replace(/[^0-9]/g, ''), 10) || 0) : 0;
   
