@@ -455,11 +455,9 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   };
 
   const seedDatabase = async () => {
-    // Seed services if empty
+    // We will bypass checks to force generating data for testing.
     const hasServices = services.length > 0;
     const hasBarbers = barbers.length > 0;
-    const hasProducts = products.length >= 2;
-    const hasBookings = bookings.length >= 5;
 
     if (!hasServices) {
       for (const s of defaultServices) {
@@ -473,7 +471,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
         await addDoc(collection(db, 'barbers'), { ...data, archived: false });
       }
     }
-    if (!hasProducts) {
+    if (true) { // Force seed products
       for (const p of defaultProducts) {
         const { id: _id, ...data } = p;
         await addDoc(collection(db, 'products'), data);
@@ -481,7 +479,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     }
     
     // Seed dummy bookings if services and barbers exist
-    if (!hasBookings && services.length > 0 && barbers.length > 0) {
+    if (services.length > 0 && barbers.length > 0) {
       const statuses = ['completed', 'completed', 'completed', 'pending', 'approved'];
       for (let i = 0; i < 20; i++) {
         const d = new Date();
@@ -510,6 +508,9 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
 
     // Seed business info
     await setDoc(doc(db, 'business', 'info'), defaultBusinessInfo, { merge: true });
+    
+    // Notify user
+    alert("Les données de test ont été générées avec succès !");
   };
 
   const resetBarberBalance = async (barberId: string) => {
