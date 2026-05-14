@@ -1,10 +1,16 @@
 import { useState } from 'react';
-import { X, Eye, EyeOff, Scissors } from 'lucide-react';
+import { X, Eye, EyeOff, Scissors, Zap } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useBusiness } from '../context/BusinessContext';
 import { useNavigate } from 'react-router';
-import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
+
+// Demo accounts always available for testing
+const DEMO_ACCOUNTS = [
+  { role: 'admin' as const, label: 'Admin', emoji: '👑', email: 'admin@test.com', password: 'password123', color: '#D4AF37', description: 'Tableau de bord admin' },
+  { role: 'barber' as const, label: 'Coiffeur', emoji: '✂️', email: 'barber@test.com', password: 'password123', color: '#818cf8', description: 'Marcus Johnson' },
+  { role: 'client' as const, label: 'Client', emoji: '👤', email: 'client@test.com', password: 'password123', color: '#34d399', description: 'Accès client' },
+];
 
 export default function LoginModal({ onClose }: { onClose: () => void }) {
   const [email, setEmail] = useState('');
@@ -12,164 +18,205 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
   const [showPassword, setShowPassword] = useState(false);
   const [role, setRole] = useState<'client' | 'admin' | 'barber'>('client');
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingDemo, setLoadingDemo] = useState<string | null>(null);
+
   const { login } = useAuth();
   const { businessInfo, barbers } = useBusiness();
   const navigate = useNavigate();
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
+  // Core login logic
+  const doLogin = async (loginEmail: string, loginPassword: string, loginRole: 'client' | 'admin' | 'barber') => {
+    if (loginRole === 'admin') {
+      // Check demo account OR configured credentials
+      const isDemo = loginEmail === 'admin@test.com' && loginPassword === 'password123';
+      const isConfigured = loginEmail === (businessInfo.adminEmail || 'admin@test.com') && loginPassword === (businessInfo.adminPassword || 'password123');
+      if (!isDemo && !isConfigured) {
+        toast.error('Identifiants admin incorrects.');
+        return false;
+      }
+      login(loginEmail, loginPassword, 'admin', 'Administrateur');
 
-    await new Promise(r => setTimeout(r, 400)); // brief UX delay
-
-    try {
-      if (role === 'admin') {
-        const adminEmail = businessInfo.adminEmail || 'admin@elitecuts.fr';
-        const adminPass = businessInfo.adminPassword || 'admin';
-        if (email !== adminEmail || password !== adminPass) {
-          toast.error('Identifiants admin incorrects.');
-          setIsLoading(false);
-          return;
+    } else if (loginRole === 'barber') {
+      // Demo barber shortcut
+      if (loginEmail === 'barber@test.com' && loginPassword === 'password123') {
+        const demoBarber = barbers.find(b => !b.archived) || barbers[0];
+        if (demoBarber) {
+          login(loginEmail, loginPassword, 'barber', demoBarber.name, demoBarber.id);
+        } else {
+          // No barbers in DB yet — create a virtual session
+          login(loginEmail, loginPassword, 'barber', 'Marcus Johnson');
         }
-        login(email, password, 'admin', 'Admin', 'admin');
-      } else if (role === 'barber') {
-        // Match against Firestore barbers using username OR email
+      } else {
+        // Match against real Firestore barbers
         const barber = barbers.find(
-          b => (b.email === email || b.username === email) && b.password === password && !b.archived
+          b => (b.email === loginEmail || b.username === loginEmail) && b.password === loginPassword && !b.archived
         );
         if (!barber) {
           toast.error('Coiffeur introuvable ou mot de passe incorrect.');
-          setIsLoading(false);
-          return;
+          return false;
         }
-        // Pass the barber's real name and id
-        login(email, password, 'barber', barber.name, barber.id);
-      } else {
-        // Client: any credentials work (public booking system)
-        const clientName = email.split('@')[0].replace(/[._-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-        login(email, password, 'client', clientName);
+        login(loginEmail, loginPassword, 'barber', barber.name, barber.id);
       }
 
-      onClose();
-      navigate(`/${role}`);
-    } catch (err) {
-      toast.error('Une erreur est survenue. Réessayez.');
-    } finally {
-      setIsLoading(false);
+    } else {
+      // Client: always works
+      const clientName = loginEmail.split('@')[0]
+        .replace(/[._-]/g, ' ')
+        .replace(/\b\w/g, c => c.toUpperCase());
+      login(loginEmail, loginPassword, 'client', clientName);
     }
+    return true;
   };
 
-  const roleLabels: Record<string, string> = { client: 'Client', barber: 'Coiffeur', admin: 'Admin' };
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    const ok = await doLogin(email, password, role);
+    setIsLoading(false);
+    if (ok) { onClose(); navigate(`/${role}`); }
+  };
+
+  const handleDemoLogin = async (demo: typeof DEMO_ACCOUNTS[0]) => {
+    setLoadingDemo(demo.role);
+    await new Promise(r => setTimeout(r, 300));
+    const ok = await doLogin(demo.email, demo.password, demo.role);
+    setLoadingDemo(null);
+    if (ok) { onClose(); navigate(`/${demo.role}`); }
+  };
 
   return (
-    <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4 bg-black/80 backdrop-blur-sm">
-        <motion.div
-          initial={{ opacity: 0, y: 100 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 100 }}
-          className="relative w-full md:max-w-md bg-gradient-to-br from-[#141414] to-[#1a1a1a] rounded-t-3xl md:rounded-2xl border border-[#D4AF37]/30 p-8 pb-12 md:pb-8"
-        >
-          <button onClick={onClose} className="absolute top-4 right-4 p-2 text-white/40 hover:text-white transition-colors rounded-lg hover:bg-white/10">
-            <X className="w-5 h-5" />
-          </button>
+    <div
+      style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div style={{ background: 'linear-gradient(135deg, #141414, #1c1c1c)', border: '1px solid rgba(212,175,55,0.25)', borderRadius: '24px 24px 0 0', width: '100%', maxWidth: 480, padding: '32px 24px 40px', overflowY: 'auto', maxHeight: '95vh' }}>
 
-          <div className="flex items-center gap-2 mb-6">
-            <Scissors className="w-6 h-6 text-[#D4AF37]" />
-            <span className="text-lg font-bold bg-gradient-to-r from-[#D4AF37] to-[#FFD700] bg-clip-text text-transparent">
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Scissors style={{ width: 22, height: 22, color: '#D4AF37' }} />
+            <span style={{ fontSize: 18, fontWeight: 700, background: 'linear-gradient(to right, #D4AF37, #FFD700)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
               {businessInfo.name || 'Elite Cuts'}
             </span>
           </div>
+          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.05)', border: 'none', borderRadius: 8, padding: 8, cursor: 'pointer', color: 'rgba(255,255,255,0.5)', display: 'flex' }}>
+            <X style={{ width: 18, height: 18 }} />
+          </button>
+        </div>
 
-          <h2 className="text-2xl font-bold mb-1 text-white">Connexion</h2>
-          <p className="text-white/50 mb-6 text-sm">Connectez-vous à votre compte</p>
+        <h2 style={{ fontSize: 22, fontWeight: 700, color: 'white', marginBottom: 4 }}>Connexion</h2>
+        <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 14, marginBottom: 24 }}>Accédez à votre espace</p>
 
-          <form onSubmit={handleLogin} className="space-y-5">
-            {/* Role Selector */}
-            <div>
-              <label className="block text-white/60 text-sm mb-2">Type de compte</label>
-              <div className="grid grid-cols-3 gap-2">
-                {(['client', 'barber', 'admin'] as const).map((r) => (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() => setRole(r)}
-                    className={`px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                      role === r
-                        ? 'bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black shadow-lg shadow-[#D4AF37]/20'
-                        : 'bg-white/5 text-white/60 hover:bg-white/10 border border-white/10'
-                    }`}
-                  >
-                    {roleLabels[r]}
-                  </button>
-                ))}
-              </div>
-            </div>
+        {/* ⚡ DEMO QUICK LOGIN */}
+        <div style={{ marginBottom: 24, padding: 16, background: 'rgba(255,255,255,0.03)', borderRadius: 16, border: '1px solid rgba(255,255,255,0.08)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+            <Zap style={{ width: 14, height: 14, color: '#D4AF37' }} />
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Comptes de test rapide</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+            {DEMO_ACCOUNTS.map(demo => (
+              <button
+                key={demo.role}
+                type="button"
+                onClick={() => handleDemoLogin(demo)}
+                disabled={!!loadingDemo}
+                style={{
+                  padding: '12px 8px', borderRadius: 12, border: `1px solid ${demo.color}30`,
+                  background: `${demo.color}10`, cursor: 'pointer', textAlign: 'center',
+                  opacity: loadingDemo && loadingDemo !== demo.role ? 0.5 : 1, transition: 'all 0.2s',
+                }}
+              >
+                <div style={{ fontSize: 22, marginBottom: 4 }}>
+                  {loadingDemo === demo.role ? '⏳' : demo.emoji}
+                </div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: demo.color }}>{demo.label}</div>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>{demo.description}</div>
+              </button>
+            ))}
+          </div>
+        </div>
 
-            {/* Email */}
-            <div>
-              <label className="block text-white/60 text-sm mb-2">
-                {role === 'barber' ? 'Email ou nom d\'utilisateur' : 'Email'}
-              </label>
+        {/* Divider */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+          <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.08)' }} />
+          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)' }}>ou connectez-vous manuellement</span>
+          <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.08)' }} />
+        </div>
+
+        <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {/* Role selector */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+            {(['client', 'barber', 'admin'] as const).map(r => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => setRole(r)}
+                style={{
+                  padding: '9px', borderRadius: 10, border: 'none', cursor: 'pointer',
+                  fontSize: 13, fontWeight: 600, textTransform: 'capitalize', transition: 'all 0.2s',
+                  background: role === r ? 'linear-gradient(to right, #D4AF37, #FFD700)' : 'rgba(255,255,255,0.05)',
+                  color: role === r ? 'black' : 'rgba(255,255,255,0.5)',
+                }}
+              >
+                {r === 'client' ? 'Client' : r === 'barber' ? 'Coiffeur' : 'Admin'}
+              </button>
+            ))}
+          </div>
+
+          {/* Email */}
+          <div>
+            <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: 13, marginBottom: 6 }}>Email / Identifiant</label>
+            <input
+              type={role === 'barber' ? 'text' : 'email'}
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder={role === 'admin' ? 'admin@test.com' : role === 'barber' ? 'barber@test.com' : 'client@test.com'}
+              required
+              style={{ width: '100%', padding: '12px 14px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(212,175,55,0.2)', borderRadius: 10, color: 'white', fontSize: 15, boxSizing: 'border-box' }}
+            />
+          </div>
+
+          {/* Password */}
+          <div>
+            <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: 13, marginBottom: 6 }}>Mot de passe</label>
+            <div style={{ position: 'relative' }}>
               <input
-                type={role === 'barber' ? 'text' : 'email'}
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder={role === 'barber' ? 'Votre email ou username' : 'votre@email.com'}
-                className="w-full px-4 py-3 bg-white/5 border border-[#D4AF37]/20 rounded-xl text-white placeholder:text-white/30 focus:border-[#D4AF37] focus:outline-none focus:ring-1 focus:ring-[#D4AF37]/30 transition-all"
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="password123"
                 required
-                autoComplete="username"
+                style={{ width: '100%', padding: '12px 44px 12px 14px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(212,175,55,0.2)', borderRadius: 10, color: 'white', fontSize: 15, boxSizing: 'border-box' }}
               />
+              <button type="button" onClick={() => setShowPassword(!showPassword)} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: 16 }}>
+                {showPassword ? <EyeOff style={{ width: 18, height: 18 }} /> : <Eye style={{ width: 18, height: 18 }} />}
+              </button>
             </div>
+          </div>
 
-            {/* Password */}
-            <div>
-              <label className="block text-white/60 text-sm mb-2">Mot de passe</label>
-              <div className="relative">
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full px-4 py-3 pr-12 bg-white/5 border border-[#D4AF37]/20 rounded-xl text-white placeholder:text-white/30 focus:border-[#D4AF37] focus:outline-none focus:ring-1 focus:ring-[#D4AF37]/30 transition-all"
-                  required
-                  autoComplete="current-password"
-                />
-                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white transition-colors">
-                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                </button>
-              </div>
-            </div>
+          {/* Submit */}
+          <button
+            type="submit"
+            disabled={isLoading}
+            style={{
+              width: '100%', padding: '13px', background: 'linear-gradient(to right, #D4AF37, #FFD700)',
+              border: 'none', borderRadius: 12, color: 'black', fontSize: 15, fontWeight: 700,
+              cursor: isLoading ? 'wait' : 'pointer', opacity: isLoading ? 0.7 : 1, marginTop: 4,
+            }}
+          >
+            {isLoading ? 'Connexion...' : 'Se Connecter'}
+          </button>
+        </form>
 
-            {/* Hint */}
-            {role === 'client' && (
-              <p className="text-white/30 text-xs text-center bg-white/5 rounded-lg p-2">
-                Clients : n'importe quels identifiants fonctionnent
-              </p>
-            )}
-            {role === 'admin' && (
-              <p className="text-white/30 text-xs text-center bg-white/5 rounded-lg p-2">
-                Admin : email et mot de passe configurés dans les Paramètres
-              </p>
-            )}
-            {role === 'barber' && (
-              <p className="text-white/30 text-xs text-center bg-white/5 rounded-lg p-2">
-                Utilisez l'email et le mot de passe fournis par l'admin
-              </p>
-            )}
-
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full py-3.5 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black rounded-xl font-bold hover:shadow-lg hover:shadow-[#D4AF37]/40 transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              {isLoading ? (
-                <><div className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" />Connexion...</>
-              ) : 'Se Connecter'}
-            </button>
-          </form>
-        </motion.div>
+        {/* Credentials hint */}
+        <div style={{ marginTop: 16, padding: '12px 14px', background: 'rgba(212,175,55,0.05)', borderRadius: 10, border: '1px solid rgba(212,175,55,0.1)' }}>
+          <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', lineHeight: 1.8, margin: 0 }}>
+            👑 <strong style={{ color: 'rgba(212,175,55,0.7)' }}>Admin :</strong> admin@test.com / password123<br/>
+            ✂️ <strong style={{ color: 'rgba(129,140,248,0.7)' }}>Coiffeur :</strong> barber@test.com / password123<br/>
+            👤 <strong style={{ color: 'rgba(52,211,153,0.7)' }}>Client :</strong> n'importe quels identifiants
+          </p>
+        </div>
       </div>
-    </AnimatePresence>
+    </div>
   );
 }
