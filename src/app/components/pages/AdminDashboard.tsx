@@ -720,20 +720,8 @@ export default function AdminDashboard() {
                   <h2 className="text-3xl font-bold text-white">Gestion des Services</h2>
                   <button 
                     onClick={() => {
-                      const name = prompt('Nom du Service');
-                      const price = prompt('Prix (ex: 35€)');
-                      const duration = prompt('Durée (ex: 45 min)');
-                      const description = prompt('Description');
-                      if (name && price && duration) {
-                        addService({ 
-                          name, 
-                          price, 
-                          duration, 
-                          description: description || '', 
-                          image: 'https://images.unsplash.com/photo-1622286342621-4bd786c2447c?w=400&h=300&fit=crop' 
-                        });
-                        toast.success('Service ajouté !');
-                      }
+                      setEditingService(null);
+                      setServiceModalOpen(true);
                     }}
                     className="px-6 py-2 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black rounded-lg hover:shadow-lg hover:shadow-[#D4AF37]/50 transition-all font-bold flex items-center gap-2"
                   >
@@ -768,11 +756,8 @@ export default function AdminDashboard() {
                         <div className="flex gap-2">
                           <button 
                             onClick={() => {
-                              const newName = prompt('Nouveau nom', service.name);
-                              const newPrice = prompt('Nouveau prix', service.price);
-                              const newDuration = prompt('Nouvelle durée', service.duration);
-                              const newImage = prompt('Nouvelle URL d\'image', service.image);
-                              if (newName) updateService(service.id, { name: newName, price: newPrice || service.price, duration: newDuration || service.duration, image: newImage || service.image });
+                              setEditingService(service);
+                              setServiceModalOpen(true);
                             }}
                             className="p-2 hover:bg-white/10 rounded-lg transition-colors"
                           >
@@ -803,24 +788,8 @@ export default function AdminDashboard() {
                   </div>
                   <button 
                     onClick={() => {
-                      const name = prompt('Nom complet');
-                      const username = prompt('Nom d\'utilisateur');
-                      const password = prompt('Mot de passe');
-                      if (name && username && password) {
-                        addBarber({
-                          name,
-                          specialty: 'Coiffeur Senior',
-                          experience: '5 ans',
-                          rating: 5,
-                          image: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&h=300&fit=crop',
-                          username,
-                          password,
-                          station: (barbers.length + 1).toString(),
-                          commission: 50,
-                          archived: false
-                        });
-                        toast.success('Compte coiffeur créé !');
-                      }
+                      setEditingBarber(null);
+                      setBarberModalOpen(true);
                     }}
                     className="px-6 py-2 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black rounded-lg hover:shadow-lg hover:shadow-[#D4AF37]/50 transition-all font-bold flex items-center gap-2"
                   >
@@ -897,15 +866,8 @@ export default function AdminDashboard() {
                         <div className="mt-6 flex gap-2">
                           <button 
                             onClick={() => {
-                              const newName = prompt('Nom complet', barber.name);
-                              const newComm = prompt('Commission (%)', (barber.commission || 50).toString());
-                              if (newName) {
-                                updateBarber(barber.id, { 
-                                  name: newName, 
-                                  commission: parseInt(newComm || '50') 
-                                });
-                                toast.success('Profil mis à jour');
-                              }
+                              setEditingBarber(barber);
+                              setBarberModalOpen(true);
                             }}
                             className="flex-1 py-2 bg-white/5 text-white rounded-lg hover:bg-white/10 transition-all flex justify-center items-center gap-2 text-sm"
                           >
@@ -1025,21 +987,8 @@ export default function AdminDashboard() {
                     </button>
                     <button 
                       onClick={() => {
-                        const name = prompt('Nom du produit');
-                        const buyPrice = prompt('Prix d\'achat (ex: 8.50)');
-                        const sellPrice = prompt('Prix de vente (ex: 19.99)');
-                        const description = prompt('Description');
-                        if (name && buyPrice && sellPrice) {
-                          addProduct({ 
-                            name, 
-                            buyPrice: parseFloat(buyPrice),
-                            sellPrice: parseFloat(sellPrice),
-                            description: description || '', 
-                            image: 'https://images.unsplash.com/photo-1621605815971-fbc98d665033?w=400&h=300&fit=crop',
-                            stock: 10
-                          });
-                          toast.success('Produit ajouté !');
-                        }
+                        setEditingProduct(null);
+                        setProductModalOpen(true);
                       }}
                       className="px-6 py-2 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black rounded-lg hover:shadow-lg hover:shadow-[#D4AF37]/50 transition-all font-bold flex items-center gap-2"
                     >
@@ -1075,17 +1024,8 @@ export default function AdminDashboard() {
                         <div className="flex gap-2">
                           <button 
                             onClick={() => {
-                              const newName = prompt('Nouveau nom', product.name);
-                              const newBuy = prompt('Nouveau prix achat', product.buyPrice.toString());
-                              const newSell = prompt('Nouveau prix vente', product.sellPrice.toString());
-                              if (newName) {
-                                updateProduct(product.id, { 
-                                  name: newName, 
-                                  buyPrice: parseFloat(newBuy || '0'), 
-                                  sellPrice: parseFloat(newSell || '0') 
-                                });
-                                toast.success('Produit modifié !');
-                              }
+                              setEditingProduct(product);
+                              setProductModalOpen(true);
                             }}
                             className="flex-1 py-2 bg-white/5 text-[#D4AF37] rounded-lg hover:bg-white/10 transition-colors flex justify-center"
                           >
@@ -1423,6 +1363,209 @@ export default function AdminDashboard() {
           </button>
         ))}
       </div>
+      {/* Modals for Barbers, Services, Products */}
+      <AnimatePresence>
+        {barberModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative w-full max-w-md bg-gradient-to-br from-[#141414] to-[#1a1a1a] rounded-2xl border border-[#D4AF37]/30 p-8 max-h-[90vh] overflow-y-auto"
+            >
+              <button onClick={() => setBarberModalOpen(false)} className="absolute top-4 right-4 text-white/60 hover:text-white"><X /></button>
+              <h2 className="text-2xl font-bold text-white mb-6">{editingBarber ? 'Modifier Coiffeur' : 'Nouveau Coiffeur'}</h2>
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                const formData = new FormData(e.currentTarget);
+                const file = (e.currentTarget.elements.namedItem('image') as HTMLInputElement).files?.[0];
+                let imageUrl = editingBarber?.image || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&h=300&fit=crop';
+                
+                if (file && file.size > 0) imageUrl = await handleImageUpload(file);
+                
+                const data = {
+                  name: formData.get('name') as string,
+                  specialty: formData.get('specialty') as string,
+                  username: formData.get('username') as string,
+                  commission: parseInt(formData.get('commission') as string) || 50,
+                  station: formData.get('station') as string,
+                  image: imageUrl
+                };
+                
+                if (editingBarber) {
+                  await updateBarber(editingBarber.id, data);
+                  toast.success('Coiffeur mis à jour');
+                } else {
+                  await addBarber({ ...data, password: 'password123', experience: '5 ans', rating: 5, archived: false });
+                  toast.success('Coiffeur ajouté');
+                }
+                setBarberModalOpen(false);
+              }} className="space-y-4">
+                <div>
+                  <label className="block text-white/60 text-sm mb-1">Nom complet</label>
+                  <input name="name" defaultValue={editingBarber?.name} required className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-[#D4AF37] focus:outline-none" />
+                </div>
+                <div>
+                  <label className="block text-white/60 text-sm mb-1">Spécialité</label>
+                  <input name="specialty" defaultValue={editingBarber?.specialty} className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-[#D4AF37] focus:outline-none" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-white/60 text-sm mb-1">Username</label>
+                    <input name="username" defaultValue={editingBarber?.username} required className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-[#D4AF37] focus:outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-white/60 text-sm mb-1">Commission %</label>
+                    <input name="commission" type="number" defaultValue={editingBarber?.commission || 50} className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-[#D4AF37] focus:outline-none" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-white/60 text-sm mb-1">Station</label>
+                  <input name="station" defaultValue={editingBarber?.station} className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-[#D4AF37] focus:outline-none" />
+                </div>
+                <div>
+                  <label className="block text-white/60 text-sm mb-1">Photo de profil</label>
+                  <input name="image" type="file" accept="image/*" className="w-full text-sm text-white/60 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-[#D4AF37] file:text-black hover:file:bg-[#FFD700]" />
+                </div>
+                <button type="submit" className="w-full py-3 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black font-bold rounded-lg mt-4 shadow-lg shadow-[#D4AF37]/20 hover:scale-[1.02] transition-transform">
+                  Enregistrer
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
+        {serviceModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative w-full max-w-md bg-gradient-to-br from-[#141414] to-[#1a1a1a] rounded-2xl border border-[#D4AF37]/30 p-8"
+            >
+              <button onClick={() => setServiceModalOpen(false)} className="absolute top-4 right-4 text-white/60 hover:text-white"><X /></button>
+              <h2 className="text-2xl font-bold text-white mb-6">{editingService ? 'Modifier Service' : 'Nouveau Service'}</h2>
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                const formData = new FormData(e.currentTarget);
+                const file = (e.currentTarget.elements.namedItem('image') as HTMLInputElement).files?.[0];
+                let imageUrl = editingService?.image || 'https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=400&h=300&fit=crop';
+                
+                if (file && file.size > 0) imageUrl = await handleImageUpload(file);
+                
+                const data = {
+                  name: formData.get('name') as string,
+                  price: formData.get('price') as string,
+                  duration: formData.get('duration') as string,
+                  description: formData.get('description') as string,
+                  image: imageUrl
+                };
+                
+                if (editingService) {
+                  await updateService(editingService.id, data);
+                  toast.success('Service mis à jour');
+                } else {
+                  await addService(data);
+                  toast.success('Service ajouté');
+                }
+                setServiceModalOpen(false);
+              }} className="space-y-4">
+                <div>
+                  <label className="block text-white/60 text-sm mb-1">Nom du service</label>
+                  <input name="name" defaultValue={editingService?.name} required className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-[#D4AF37] focus:outline-none" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-white/60 text-sm mb-1">Prix (ex: 25€)</label>
+                    <input name="price" defaultValue={editingService?.price} required className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-[#D4AF37] focus:outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-white/60 text-sm mb-1">Durée (ex: 30 min)</label>
+                    <input name="duration" defaultValue={editingService?.duration} required className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-[#D4AF37] focus:outline-none" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-white/60 text-sm mb-1">Description</label>
+                  <textarea name="description" defaultValue={editingService?.description} className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white h-20 focus:border-[#D4AF37] focus:outline-none" />
+                </div>
+                <div>
+                  <label className="block text-white/60 text-sm mb-1">Image du service</label>
+                  <input name="image" type="file" accept="image/*" className="w-full text-sm text-white/60 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-[#D4AF37] file:text-black" />
+                </div>
+                <button type="submit" className="w-full py-3 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black font-bold rounded-lg mt-4 shadow-lg shadow-[#D4AF37]/20 hover:scale-[1.02] transition-transform">
+                  Enregistrer
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
+        {productModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative w-full max-w-md bg-gradient-to-br from-[#141414] to-[#1a1a1a] rounded-2xl border border-[#D4AF37]/30 p-8"
+            >
+              <button onClick={() => setProductModalOpen(false)} className="absolute top-4 right-4 text-white/60 hover:text-white"><X /></button>
+              <h2 className="text-2xl font-bold text-white mb-6">{editingProduct ? 'Modifier Produit' : 'Nouveau Produit'}</h2>
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                const formData = new FormData(e.currentTarget);
+                const file = (e.currentTarget.elements.namedItem('image') as HTMLInputElement).files?.[0];
+                let imageUrl = editingProduct?.image || 'https://images.unsplash.com/photo-1621605815971-fbc98d665033?w=400&h=300&fit=crop';
+                
+                if (file && file.size > 0) imageUrl = await handleImageUpload(file);
+                
+                const data = {
+                  name: formData.get('name') as string,
+                  buyPrice: parseFloat(formData.get('buyPrice') as string) || 0,
+                  sellPrice: parseFloat(formData.get('sellPrice') as string) || 0,
+                  description: formData.get('description') as string,
+                  stock: parseInt(formData.get('stock') as string) || 10,
+                  image: imageUrl
+                };
+                
+                if (editingProduct) {
+                  await updateProduct(editingProduct.id, data);
+                  toast.success('Produit mis à jour');
+                } else {
+                  await addProduct(data);
+                  toast.success('Produit ajouté');
+                }
+                setProductModalOpen(false);
+              }} className="space-y-4">
+                <div>
+                  <label className="block text-white/60 text-sm mb-1">Nom du produit</label>
+                  <input name="name" defaultValue={editingProduct?.name} required className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-[#D4AF37] focus:outline-none" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-white/60 text-sm mb-1">Prix Achat (€)</label>
+                    <input name="buyPrice" type="number" step="0.01" defaultValue={editingProduct?.buyPrice} required className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-[#D4AF37] focus:outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-white/60 text-sm mb-1">Prix Vente (€)</label>
+                    <input name="sellPrice" type="number" step="0.01" defaultValue={editingProduct?.sellPrice} required className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-[#D4AF37] focus:outline-none" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-white/60 text-sm mb-1">Stock initial</label>
+                  <input name="stock" type="number" defaultValue={editingProduct?.stock || 10} className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-[#D4AF37] focus:outline-none" />
+                </div>
+                <div>
+                  <label className="block text-white/60 text-sm mb-1">Image du produit</label>
+                  <input name="image" type="file" accept="image/*" className="w-full text-sm text-white/60 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-[#D4AF37] file:text-black" />
+                </div>
+                <button type="submit" className="w-full py-3 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black font-bold rounded-lg mt-4 shadow-lg shadow-[#D4AF37]/20 hover:scale-[1.02] transition-transform">
+                  Enregistrer
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
