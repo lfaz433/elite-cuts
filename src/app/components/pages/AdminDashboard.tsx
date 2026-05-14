@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   LayoutDashboard,
   Calendar,
