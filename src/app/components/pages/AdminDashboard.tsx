@@ -1495,7 +1495,7 @@ export default function AdminDashboard() {
                       }}
                       className="px-6 py-3 bg-[#D4AF37]/20 border border-[#D4AF37]/50 hover:bg-[#D4AF37] hover:text-black text-[#D4AF37] font-bold rounded-xl transition-all active:scale-95 flex items-center gap-2"
                     >
-                      Initialiser avec les données par défaut
+                      Initialiser avec les données par défaut (v2)
                     </button>
                   </div>
                 </motion.div>
