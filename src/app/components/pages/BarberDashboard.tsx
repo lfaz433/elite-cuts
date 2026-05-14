@@ -38,7 +38,8 @@ export default function BarberDashboard() {
     attendance,
     businessInfo,
     addSettlement,
-    settlements
+    settlements,
+    updateBarberStatus
   } = useBusiness();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -191,6 +192,45 @@ export default function BarberDashboard() {
               </div>
             </div>
           </div>
+
+          <div className="flex items-center justify-between gap-4 mb-8">
+          <div className="flex items-center gap-4">
+            <div className="relative">
+              <img
+                src={currentBarber?.image}
+                alt={user?.name}
+                className="w-16 h-16 rounded-full object-cover border-2 border-[#D4AF37]"
+              />
+              <div className={`absolute bottom-0 right-0 w-4 h-4 rounded-full border-2 border-black ${
+                currentBarber?.status === 'available' ? 'bg-green-500' :
+                currentBarber?.status === 'busy' ? 'bg-red-500' :
+                currentBarber?.status === 'break' ? 'bg-yellow-500' : 'bg-gray-500'
+              }`} />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-white">Hello, {user?.name}</h1>
+              <p className="text-white/60">Manage your station and bookings</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-4">
+            <select
+              value={currentBarber?.status || 'available'}
+              onChange={(e) => updateBarberStatus(currentBarber.id, e.target.value as any)}
+              className="px-4 py-2 bg-white/5 border border-[#D4AF37]/20 rounded-lg text-white text-sm focus:outline-none focus:border-[#D4AF37]"
+            >
+              <option value="available">Available</option>
+              <option value="busy">Busy</option>
+              <option value="break">On Break</option>
+              <option value="offline">Offline</option>
+            </select>
+            <button
+              onClick={logout}
+              className="p-3 bg-white/5 text-white/60 hover:text-white rounded-lg transition-colors border border-white/10"
+            >
+              <LogOut className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
 
           <button
             onClick={handleSettle}

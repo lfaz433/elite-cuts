@@ -5,10 +5,10 @@ import { useBusiness } from '../context/BusinessContext';
 import { toast } from 'sonner';
 
 export default function BookingModal({ onClose }: { onClose: () => void }) {
-  const { services, barbers, addBooking } = useBusiness();
+  const { services, barbers, bookings, addBooking, getAvailableTimeSlots, getAvailableBarbers } = useBusiness();
   const [step, setStep] = useState(1);
-  const [selectedService, setSelectedService] = useState('');
-  const [selectedBarber, setSelectedBarber] = useState('N\'importe quel coiffeur');
+  const [selectedServiceId, setSelectedServiceId] = useState('');
+  const [selectedBarberId, setSelectedBarberId] = useState('any');
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedTime, setSelectedTime] = useState('');
   
@@ -20,17 +20,35 @@ export default function BookingModal({ onClose }: { onClose: () => void }) {
 
   const [isSuccess, setIsSuccess] = useState(false);
 
-  const timeSlots = ['09:00', '10:00', '11:00', '12:00', '14:00', '15:00', '16:00', '17:00'];
+  const availableTimeSlots = getAvailableTimeSlots(selectedDate, selectedBarberId, selectedServiceId);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    
+    let finalBarberId = selectedBarberId;
+    
+    // Balanced Assignment Algorithm for 'any'
+    if (selectedBarberId === 'any') {
+      const candidates = getAvailableBarbers(selectedDate, selectedTime);
+      if (candidates.length === 0) {
+        toast.error('Plus de coiffeur disponible à cette heure précise.');
+        return;
+      }
+      
+      // Pick the one with the fewest bookings for that day
+      finalBarberId = candidates.reduce((prev, curr) => {
+        const prevCount = bookings.filter(b => b.barberId === prev.id && b.date === selectedDate).length;
+        const currCount = bookings.filter(b => b.barberId === curr.id && b.date === selectedDate).length;
+        return prevCount <= currCount ? prev : curr;
+      }).id;
+    }
     
     addBooking({
       clientName: clientInfo.name,
       clientEmail: clientInfo.email,
       clientPhone: clientInfo.phone,
-      serviceId: services.find(s => s.name === selectedService)?.id || '',
-      barberId: selectedBarber === 'N\'importe quel coiffeur' ? 'any' : (barbers.find(b => b.name === selectedBarber)?.id || ''),
+      serviceId: selectedServiceId,
+      barberId: finalBarberId,
       date: selectedDate,
       time: selectedTime,
     });
@@ -118,9 +136,9 @@ export default function BookingModal({ onClose }: { onClose: () => void }) {
                     <button
                       key={service.id}
                       type="button"
-                      onClick={() => setSelectedService(service.name)}
+                      onClick={() => setSelectedServiceId(service.id)}
                       className={`p-4 rounded-lg text-left transition-all ${
-                        selectedService === service.name
+                        selectedServiceId === service.id
                           ? 'bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black border-transparent scale-[1.02]'
                           : 'bg-white/5 text-white border border-[#D4AF37]/20 hover:bg-white/10'
                       }`}
@@ -139,9 +157,9 @@ export default function BookingModal({ onClose }: { onClose: () => void }) {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <button
                     type="button"
-                    onClick={() => setSelectedBarber('N\'importe quel coiffeur')}
+                    onClick={() => setSelectedBarberId('any')}
                     className={`p-4 rounded-lg flex items-center gap-4 transition-all ${
-                      selectedBarber === 'N\'importe quel coiffeur'
+                      selectedBarberId === 'any'
                         ? 'bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black scale-[1.02]'
                         : 'bg-white/5 text-white border border-[#D4AF37]/20 hover:bg-white/10'
                     }`}
@@ -158,9 +176,9 @@ export default function BookingModal({ onClose }: { onClose: () => void }) {
                     <button
                       key={barber.id}
                       type="button"
-                      onClick={() => setSelectedBarber(barber.name)}
+                      onClick={() => setSelectedBarberId(barber.id)}
                       className={`p-4 rounded-lg flex items-center gap-4 transition-all ${
-                        selectedBarber === barber.name
+                        selectedBarberId === barber.id
                           ? 'bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black scale-[1.02]'
                           : 'bg-white/5 text-white border border-[#D4AF37]/20 hover:bg-white/10'
                       }`}
@@ -196,7 +214,7 @@ export default function BookingModal({ onClose }: { onClose: () => void }) {
                 <div>
                   <label className="block text-white mb-3 font-medium">Sélectionnez l'Heure</label>
                   <div className="grid grid-cols-4 gap-2">
-                    {timeSlots.map((time) => (
+                    {availableTimeSlots.map((time) => (
                       <button
                         key={time}
                         type="button"

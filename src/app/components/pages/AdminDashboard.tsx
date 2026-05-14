@@ -850,9 +850,20 @@ export default function AdminDashboard() {
                                 <h3 className="text-xl font-bold text-white">{barber.name}</h3>
                                 <p className="text-[#D4AF37] text-sm">{barber.specialty}</p>
                               </div>
-                              <span className={`px-2 py-1 rounded-full text-[10px] font-bold ${barber.archived ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}`}>
-                                {barber.archived ? 'ARCHIVÉ' : 'ACTIF'}
-                              </span>
+                              <div className="flex flex-col items-end gap-2">
+                                <span className={`px-2 py-1 rounded-full text-[10px] font-bold ${barber.archived ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}`}>
+                                  {barber.archived ? 'ARCHIVÉ' : 'ACTIF'}
+                                </span>
+                                {barber.status && (
+                                  <span className={`px-2 py-1 rounded-full text-[10px] font-bold ${
+                                    barber.status === 'available' ? 'bg-green-500/20 text-green-400' :
+                                    barber.status === 'busy' ? 'bg-red-500/20 text-red-400' :
+                                    barber.status === 'break' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-gray-500/20 text-gray-400'
+                                  }`}>
+                                    {barber.status.toUpperCase()}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                             
                             <div className="grid grid-cols-2 gap-4 mt-4">

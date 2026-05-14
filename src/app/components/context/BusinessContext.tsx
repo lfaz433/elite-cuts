@@ -36,6 +36,7 @@ export interface Barber {
   email?: string;
   archived?: boolean;
   commission?: number; // percentage
+  status?: 'available' | 'busy' | 'break' | 'offline';
 }
 
 export interface Settlement {
@@ -147,6 +148,9 @@ interface BusinessContextType {
   deleteProduct: (id: string) => Promise<void>;
   addSale: (sale: Omit<Sale, 'id' | 'date' | 'time'>) => Promise<void>;
   seedDatabase: () => Promise<void>;
+  updateBarberStatus: (id: string, status: Barber['status']) => Promise<void>;
+  getAvailableBarbers: (date: string, time: string) => Barber[];
+  getAvailableTimeSlots: (date: string, barberId: string) => string[];
 }
 
 // ... skipping to defaultServices
@@ -339,6 +343,10 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     await deleteDoc(doc(db, 'barbers', id));
   };
 
+  const updateBarberStatus = async (id: string, status: Barber['status']) => {
+    await updateDoc(doc(db, 'barbers', id), { status });
+  };
+
   const addBooking = async (booking: Omit<Booking, 'id' | 'createdAt'> & { status?: Booking['status'] }) => {
     await addDoc(collection(db, 'bookings'), {
       ...booking,
@@ -414,25 +422,44 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const seedDatabase = async () => {
-    // Add default services
-    for (const s of defaultServices) {
-      await addDoc(collection(db, 'services'), s);
+  const getAvailableBarbers = (date: string, time: string, serviceId?: string) => {
+    return barbers.filter(barber => {
+      if (barber.archived || barber.status === 'offline' || barber.status === 'break') return false;
+
+      const isBooked = bookings.some(b => {
+        if (b.barberId !== barber.id || b.date !== date || b.status === 'rejected') return false;
+        
+        // Calculate overlap with buffer
+        const bookingTime = new Date(`${date}T${b.time}`).getTime();
+        const service = services.find(s => s.id === b.serviceId);
+        const durationMin = service ? parseInt(service.duration) : 30;
+        const bookingEndTime = bookingTime + (durationMin + 10) * 60000; // +10min buffer
+        
+        const requestedTime = new Date(`${date}T${time}`).getTime();
+        const requestedDuration = serviceId ? (parseInt(services.find(s => s.id === serviceId)?.duration || '30')) : 30;
+        const requestedEndTime = requestedTime + (requestedDuration + 10) * 60000;
+
+        return (requestedTime < bookingEndTime && requestedEndTime > bookingTime);
+      });
+      
+      return !isBooked;
+    });
+  };
+
+  const getAvailableTimeSlots = (date: string, barberId: string, serviceId?: string) => {
+    // Generate slots every 30 mins
+    const baseSlots = [];
+    for (let h = 9; h <= 18; h++) {
+      baseSlots.push(`${h.toString().padStart(2, '0')}:00`);
+      baseSlots.push(`${h.toString().padStart(2, '0')}:30`);
     }
-    // Add default barbers
-    for (const b of defaultBarbers) {
-      await addDoc(collection(db, 'barbers'), b);
-    }
-    // Add default products
-    for (const p of defaultProducts) {
-      await addDoc(collection(db, 'products'), p);
-    }
-    // Add default info
-    await setDoc(doc(db, 'business', 'info'), defaultBusinessInfo);
-    // Add default gallery
-    for (const url of defaultGallery) {
-      await addDoc(collection(db, 'gallery'), { url });
-    }
+    
+    return baseSlots.filter(time => {
+      if (barberId === 'any') {
+        return getAvailableBarbers(date, time, serviceId).length > 0;
+      }
+      return getAvailableBarbers(date, time, serviceId).some(b => b.id === barberId);
+    });
   };
 
   return (
@@ -444,7 +471,8 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       addBooking, updateBookingStatus, updateBooking, deleteBooking,
       updateBusinessInfo, addToGallery, removeFromGallery,
       addProduct, updateProduct, deleteProduct, addSale,
-      addAttendance, addSettlement, resetBarberBalance, seedDatabase
+      addAttendance, addSettlement, resetBarberBalance, seedDatabase,
+      getAvailableBarbers, getAvailableTimeSlots
     }}>
       {children}
     </BusinessContext.Provider>
