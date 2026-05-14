@@ -20,7 +20,6 @@ import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext';
 import { useBusiness } from '../context/BusinessContext';
 import { useNavigate } from 'react-router';
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Html5Qrcode } from 'html5-qrcode';
 import type { Barber, Service, Product, Booking } from '../context/BusinessContext';
 
