@@ -121,7 +121,12 @@ export default function BarberDashboard() {
   const [checkInModalOpen, setCheckInModalOpen] = useState(false);
   const [settlementModalOpen, setSettlementModalOpen] = useState(false);
 
-  const currentBarber = barbers.find(b => b.username === user?.name) || barbers[0];
+  // Match barber using id (set during login), then username, then name fallback
+  const currentBarber = barbers.find(b => b.id === user?.id)
+    || barbers.find(b => b.username === user?.name)
+    || barbers.find(b => b.name === user?.name)
+    || barbers[0];
+
   const today = new Date().toISOString().split('T')[0];
   const myBookings = bookings.filter(b => b.barberId === currentBarber?.id);
   const todayCompleted = myBookings.filter(b => b.status === 'completed' && b.date === today);

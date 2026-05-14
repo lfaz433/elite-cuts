@@ -290,54 +290,63 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let loaded = 0;
+    const total = 9;
+    const markLoaded = () => { loaded++; if (loaded >= total) setLoading(false); };
+
+    // Safety timeout — never stay loading forever
+    const timeout = setTimeout(() => setLoading(false), 8000);
+
     // Real-time Listeners
     const unsubServices = onSnapshot(collection(db, 'services'), (snapshot) => {
       setServices(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Service)));
-    });
+      markLoaded();
+    }, () => markLoaded());
 
     const unsubBarbers = onSnapshot(collection(db, 'barbers'), (snapshot) => {
       setBarbers(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Barber)));
-    });
+      markLoaded();
+    }, () => markLoaded());
 
     const unsubBookings = onSnapshot(query(collection(db, 'bookings'), orderBy('createdAt', 'desc')), (snapshot) => {
       setBookings(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Booking)));
-    });
+      markLoaded();
+    }, () => markLoaded());
 
     const unsubInfo = onSnapshot(doc(db, 'business', 'info'), (doc) => {
       if (doc.exists()) setBusinessInfo(doc.data() as BusinessInfo);
-    });
+      markLoaded();
+    }, () => markLoaded());
 
     const unsubGallery = onSnapshot(collection(db, 'gallery'), (snapshot) => {
       setGallery(snapshot.docs.map(d => (d.data() as any).url));
-    });
+      markLoaded();
+    }, () => markLoaded());
 
     const unsubProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
       setProducts(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Product)));
-    });
+      markLoaded();
+    }, () => markLoaded());
 
     const unsubSales = onSnapshot(query(collection(db, 'sales'), orderBy('date', 'desc')), (snapshot) => {
       setSales(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Sale)));
-    });
+      markLoaded();
+    }, () => markLoaded());
 
     const unsubAttendance = onSnapshot(query(collection(db, 'attendance'), orderBy('date', 'desc')), (snapshot) => {
       setAttendance(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Attendance)));
-    });
+      markLoaded();
+    }, () => markLoaded());
 
     const unsubSettlements = onSnapshot(query(collection(db, 'settlements'), orderBy('createdAt', 'desc')), (snapshot) => {
       setSettlements(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Settlement)));
-      setLoading(false);
-    });
+      markLoaded();
+    }, () => markLoaded());
 
     return () => {
-      unsubServices();
-      unsubBarbers();
-      unsubBookings();
-      unsubInfo();
-      unsubGallery();
-      unsubProducts();
-      unsubSales();
-      unsubAttendance();
-      unsubSettlements();
+      clearTimeout(timeout);
+      unsubServices(); unsubBarbers(); unsubBookings(); unsubInfo();
+      unsubGallery(); unsubProducts(); unsubSales(); unsubAttendance(); unsubSettlements();
     };
   }, []);
 
@@ -436,8 +445,23 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   };
 
   const seedDatabase = async () => {
-    // Seed function - no-op in production
-    console.log('Database already seeded via Firestore.');
+    // Seed services if empty
+    const hasServices = services.length > 0;
+    const hasBarbers = barbers.length > 0;
+    if (!hasServices) {
+      for (const s of defaultServices) {
+        const { id: _id, ...data } = s;
+        await addDoc(collection(db, 'services'), data);
+      }
+    }
+    if (!hasBarbers) {
+      for (const b of defaultBarbers) {
+        const { id: _id, ...data } = b;
+        await addDoc(collection(db, 'barbers'), { ...data, archived: false });
+      }
+    }
+    // Seed business info
+    await setDoc(doc(db, 'business', 'info'), defaultBusinessInfo, { merge: true });
   };
 
   const resetBarberBalance = async (barberId: string) => {
@@ -474,14 +498,23 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   };
 
   const getAvailableTimeSlots = (date: string, barberId: string, serviceId?: string) => {
-    // Generate slots every 30 mins
     const baseSlots = [];
     for (let h = 9; h <= 18; h++) {
       baseSlots.push(`${h.toString().padStart(2, '0')}:00`);
       baseSlots.push(`${h.toString().padStart(2, '0')}:30`);
     }
-    
-    return baseSlots.filter(time => {
+
+    // Filter out past slots if the date is today
+    const today = new Date().toISOString().split('T')[0];
+    const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
+    const filtered = date === today
+      ? baseSlots.filter(slot => {
+          const [h, m] = slot.split(':').map(Number);
+          return h * 60 + m > nowMinutes + 30; // must be at least 30min in the future
+        })
+      : baseSlots;
+
+    return filtered.filter(time => {
       if (barberId === 'any') {
         return getAvailableBarbers(date, time, serviceId).length > 0;
       }

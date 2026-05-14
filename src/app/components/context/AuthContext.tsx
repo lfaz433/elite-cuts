@@ -5,12 +5,12 @@ interface User {
   name: string;
   email: string;
   role: 'client' | 'admin' | 'barber';
-  avatar?: string;
+  barberId?: string; // for barber role: the Firestore barber document ID
 }
 
 interface AuthContextType {
   user: User | null;
-  login: (email: string, password: string, role: string) => void;
+  login: (email: string, password: string, role: string, name?: string, barberId?: string) => void;
   logout: () => void;
   isAuthenticated: boolean;
 }
@@ -19,24 +19,36 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(() => {
-    const saved = localStorage.getItem('barbershop_user');
-    return saved ? JSON.parse(saved) : null;
+    try {
+      const saved = localStorage.getItem('barbershop_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
   });
 
-  const login = (email: string, password: string, role: string) => {
-    const mockUser: User = {
-      id: Math.random().toString(36).substr(2, 9),
-      name: role === 'admin' ? 'Admin User' : role === 'barber' ? (email.split('@')[0]) : 'Client Name',
+  const login = (email: string, _password: string, role: string, name?: string, barberId?: string) => {
+    const resolvedName = name || email.split('@')[0].replace(/[._-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    const newUser: User = {
+      id: barberId || Math.random().toString(36).substr(2, 9),
+      name: resolvedName,
       email,
       role: role as 'client' | 'admin' | 'barber',
+      barberId,
     };
-    setUser(mockUser);
-    localStorage.setItem('barbershop_user', JSON.stringify(mockUser));
+    setUser(newUser);
+    try {
+      localStorage.setItem('barbershop_user', JSON.stringify(newUser));
+    } catch {
+      // localStorage might be full
+    }
   };
 
   const logout = () => {
     setUser(null);
-    localStorage.removeItem('barbershop_user');
+    try {
+      localStorage.removeItem('barbershop_user');
+    } catch {}
   };
 
   return (
