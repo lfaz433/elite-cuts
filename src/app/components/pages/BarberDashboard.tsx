@@ -25,6 +25,27 @@ import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, R
 
 // --- Sub-components ---
 
+const SuccessOverlay = () => (
+  <motion.div
+    initial={{ opacity: 0 }}
+    animate={{ opacity: 1 }}
+    exit={{ opacity: 0 }}
+    className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm"
+  >
+    <motion.div
+      initial={{ scale: 0.5, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      transition={{ type: 'spring', damping: 15 }}
+      className="bg-[#141414] p-8 rounded-3xl border border-green-500/50 flex flex-col items-center justify-center gap-4 shadow-2xl shadow-green-500/20"
+    >
+      <div className="w-24 h-24 bg-green-500/20 rounded-full flex items-center justify-center mb-2">
+        <CheckCircle className="w-12 h-12 text-green-500" />
+      </div>
+      <h3 className="text-2xl font-bold text-white">Action réussie !</h3>
+    </motion.div>
+  </motion.div>
+);
+
 const SettlementModal = ({ onClose, todayEarnings, currentBarber, addSettlement }: any) => {
   const [amountPaid, setAmountPaid] = useState(todayEarnings.total.toString());
   const balance = todayEarnings.total - parseFloat(amountPaid || '0');
@@ -89,13 +110,21 @@ const AddServiceModal = ({ bookingId, onClose, bookings, services, updateBooking
   const service = services.find((s: any) => s.id === booking?.serviceId);
   const [tip, setTip] = useState('0');
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card'>('cash');
+  const [isSuccess, setIsSuccess] = useState(false);
+
   if (!booking || !service) return null;
   const handleFinish = () => {
     const price = parseInt(service.price.replace(/[^0-9]/g, ''));
     updateBooking(bookingId, { status: 'completed', pricePaid: price, tip: parseFloat(tip) || 0, paymentMethod });
-    toast.success("✅ Action completed successfully");
-    onClose();
+    setIsSuccess(true);
+    setTimeout(() => {
+      setIsSuccess(false);
+      onClose();
+    }, 1500);
   };
+
+  if (isSuccess) return <SuccessOverlay />;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
       <div className="bg-[#141414] p-8 rounded-2xl border border-[#D4AF37]/30 w-full max-w-md">
@@ -121,6 +150,7 @@ const WalkInModal = ({ onClose, services, currentBarber, commissionRate, addBook
   const [selectedServiceId, setSelectedServiceId] = useState('');
   const [tipAmount, setTipAmount] = useState('0');
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card'>('cash');
+  const [isSuccess, setIsSuccess] = useState(false);
 
   const selectedService = services.find((s: any) => s.id === selectedServiceId);
   const price = selectedService ? parseInt(selectedService.price.replace(/[^0-9]/g, '')) : 0;
@@ -146,9 +176,14 @@ const WalkInModal = ({ onClose, services, currentBarber, commissionRate, addBook
     };
     
     addBooking(newBooking);
-    toast.success('✅ Action completed successfully');
-    onClose();
+    setIsSuccess(true);
+    setTimeout(() => {
+      setIsSuccess(false);
+      onClose();
+    }, 1500);
   };
+
+  if (isSuccess) return <SuccessOverlay />;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">

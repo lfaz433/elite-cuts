@@ -33,6 +33,27 @@ import { toast } from 'sonner';
 import { QRCodeCanvas } from 'qrcode.react';
 import type { Barber, Service, Product } from '../context/BusinessContext';
 
+const SuccessOverlay = () => (
+  <motion.div
+    initial={{ opacity: 0 }}
+    animate={{ opacity: 1 }}
+    exit={{ opacity: 0 }}
+    className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm"
+  >
+    <motion.div
+      initial={{ scale: 0.5, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      transition={{ type: 'spring', damping: 15 }}
+      className="bg-[#141414] p-8 rounded-3xl border border-green-500/50 flex flex-col items-center justify-center gap-4 shadow-2xl shadow-green-500/20"
+    >
+      <div className="w-24 h-24 bg-green-500/20 rounded-full flex items-center justify-center mb-2">
+        <CheckCircle className="w-12 h-12 text-green-500" />
+      </div>
+      <h3 className="text-2xl font-bold text-white">Action réussie !</h3>
+    </motion.div>
+  </motion.div>
+);
+
 export default function AdminDashboard() {
   const { user, logout } = useAuth();
   const { 
@@ -68,6 +89,15 @@ export default function AdminDashboard() {
   const [dateFilter, setDateFilter] = useState<'all' | 'day' | 'week' | 'month' | 'custom'>('all');
   const [customDateRange, setCustomDateRange] = useState({ start: '', end: '' });
   const [barberFilter, setBarberFilter] = useState('all');
+  const [successOverlay, setSuccessOverlay] = useState(false);
+
+  const triggerSuccess = (callback: () => void) => {
+    setSuccessOverlay(true);
+    setTimeout(() => {
+      setSuccessOverlay(false);
+      callback();
+    }, 1500);
+  };
 
   // Modals for adding/editing items
   const [barberModalOpen, setBarberModalOpen] = useState(false);
@@ -1533,12 +1563,10 @@ export default function AdminDashboard() {
                 
                 if (editingBarber) {
                   await updateBarber(editingBarber.id, data);
-                  toast.success('✅ Action completed successfully');
                 } else {
                   await addBarber({ ...data, password: 'password123', experience: '5 ans', rating: 5, archived: false });
-                  toast.success('✅ Action completed successfully');
                 }
-                setBarberModalOpen(false);
+                triggerSuccess(() => setBarberModalOpen(false));
               }} className="space-y-4">
                 <div>
                   <label className="block text-white/60 text-sm mb-1">Nom complet</label>
@@ -1598,12 +1626,10 @@ export default function AdminDashboard() {
                 
                 if (editingService) {
                   await updateService(editingService.id, data);
-                  toast.success('✅ Action completed successfully');
                 } else {
                   await addService(data);
-                  toast.success('✅ Action completed successfully');
                 }
-                setServiceModalOpen(false);
+                triggerSuccess(() => setServiceModalOpen(false));
               }} className="space-y-4">
                 <div>
                   <label className="block text-white/60 text-sm mb-1">Nom du service</label>
@@ -1666,12 +1692,10 @@ export default function AdminDashboard() {
                 
                 if (editingProduct) {
                   await updateProduct(editingProduct.id, data);
-                  toast.success('✅ Action completed successfully');
                 } else {
                   await addProduct(data);
-                  toast.success('✅ Action completed successfully');
                 }
-                setProductModalOpen(false);
+                triggerSuccess(() => setProductModalOpen(false));
               }} className="space-y-4">
                 <div>
                   <label className="block text-white/60 text-sm mb-1">Nom du produit</label>
@@ -1719,6 +1743,7 @@ export default function AdminDashboard() {
             </motion.div>
           </div>
         )}
+        {successOverlay && <SuccessOverlay />}
       </AnimatePresence>
     </div>
   );

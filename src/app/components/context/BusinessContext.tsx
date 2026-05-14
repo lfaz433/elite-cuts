@@ -218,10 +218,16 @@ const defaultBarbers: Barber[] = [
     username: 'andre',
     password: 'password123',
     phone: '+33 6 87 65 43 21',
-    email: 'andre@elitecuts.fr',
-    commission: 50,
-    archived: false
-  },
+    email: 'andre@test.com',
+    status: 'available',
+    commission: 50
+  }
+];
+
+const defaultProducts: Product[] = [
+  { id: 'p1', name: 'Gel Coiffant Elite', buyPrice: 5, sellPrice: 15, category: 'Gel', trackStock: true, stock: 20, image: 'https://images.unsplash.com/photo-1599305090598-fe179d501227?w=300&h=300&fit=crop', description: 'Fixation forte' },
+  { id: 'p2', name: 'Shampooing Barbe', buyPrice: 7, sellPrice: 20, category: 'Shampoo', trackStock: true, stock: 15, image: 'https://images.unsplash.com/photo-1620916566398-39f1143ab7be?w=300&h=300&fit=crop', description: 'Hydratant' },
+  { id: 'p3', name: 'Boisson Energisante', buyPrice: 1, sellPrice: 3, category: 'Drinks', trackStock: true, stock: 50, image: 'https://images.unsplash.com/photo-1527661591475-527312dd65f5?w=300&h=300&fit=crop', description: 'Pour patienter' }
 ];
 
 const defaultBusinessInfo: BusinessInfo = {
@@ -456,6 +462,9 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     // Seed services if empty
     const hasServices = services.length > 0;
     const hasBarbers = barbers.length > 0;
+    const hasProducts = products.length > 0;
+    const hasBookings = bookings.length > 0;
+
     if (!hasServices) {
       for (const s of defaultServices) {
         const { id: _id, ...data } = s;
@@ -468,6 +477,41 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
         await addDoc(collection(db, 'barbers'), { ...data, archived: false });
       }
     }
+    if (!hasProducts) {
+      for (const p of defaultProducts) {
+        const { id: _id, ...data } = p;
+        await addDoc(collection(db, 'products'), data);
+      }
+    }
+    
+    // Seed dummy bookings if services and barbers exist
+    if (!hasBookings && services.length > 0 && barbers.length > 0) {
+      const statuses = ['completed', 'completed', 'completed', 'pending', 'approved'];
+      for (let i = 0; i < 20; i++) {
+        const d = new Date();
+        d.setDate(d.getDate() - Math.floor(Math.random() * 14)); // Past 14 days
+        const status = statuses[Math.floor(Math.random() * statuses.length)];
+        const service = services[Math.floor(Math.random() * services.length)];
+        const b: any = {
+          clientName: `Client Test ${i+1}`,
+          clientEmail: `client${i}@test.com`,
+          clientPhone: '0600000000',
+          serviceId: service.id,
+          barberId: barbers[0].id,
+          date: d.toISOString().split('T')[0],
+          time: '14:00',
+          status: status,
+          createdAt: new Date().toISOString()
+        };
+        if (status === 'completed') {
+          b.pricePaid = parseInt(service.price.replace(/[^0-9]/g, '')) || 15;
+          b.tip = Math.floor(Math.random() * 5);
+          b.paymentMethod = Math.random() > 0.5 ? 'cash' : 'card';
+        }
+        await addDoc(collection(db, 'bookings'), b);
+      }
+    }
+
     // Seed business info
     await setDoc(doc(db, 'business', 'info'), defaultBusinessInfo, { merge: true });
   };
