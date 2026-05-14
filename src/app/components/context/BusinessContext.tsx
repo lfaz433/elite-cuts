@@ -114,6 +114,18 @@ export interface BusinessInfo {
   };
   latitude?: number;
   longitude?: number;
+  // Branding / Landing Page
+  logo?: string; // base64 or URL
+  heroImage?: string;
+  heroTitle?: string;
+  heroSubtitle?: string;
+  heroButtonText?: string;
+  stats?: {
+    id: string;
+    label: string;
+    value: string;
+    enabled: boolean;
+  }[];
 }
 
 interface BusinessContextType {
@@ -222,8 +234,18 @@ const defaultBusinessInfo: BusinessInfo = {
   socials: {
     instagram: 'elitecuts_officiel',
   },
-  latitude: 48.8566, // Default to Paris for demo
+  latitude: 48.8566,
   longitude: 2.3522,
+  heroImage: 'https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=1920&h=1080&fit=crop',
+  heroTitle: 'Soins Premium',
+  heroSubtitle: 'Vivez une expérience de soins de luxe avec des maîtres barbiers dans un environnement premium',
+  heroButtonText: 'Prendre Rendez-vous',
+  stats: [
+    { id: 'experience', label: "Années d'expérience", value: '15+', enabled: true },
+    { id: 'clients', label: 'Clients Satisfaits', value: '10K+', enabled: true },
+    { id: 'services', label: 'Services Réalisés', value: '50K+', enabled: true },
+    { id: 'rating', label: 'Note des Clients', value: '4.9', enabled: true },
+  ],
 };
 
 const defaultGallery = [

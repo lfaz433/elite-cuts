@@ -317,9 +317,11 @@ export default function AdminDashboard() {
               { id: 'reports', icon: TrendingUp, label: 'Rapports' },
               { id: 'barbers', icon: Users, label: 'Coiffeurs' },
               { id: 'services', icon: Scissors, label: 'Services' },
-              { id: 'settings', icon: Settings, label: 'Paramètres' },
               { id: 'boutique', icon: ShoppingBag, label: 'Boutique' },
+              { id: 'branding', icon: ImageIcon, label: 'Branding' },
+              { id: 'settings', icon: Settings, label: 'Paramètres' },
             ].map((tab) => (
+
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
@@ -1198,6 +1200,106 @@ export default function AdminDashboard() {
               </div>
             )}
 
+            {activeTab === 'branding' && (
+              <div className="space-y-6">
+                <h2 className="text-3xl font-bold text-white">Personnalisation du Site</h2>
+
+                {/* Hero Section */}
+                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-gradient-to-br from-[#141414] to-[#1a1a1a] rounded-2xl border border-[#D4AF37]/20 p-6">
+                  <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2"><ImageIcon className="w-5 h-5 text-[#D4AF37]" />Hero & Logo</h3>
+                  <div className="grid md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-white/60 text-sm mb-2">Image Hero (fond)</label>
+                      {businessInfo.heroImage && <img src={businessInfo.heroImage} className="w-full h-32 object-cover rounded-lg mb-2 opacity-60" />}
+                      <input type="file" accept="image/*" onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (file) { const url = await handleImageUpload(file); updateBusinessInfo({ heroImage: url }); toast.success('Image hero mise à jour !'); }
+                      }} className="w-full text-sm text-white/60 file:mr-3 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-[#D4AF37] file:text-black" />
+                    </div>
+                    <div>
+                      <label className="block text-white/60 text-sm mb-2">Logo Navbar</label>
+                      {businessInfo.logo && <img src={businessInfo.logo} className="h-16 object-contain mb-2 bg-white/5 p-2 rounded-lg" />}
+                      <input type="file" accept="image/*" onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (file) { const url = await handleImageUpload(file); updateBusinessInfo({ logo: url }); toast.success('Logo mis à jour !'); }
+                      }} className="w-full text-sm text-white/60 file:mr-3 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-[#D4AF37] file:text-black" />
+                      {businessInfo.logo && <button onClick={() => { updateBusinessInfo({ logo: '' }); toast.success('Logo réinitialisé'); }} className="mt-2 text-xs text-red-400 hover:text-red-300">Supprimer le logo</button>}
+                    </div>
+                  </div>
+
+                  <div className="grid md:grid-cols-3 gap-4 mt-6">
+                    <div>
+                      <label className="block text-white/60 text-sm mb-2">Titre principal</label>
+                      <input defaultValue={businessInfo.heroTitle || 'Soins Premium'} onBlur={(e) => updateBusinessInfo({ heroTitle: e.target.value })} className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-lg text-white focus:border-[#D4AF37] focus:outline-none" />
+                    </div>
+                    <div>
+                      <label className="block text-white/60 text-sm mb-2">Texte du bouton</label>
+                      <input defaultValue={businessInfo.heroButtonText || 'Prendre Rendez-vous'} onBlur={(e) => updateBusinessInfo({ heroButtonText: e.target.value })} className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-lg text-white focus:border-[#D4AF37] focus:outline-none" />
+                    </div>
+                    <div className="md:col-span-1">
+                      <label className="block text-white/60 text-sm mb-2">Sous-titre</label>
+                      <textarea defaultValue={businessInfo.heroSubtitle} onBlur={(e) => updateBusinessInfo({ heroSubtitle: e.target.value })} rows={3} className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-lg text-white focus:border-[#D4AF37] focus:outline-none text-sm resize-none" />
+                    </div>
+                  </div>
+                </motion.div>
+
+                {/* Stats Section */}
+                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-gradient-to-br from-[#141414] to-[#1a1a1a] rounded-2xl border border-[#D4AF37]/20 p-6">
+                  <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2"><TrendingUp className="w-5 h-5 text-[#D4AF37]" />Statistiques</h3>
+                  <div className="grid md:grid-cols-2 gap-4">
+                    {(businessInfo.stats || [
+                      { id: 'experience', label: "Années d'expérience", value: '15+', enabled: true },
+                      { id: 'clients', label: 'Clients Satisfaits', value: '10K+', enabled: true },
+                      { id: 'services', label: 'Services Réalisés', value: '50K+', enabled: true },
+                      { id: 'rating', label: 'Note des Clients', value: '4.9', enabled: true },
+                    ]).map((stat, idx) => (
+                      <div key={stat.id} className="p-4 bg-white/5 rounded-xl border border-white/10">
+                        <div className="flex items-center justify-between mb-3">
+                          <span className="text-white font-medium text-sm">{stat.label}</span>
+                          <button
+                            onClick={() => {
+                              const newStats = [...(businessInfo.stats || [])];
+                              newStats[idx] = { ...stat, enabled: !stat.enabled };
+                              updateBusinessInfo({ stats: newStats });
+                            }}
+                            className={`relative w-12 h-6 rounded-full transition-colors ${stat.enabled ? 'bg-[#D4AF37]' : 'bg-white/10'}`}
+                          >
+                            <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all shadow ${stat.enabled ? 'left-7' : 'left-1'}`} />
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-white/40 text-[10px] uppercase tracking-wider">Valeur</label>
+                            <input
+                              defaultValue={stat.value}
+                              onBlur={(e) => {
+                                const newStats = [...(businessInfo.stats || [])];
+                                newStats[idx] = { ...stat, value: e.target.value };
+                                updateBusinessInfo({ stats: newStats });
+                              }}
+                              className="w-full bg-transparent border-b border-white/10 text-white text-lg font-bold focus:outline-none focus:border-[#D4AF37] py-1"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-white/40 text-[10px] uppercase tracking-wider">Label</label>
+                            <input
+                              defaultValue={stat.label}
+                              onBlur={(e) => {
+                                const newStats = [...(businessInfo.stats || [])];
+                                newStats[idx] = { ...stat, label: e.target.value };
+                                updateBusinessInfo({ stats: newStats });
+                              }}
+                              className="w-full bg-transparent border-b border-white/10 text-white/60 text-sm focus:outline-none focus:border-[#D4AF37] py-1"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </motion.div>
+              </div>
+            )}
+
             {activeTab === 'settings' && (
               <div className="space-y-6">
                 <h2 className="text-3xl font-bold text-white">Paramètres de l'entreprise</h2>
@@ -1367,6 +1469,7 @@ export default function AdminDashboard() {
           { id: 'boutique', icon: ShoppingBag, label: 'Boutique' },
           { id: 'barbers', icon: Users, label: 'Coiffeurs' },
           { id: 'services', icon: Scissors, label: 'Services' },
+          { id: 'branding', icon: ImageIcon, label: 'Branding' },
           { id: 'settings', icon: Settings, label: 'Paramètres' },
         ].map((tab) => (
           <button
