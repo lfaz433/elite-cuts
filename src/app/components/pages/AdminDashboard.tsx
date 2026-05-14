@@ -241,13 +241,13 @@ export default function AdminDashboard() {
   const handleApproveBooking = (id: string) => {
     if (confirm("Le client a-t-il payé ? Cliquez sur OK pour approuver.")) {
       updateBookingStatus(id, 'approved');
-      toast.success('Réservation approuvée !');
+      toast.success('✅ Action completed successfully');
     }
   };
 
   const handleRejectBooking = (id: string) => {
     updateBookingStatus(id, 'rejected');
-    toast.error('Réservation rejetée');
+    toast.success('✅ Action completed successfully');
   };
 
   const renderDateFilterSelector = () => (
@@ -470,7 +470,7 @@ export default function AdminDashboard() {
                           date,
                           time
                         });
-                        toast.success('Réservation ajoutée !');
+                        toast.success('✅ Action completed successfully');
                       }
                     }}
                     className="px-6 py-2 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black rounded-lg hover:shadow-lg hover:shadow-[#D4AF37]/50 transition-all font-bold flex items-center gap-2"
@@ -528,7 +528,7 @@ export default function AdminDashboard() {
                                 const newTime = prompt('Nouvelle heure', booking.time);
                                 if (newDate && newTime) {
                                   updateBooking(booking.id, { date: newDate, time: newTime });
-                                  toast.success('Réservation modifiée !');
+                                  toast.success('✅ Action completed successfully');
                                 }
                               }}
                               className="px-4 py-2 bg-white/5 text-[#D4AF37] rounded-lg hover:bg-white/10 transition-colors flex items-center gap-2 font-bold"
@@ -870,14 +870,10 @@ export default function AdminDashboard() {
                           </div>
                         </div>
 
-                        <div className="mt-6 grid grid-cols-3 gap-4 pt-6 border-t border-white/5">
+                        <div className="mt-6 grid grid-cols-2 gap-4 pt-6 border-t border-white/5">
                           <div>
                             <p className="text-white/40 text-[10px] uppercase">Commission</p>
                             <p className="text-white font-bold">{barber.commission || 50}%</p>
-                          </div>
-                          <div>
-                            <p className="text-white/40 text-[10px] uppercase">Station</p>
-                            <p className="text-white font-bold">{barber.station || 'N/A'}</p>
                           </div>
                           <div>
                             <p className="text-white/40 text-[10px] uppercase">Balance</p>
@@ -909,7 +905,7 @@ export default function AdminDashboard() {
                           <button 
                             onClick={() => {
                               updateBarber(barber.id, { archived: !barber.archived });
-                              toast.info(barber.archived ? 'Coiffeur réactivé' : 'Coiffeur archivé');
+                              toast.success('✅ Action completed successfully');
                             }}
                             className={`p-2 rounded-lg transition-all ${barber.archived ? 'bg-green-500/10 text-green-400' : 'bg-white/5 text-red-400'}`}
                             title={barber.archived ? "Désarchiver" : "Archiver"}
@@ -943,7 +939,7 @@ export default function AdminDashboard() {
                       const url = prompt('URL de l\'image');
                       if (url) {
                         addToGallery(url);
-                        toast.success('Image ajoutée !');
+                        toast.success('✅ Action completed successfully');
                       }
                     }}
                     className="px-6 py-2 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black rounded-lg hover:shadow-lg hover:shadow-[#D4AF37]/50 transition-all font-bold flex items-center gap-2"
@@ -996,7 +992,7 @@ export default function AdminDashboard() {
                               buyPrice: prod.buyPrice,
                               sellPrice: prod.sellPrice
                             });
-                            toast.success('Vente enregistrée !');
+                            toast.success('✅ Action completed successfully');
                           } else {
                             toast.error('Produit introuvable.');
                           }
@@ -1112,7 +1108,6 @@ export default function AdminDashboard() {
                           <thead>
                             <tr className="text-left text-white/40 border-b border-white/10">
                               <th className="pb-4 font-medium">Barbier</th>
-                              <th className="pb-4 font-medium">Station</th>
                               <th className="pb-4 font-medium">Arrivée</th>
                               <th className="pb-4 font-medium">Statut</th>
                             </tr>
@@ -1130,7 +1125,6 @@ export default function AdminDashboard() {
                                         <span>{barber?.name}</span>
                                       </div>
                                     </td>
-                                    <td className="py-4">{record.station}</td>
                                     <td className="py-4">{record.checkInTime}</td>
                                     <td className="py-4">
                                       <span className={`px-2 py-1 rounded-full text-xs font-bold ${
@@ -1144,7 +1138,7 @@ export default function AdminDashboard() {
                               })}
                              {(attendance || []).filter(a => a.date === new Date().toISOString().split('T')[0]).length === 0 && (
                               <tr>
-                                <td colSpan={4} className="py-8 text-center text-white/40 italic">
+                                 <td colSpan={3} className="py-8 text-center text-white/40 italic">
                                   Aucun pointage enregistré pour le moment.
                                 </td>
                               </tr>
@@ -1169,21 +1163,39 @@ export default function AdminDashboard() {
                             <div className="flex items-center justify-between mb-4">
                               <div>
                                 <p className="text-white font-bold">{barber.name}</p>
-                                <p className="text-white/40 text-xs">Station {barber.station || 'N/A'}</p>
                               </div>
-                              <button 
-                                onClick={() => window.print()} 
-                                className="p-2 bg-[#D4AF37]/10 text-[#D4AF37] rounded-lg hover:bg-[#D4AF37]/20"
-                                title="Imprimer"
-                              >
-                                <ImageIcon className="w-4 h-4" />
-                              </button>
+                              <div className="flex gap-2">
+                                <button 
+                                  onClick={() => window.print()} 
+                                  className="p-2 bg-[#D4AF37]/10 text-[#D4AF37] rounded-lg hover:bg-[#D4AF37]/20"
+                                  title="Imprimer"
+                                >
+                                  <ImageIcon className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    const canvas = document.getElementById(`qr-${barber.id}`) as HTMLCanvasElement;
+                                    if (canvas) {
+                                      const pngUrl = canvas.toDataURL("image/png");
+                                      const downloadLink = document.createElement("a");
+                                      downloadLink.href = pngUrl;
+                                      downloadLink.download = `QR_${barber.name.replace(/\s+/g, '_')}.png`;
+                                      document.body.appendChild(downloadLink);
+                                      downloadLink.click();
+                                      document.body.removeChild(downloadLink);
+                                    }
+                                  }}
+                                  className="px-3 py-1 bg-white/10 text-white rounded-lg text-xs hover:bg-white/20 font-bold"
+                                >
+                                  PNG
+                                </button>
+                              </div>
                             </div>
                             <div className="flex justify-center bg-white p-3 rounded-lg">
                               <QRCodeCanvas 
+                                id={`qr-${barber.id}`}
                                 value={JSON.stringify({ 
                                   barberId: barber.id, 
-                                  station: barber.station,
                                   type: 'check-in'
                                 })}
                                 size={120}
@@ -1213,7 +1225,7 @@ export default function AdminDashboard() {
                       {businessInfo.heroImage && <img src={businessInfo.heroImage} className="w-full h-32 object-cover rounded-lg mb-2 opacity-60" />}
                       <input type="file" accept="image/*" onChange={async (e) => {
                         const file = e.target.files?.[0];
-                        if (file) { const url = await handleImageUpload(file); updateBusinessInfo({ heroImage: url }); toast.success('Image hero mise à jour !'); }
+                        if (file) { const url = await handleImageUpload(file); updateBusinessInfo({ heroImage: url }); toast.success('✅ Action completed successfully'); }
                       }} className="w-full text-sm text-white/60 file:mr-3 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-[#D4AF37] file:text-black" />
                     </div>
                     <div>
@@ -1221,9 +1233,9 @@ export default function AdminDashboard() {
                       {businessInfo.logo && <img src={businessInfo.logo} className="h-16 object-contain mb-2 bg-white/5 p-2 rounded-lg" />}
                       <input type="file" accept="image/*" onChange={async (e) => {
                         const file = e.target.files?.[0];
-                        if (file) { const url = await handleImageUpload(file); updateBusinessInfo({ logo: url }); toast.success('Logo mis à jour !'); }
+                        if (file) { const url = await handleImageUpload(file); updateBusinessInfo({ logo: url }); toast.success('✅ Action completed successfully'); }
                       }} className="w-full text-sm text-white/60 file:mr-3 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-[#D4AF37] file:text-black" />
-                      {businessInfo.logo && <button onClick={() => { updateBusinessInfo({ logo: '' }); toast.success('Logo réinitialisé'); }} className="mt-2 text-xs text-red-400 hover:text-red-300">Supprimer le logo</button>}
+                      {businessInfo.logo && <button onClick={() => { updateBusinessInfo({ logo: '' }); toast.success('✅ Action completed successfully'); }} className="mt-2 text-xs text-red-400 hover:text-red-300">Supprimer le logo</button>}
                     </div>
                   </div>
 
@@ -1327,7 +1339,7 @@ export default function AdminDashboard() {
                           weekends: formData.get('weekends') as string,
                         }
                       });
-                      toast.success('Paramètres mis à jour !');
+                      toast.success('✅ Action completed successfully');
                     }}
                     className="space-y-6"
                   >
@@ -1436,7 +1448,7 @@ export default function AdminDashboard() {
                       onClick={() => {
                         if (confirm('ATTENTION: Voulez-vous vraiment réinitialiser TOUTES les balances de TOUS les coiffeurs à 0€ ?')) {
                           barbers.forEach(b => resetBarberBalance(b.id));
-                          toast.error('Toutes les balances ont été réinitialisées.');
+                          toast.success('✅ Action completed successfully');
                         }
                       }}
                       className="px-6 py-3 bg-red-600/20 border border-red-500/50 hover:bg-red-600 text-white font-bold rounded-xl transition-all active:scale-95 flex items-center gap-2"
@@ -1448,7 +1460,7 @@ export default function AdminDashboard() {
                       onClick={async () => {
                         if (confirm('Voulez-vous remplir la base de données avec les données par défaut (Services, Coiffeurs, Produits) ?')) {
                           await seedDatabase();
-                          toast.success('Base de données initialisée !');
+                          toast.success('✅ Action completed successfully');
                         }
                       }}
                       className="px-6 py-3 bg-[#D4AF37]/20 border border-[#D4AF37]/50 hover:bg-[#D4AF37] hover:text-black text-[#D4AF37] font-bold rounded-xl transition-all active:scale-95 flex items-center gap-2"
@@ -1521,10 +1533,10 @@ export default function AdminDashboard() {
                 
                 if (editingBarber) {
                   await updateBarber(editingBarber.id, data);
-                  toast.success('Coiffeur mis à jour');
+                  toast.success('✅ Action completed successfully');
                 } else {
                   await addBarber({ ...data, password: 'password123', experience: '5 ans', rating: 5, archived: false });
-                  toast.success('Coiffeur ajouté');
+                  toast.success('✅ Action completed successfully');
                 }
                 setBarberModalOpen(false);
               }} className="space-y-4">
@@ -1542,13 +1554,9 @@ export default function AdminDashboard() {
                     <input name="username" defaultValue={editingBarber?.username} required className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-[#D4AF37] focus:outline-none" />
                   </div>
                   <div>
-                    <label className="block text-white/60 text-sm mb-1">Commission %</label>
+                  <label className="block text-white/60 text-sm mb-1">Commission %</label>
                     <input name="commission" type="number" defaultValue={editingBarber?.commission || 50} className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-[#D4AF37] focus:outline-none" />
                   </div>
-                </div>
-                <div>
-                  <label className="block text-white/60 text-sm mb-1">Station</label>
-                  <input name="station" defaultValue={editingBarber?.station} className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-[#D4AF37] focus:outline-none" />
                 </div>
                 <div>
                   <label className="block text-white/60 text-sm mb-1">Photo de profil</label>
@@ -1590,10 +1598,10 @@ export default function AdminDashboard() {
                 
                 if (editingService) {
                   await updateService(editingService.id, data);
-                  toast.success('Service mis à jour');
+                  toast.success('✅ Action completed successfully');
                 } else {
                   await addService(data);
-                  toast.success('Service ajouté');
+                  toast.success('✅ Action completed successfully');
                 }
                 setServiceModalOpen(false);
               }} className="space-y-4">
@@ -1651,15 +1659,17 @@ export default function AdminDashboard() {
                   sellPrice: parseFloat(formData.get('sellPrice') as string) || 0,
                   description: formData.get('description') as string,
                   stock: parseInt(formData.get('stock') as string) || 10,
+                  category: formData.get('category') as string,
+                  trackStock: formData.get('trackStock') === 'on',
                   image: imageUrl
                 };
                 
                 if (editingProduct) {
                   await updateProduct(editingProduct.id, data);
-                  toast.success('Produit mis à jour');
+                  toast.success('✅ Action completed successfully');
                 } else {
                   await addProduct(data);
-                  toast.success('Produit ajouté');
+                  toast.success('✅ Action completed successfully');
                 }
                 setProductModalOpen(false);
               }} className="space-y-4">
@@ -1680,6 +1690,23 @@ export default function AdminDashboard() {
                 <div>
                   <label className="block text-white/60 text-sm mb-1">Stock initial</label>
                   <input name="stock" type="number" defaultValue={editingProduct?.stock || 10} className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-[#D4AF37] focus:outline-none" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-white/60 text-sm mb-1">Catégorie</label>
+                    <select name="category" defaultValue={editingProduct?.category || 'Gel'} className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-[#D4AF37] focus:outline-none">
+                      <option value="Gel">Gel</option>
+                      <option value="Shampoo">Shampoo</option>
+                      <option value="Drinks">Drinks</option>
+                      <option value="Other">Autre</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center mt-6">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input name="trackStock" type="checkbox" defaultChecked={editingProduct?.trackStock ?? true} className="w-5 h-5 accent-[#D4AF37]" />
+                      <span className="text-white/60 text-sm">Gérer le stock</span>
+                    </label>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-white/60 text-sm mb-1">Image du produit</label>

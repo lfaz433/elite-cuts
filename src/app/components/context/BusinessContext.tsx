@@ -28,7 +28,6 @@ export interface Barber {
   experience: string;
   rating: number;
   image: string;
-  station?: string;
   shiftStart?: string; // HH:MM
   username?: string;
   password?: string;
@@ -55,7 +54,6 @@ export interface Attendance {
   barberId: string;
   date: string;
   checkInTime: string;
-  station: string;
   location: string;
   status: 'on-time' | 'late';
 }
@@ -84,6 +82,8 @@ export interface Product {
   image: string;
   description: string;
   stock?: number;
+  category?: string;
+  trackStock?: boolean;
 }
 
 export interface Sale {
@@ -193,7 +193,6 @@ const defaultBarbers: Barber[] = [
     experience: '12 ans',
     rating: 4.9,
     image: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&h=300&fit=crop',
-    station: '1',
     shiftStart: '09:00',
     username: 'marcus',
     password: 'password123',
@@ -209,7 +208,6 @@ const defaultBarbers: Barber[] = [
     experience: '8 ans',
     rating: 4.8,
     image: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=300&h=300&fit=crop',
-    station: '2',
     shiftStart: '09:30',
     username: 'andre',
     password: 'password123',
@@ -263,6 +261,8 @@ const defaultProducts: Product[] = [
     image: 'https://images.unsplash.com/photo-1621605815971-fbc98d665033?w=400&h=300&fit=crop',
     description: 'Nourrit et adoucit la barbe au quotidien.',
     stock: 25,
+    category: 'Shampoo',
+    trackStock: true
   },
   {
     id: '2',
@@ -272,6 +272,8 @@ const defaultProducts: Product[] = [
     image: 'https://images.unsplash.com/photo-1599305090598-fe179d501227?w=400&h=300&fit=crop',
     description: 'Fixation forte avec un fini mat naturel.',
     stock: 40,
+    category: 'Gel',
+    trackStock: true
   }
 ];
 
