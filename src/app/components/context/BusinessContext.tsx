@@ -224,11 +224,7 @@ const defaultBarbers: Barber[] = [
   }
 ];
 
-const defaultProducts: Product[] = [
-  { id: 'p1', name: 'Gel Coiffant Elite', buyPrice: 5, sellPrice: 15, category: 'Gel', trackStock: true, stock: 20, image: 'https://images.unsplash.com/photo-1599305090598-fe179d501227?w=300&h=300&fit=crop', description: 'Fixation forte' },
-  { id: 'p2', name: 'Shampooing Barbe', buyPrice: 7, sellPrice: 20, category: 'Shampoo', trackStock: true, stock: 15, image: 'https://images.unsplash.com/photo-1620916566398-39f1143ab7be?w=300&h=300&fit=crop', description: 'Hydratant' },
-  { id: 'p3', name: 'Boisson Energisante', buyPrice: 1, sellPrice: 3, category: 'Drinks', trackStock: true, stock: 50, image: 'https://images.unsplash.com/photo-1527661591475-527312dd65f5?w=300&h=300&fit=crop', description: 'Pour patienter' }
-];
+
 
 const defaultBusinessInfo: BusinessInfo = {
   name: 'Elite Cuts',
