@@ -57,7 +57,7 @@ export default function LandingPage() {
             ) : (
               <>
                 <Scissors className="w-8 h-8 text-[#D4AF37]" />
-                <span className="text-2xl font-bold bg-gradient-to-r from-[#D4AF37] to-[#FFD700] bg-clip-text text-transparent">Elite Cuts</span>
+                <span className="text-2xl font-bold bg-gradient-to-r from-[#D4AF37] to-[#FFD700] bg-clip-text text-transparent">{businessInfo.name || 'Elite Cuts'}</span>
               </>
             )}
           </motion.div>
@@ -272,7 +272,7 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-6">
           <div className="flex flex-col md:flex-row items-center justify-between gap-6">
             <div className="flex items-center gap-3">
-              {logo ? <img src={logo} alt="Logo" className="h-8 object-contain" /> : <><Scissors className="w-6 h-6 text-[#D4AF37]" /><span className="text-xl font-bold bg-gradient-to-r from-[#D4AF37] to-[#FFD700] bg-clip-text text-transparent">Elite Cuts</span></>}
+              {logo ? <img src={logo} alt="Logo" className="h-8 object-contain" /> : <><Scissors className="w-6 h-6 text-[#D4AF37]" /><span className="text-xl font-bold bg-gradient-to-r from-[#D4AF37] to-[#FFD700] bg-clip-text text-transparent">{businessInfo.name || 'Elite Cuts'}</span></>}
             </div>
             <p className="text-white/40 text-center">© 2026 Elite Cuts. Expérience de Soins Premium.</p>
           </div>

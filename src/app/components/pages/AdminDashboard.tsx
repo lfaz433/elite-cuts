@@ -1229,16 +1229,20 @@ export default function AdminDashboard() {
 
                   <div className="grid md:grid-cols-3 gap-4 mt-6">
                     <div>
-                      <label className="block text-white/60 text-sm mb-2">Titre principal</label>
+                      <label className="block text-white/60 text-sm mb-2">Nom du salon (Navbar)</label>
+                      <input defaultValue={businessInfo.name || 'Elite Cuts'} onBlur={(e) => updateBusinessInfo({ name: e.target.value })} className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-lg text-white focus:border-[#D4AF37] focus:outline-none" />
+                    </div>
+                    <div>
+                      <label className="block text-white/60 text-sm mb-2">Titre principal (Hero)</label>
                       <input defaultValue={businessInfo.heroTitle || 'Soins Premium'} onBlur={(e) => updateBusinessInfo({ heroTitle: e.target.value })} className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-lg text-white focus:border-[#D4AF37] focus:outline-none" />
                     </div>
                     <div>
                       <label className="block text-white/60 text-sm mb-2">Texte du bouton</label>
                       <input defaultValue={businessInfo.heroButtonText || 'Prendre Rendez-vous'} onBlur={(e) => updateBusinessInfo({ heroButtonText: e.target.value })} className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-lg text-white focus:border-[#D4AF37] focus:outline-none" />
                     </div>
-                    <div className="md:col-span-1">
+                    <div className="md:col-span-3">
                       <label className="block text-white/60 text-sm mb-2">Sous-titre</label>
-                      <textarea defaultValue={businessInfo.heroSubtitle} onBlur={(e) => updateBusinessInfo({ heroSubtitle: e.target.value })} rows={3} className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-lg text-white focus:border-[#D4AF37] focus:outline-none text-sm resize-none" />
+                      <textarea defaultValue={businessInfo.heroSubtitle} onBlur={(e) => updateBusinessInfo({ heroSubtitle: e.target.value })} rows={2} className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-lg text-white focus:border-[#D4AF37] focus:outline-none text-sm resize-none" />
                     </div>
                   </div>
                 </motion.div>
