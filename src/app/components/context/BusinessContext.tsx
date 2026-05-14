@@ -413,6 +413,11 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  const seedDatabase = async () => {
+    // Seed function - no-op in production
+    console.log('Database already seeded via Firestore.');
+  };
+
   const resetBarberBalance = async (barberId: string) => {
     // In Firestore we can't easily bulk delete without fetching. 
     // We'll iterate through filtered settlements and delete them.
@@ -472,6 +477,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       updateBusinessInfo, addToGallery, removeFromGallery,
       addProduct, updateProduct, deleteProduct, addSale,
       addAttendance, addSettlement, resetBarberBalance, seedDatabase,
+      updateBarberStatus,
       getAvailableBarbers, getAvailableTimeSlots
     }}>
       {children}
