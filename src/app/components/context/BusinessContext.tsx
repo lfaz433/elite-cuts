@@ -458,8 +458,8 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     // Seed services if empty
     const hasServices = services.length > 0;
     const hasBarbers = barbers.length > 0;
-    const hasProducts = products.length > 0;
-    const hasBookings = bookings.length > 0;
+    const hasProducts = products.length >= 2;
+    const hasBookings = bookings.length >= 5;
 
     if (!hasServices) {
       for (const s of defaultServices) {
