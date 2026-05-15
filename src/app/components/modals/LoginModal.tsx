@@ -21,6 +21,7 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const { login, signup, user, isLoading: authLoading } = useAuth();
+  const { businessInfo } = useBusiness();
   const navigate = useNavigate();
 
   // Handle redirect after successful login
