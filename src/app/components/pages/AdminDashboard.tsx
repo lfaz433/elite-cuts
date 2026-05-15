@@ -33,6 +33,44 @@ import { toast } from 'sonner';
 import { QRCodeCanvas } from 'qrcode.react';
 import type { Barber, Service, Product } from '../context/BusinessContext';
 
+const compressImage = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target?.result as string;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 800;
+        const MAX_HEIGHT = 800;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.7));
+      };
+      img.onerror = (error) => reject(error);
+    };
+    reader.onerror = (error) => reject(error);
+  });
+};
+
 export default function AdminDashboard() {
   const { user, logout } = useAuth();
   const { 
@@ -95,14 +133,10 @@ export default function AdminDashboard() {
   
   const [productModalOpen, setProductModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
-  const handleImageUpload = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
+  const handleImageUpload = async (file: File): Promise<string> => {
+    return await compressImage(file);
   };
 
   const parsePrice = (priceStr: string | undefined) => priceStr ? (parseInt(priceStr.replace(/[^0-9]/g, ''), 10) || 0) : 0;
@@ -952,19 +986,28 @@ export default function AdminDashboard() {
               <div className="space-y-6">
                 <div className="flex items-center justify-between">
                   <h2 className="text-3xl font-bold text-white">Gestion du Portfolio</h2>
-                  <button 
-                    onClick={() => {
-                      const url = prompt('URL de l\'image');
-                      if (url) {
-                        addToGallery(url);
-                        toast.success('✅ Action completed successfully');
-                      }
-                    }}
-                    className="px-6 py-2 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black rounded-lg hover:shadow-lg hover:shadow-[#D4AF37]/50 transition-all font-bold flex items-center gap-2"
-                  >
+                  <label className="cursor-pointer px-6 py-2 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black rounded-lg hover:shadow-lg hover:shadow-[#D4AF37]/50 transition-all font-bold flex items-center gap-2">
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      className="hidden" 
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          try {
+                            const toastId = toast.loading('Compression et envoi en cours...');
+                            const base64 = await compressImage(file);
+                            await addToGallery(base64);
+                            toast.success('✅ Image ajoutée avec succès', { id: toastId });
+                          } catch (err) {
+                            toast.error('Erreur lors de l\'ajout de l\'image');
+                          }
+                        }
+                      }} 
+                    />
                     <Plus className="w-4 h-4" />
                     Ajouter une Image
-                  </button>
+                  </label>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   {gallery.map((img, index) => (
@@ -1535,27 +1578,36 @@ export default function AdminDashboard() {
               <h2 className="text-2xl font-bold text-white mb-6">{editingBarber ? 'Modifier Coiffeur' : 'Nouveau Coiffeur'}</h2>
               <form onSubmit={async (e) => {
                 e.preventDefault();
-                const formData = new FormData(e.currentTarget);
-                const file = (e.currentTarget.elements.namedItem('image') as HTMLInputElement).files?.[0];
-                let imageUrl = editingBarber?.image || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&h=300&fit=crop';
+                if (isSaving) return;
+                setIsSaving(true);
                 
-                if (file && file.size > 0) imageUrl = await handleImageUpload(file);
-                
-                const data = {
-                  name: formData.get('name') as string,
-                  specialty: formData.get('specialty') as string,
-                  username: formData.get('username') as string,
-                  commission: parseInt(formData.get('commission') as string) || 50,
-                  station: formData.get('station') as string,
-                  image: imageUrl
-                };
-                
-                if (editingBarber) {
-                  await updateBarber(editingBarber.id, data);
-                } else {
-                  await addBarber({ ...data, password: 'password123', experience: '5 ans', rating: 5, archived: false });
+                try {
+                  const formData = new FormData(e.currentTarget);
+                  const file = (e.currentTarget.elements.namedItem('image') as HTMLInputElement).files?.[0];
+                  let imageUrl = editingBarber?.image || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&h=300&fit=crop';
+                  
+                  if (file && file.size > 0) imageUrl = await handleImageUpload(file);
+                  
+                  const data = {
+                    name: formData.get('name') as string,
+                    specialty: formData.get('specialty') as string,
+                    username: formData.get('username') as string,
+                    commission: parseInt(formData.get('commission') as string) || 50,
+                    station: formData.get('station') as string,
+                    image: imageUrl
+                  };
+                  
+                  if (editingBarber) {
+                    await updateBarber(editingBarber.id, data);
+                  } else {
+                    await addBarber({ ...data, password: 'password123', experience: '5 ans', rating: 5, archived: false });
+                  }
+                  triggerSuccess(() => setBarberModalOpen(false));
+                } catch (error: any) {
+                  toast.error("ERREUR: " + error.message);
+                } finally {
+                  setIsSaving(false);
                 }
-                triggerSuccess(() => setBarberModalOpen(false));
               }} className="space-y-4">
                 <div>
                   <label className="block text-white/60 text-sm mb-1">Nom complet</label>
@@ -1579,8 +1631,13 @@ export default function AdminDashboard() {
                   <label className="block text-white/60 text-sm mb-1">Photo de profil</label>
                   <input name="image" type="file" accept="image/*" className="w-full text-sm text-white/60 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-[#D4AF37] file:text-black hover:file:bg-[#FFD700]" />
                 </div>
-                <button type="submit" className="w-full py-3 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black font-bold rounded-lg mt-4 shadow-lg shadow-[#D4AF37]/20 hover:scale-[1.02] transition-transform">
-                  Enregistrer
+                <button 
+                  type="submit" 
+                  disabled={isSaving}
+                  className="w-full py-3 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black font-bold rounded-lg mt-4 shadow-lg shadow-[#D4AF37]/20 hover:scale-[1.02] transition-transform disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {isSaving ? <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin" /> : null}
+                  {isSaving ? 'Enregistrement...' : 'Enregistrer'}
                 </button>
               </form>
             </motion.div>
@@ -1599,26 +1656,35 @@ export default function AdminDashboard() {
               <h2 className="text-2xl font-bold text-white mb-6">{editingService ? 'Modifier Service' : 'Nouveau Service'}</h2>
               <form onSubmit={async (e) => {
                 e.preventDefault();
-                const formData = new FormData(e.currentTarget);
-                const file = (e.currentTarget.elements.namedItem('image') as HTMLInputElement).files?.[0];
-                let imageUrl = editingService?.image || 'https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=400&h=300&fit=crop';
+                if (isSaving) return;
+                setIsSaving(true);
                 
-                if (file && file.size > 0) imageUrl = await handleImageUpload(file);
-                
-                const data = {
-                  name: formData.get('name') as string,
-                  price: formData.get('price') as string,
-                  duration: formData.get('duration') as string,
-                  description: formData.get('description') as string,
-                  image: imageUrl
-                };
-                
-                if (editingService) {
-                  await updateService(editingService.id, data);
-                } else {
-                  await addService(data);
+                try {
+                  const formData = new FormData(e.currentTarget);
+                  const file = (e.currentTarget.elements.namedItem('image') as HTMLInputElement).files?.[0];
+                  let imageUrl = editingService?.image || 'https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=400&h=300&fit=crop';
+                  
+                  if (file && file.size > 0) imageUrl = await handleImageUpload(file);
+                  
+                  const data = {
+                    name: formData.get('name') as string,
+                    price: formData.get('price') as string,
+                    duration: formData.get('duration') as string,
+                    description: formData.get('description') as string,
+                    image: imageUrl
+                  };
+                  
+                  if (editingService) {
+                    await updateService(editingService.id, data);
+                  } else {
+                    await addService(data);
+                  }
+                  triggerSuccess(() => setServiceModalOpen(false));
+                } catch (error: any) {
+                  toast.error("ERREUR: " + error.message);
+                } finally {
+                  setIsSaving(false);
                 }
-                triggerSuccess(() => setServiceModalOpen(false));
               }} className="space-y-4">
                 <div>
                   <label className="block text-white/60 text-sm mb-1">Nom du service</label>
@@ -1642,8 +1708,13 @@ export default function AdminDashboard() {
                   <label className="block text-white/60 text-sm mb-1">Image du service</label>
                   <input name="image" type="file" accept="image/*" className="w-full text-sm text-white/60 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-[#D4AF37] file:text-black" />
                 </div>
-                <button type="submit" className="w-full py-3 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black font-bold rounded-lg mt-4 shadow-lg shadow-[#D4AF37]/20 hover:scale-[1.02] transition-transform">
-                  Enregistrer
+                <button 
+                  type="submit" 
+                  disabled={isSaving}
+                  className="w-full py-3 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black font-bold rounded-lg mt-4 shadow-lg shadow-[#D4AF37]/20 hover:scale-[1.02] transition-transform disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {isSaving ? <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin" /> : null}
+                  {isSaving ? 'Enregistrement...' : 'Enregistrer'}
                 </button>
               </form>
             </motion.div>
@@ -1662,24 +1733,26 @@ export default function AdminDashboard() {
               <h2 className="text-2xl font-bold text-white mb-6">{editingProduct ? 'Modifier Produit' : 'Nouveau Produit'}</h2>
               <form onSubmit={async (e) => {
                 e.preventDefault();
-                const formData = new FormData(e.currentTarget);
-                const file = (e.currentTarget.elements.namedItem('image') as HTMLInputElement).files?.[0];
-                let imageUrl = editingProduct?.image || 'https://images.unsplash.com/photo-1621605815971-fbc98d665033?w=400&h=300&fit=crop';
-                
-                if (file && file.size > 0) imageUrl = await handleImageUpload(file);
-                
-                const data = {
-                  name: formData.get('name') as string,
-                  buyPrice: parseFloat(formData.get('buyPrice') as string) || 0,
-                  sellPrice: parseFloat(formData.get('sellPrice') as string) || 0,
-                  description: formData.get('description') as string,
-                  stock: parseInt(formData.get('stock') as string) || 10,
-                  category: formData.get('category') as string,
-                  trackStock: formData.get('trackStock') === 'on',
-                  image: imageUrl
-                };
-                
+                if (isSaving) return;
+                setIsSaving(true);
                 try {
+                  const formData = new FormData(e.currentTarget);
+                  const file = (e.currentTarget.elements.namedItem('image') as HTMLInputElement).files?.[0];
+                  let imageUrl = editingProduct?.image || 'https://images.unsplash.com/photo-1621605815971-fbc98d665033?w=400&h=300&fit=crop';
+                  
+                  if (file && file.size > 0) imageUrl = await handleImageUpload(file);
+                  
+                  const data = {
+                    name: formData.get('name') as string,
+                    buyPrice: parseFloat(formData.get('buyPrice') as string) || 0,
+                    sellPrice: parseFloat(formData.get('sellPrice') as string) || 0,
+                    description: formData.get('description') as string,
+                    stock: parseInt(formData.get('stock') as string) || 10,
+                    category: formData.get('category') as string,
+                    trackStock: formData.get('trackStock') === 'on',
+                    image: imageUrl
+                  };
+                  
                   if (editingProduct) {
                     await updateProduct(editingProduct.id, data);
                   } else {
@@ -1687,7 +1760,9 @@ export default function AdminDashboard() {
                   }
                   triggerSuccess(() => setProductModalOpen(false));
                 } catch (error: any) {
-                  alert("ERREUR: " + error.message);
+                  toast.error("ERREUR: " + error.message);
+                } finally {
+                  setIsSaving(false);
                 }
               }} className="space-y-4">
                 <div>
@@ -1729,8 +1804,13 @@ export default function AdminDashboard() {
                   <label className="block text-white/60 text-sm mb-1">Image du produit</label>
                   <input name="image" type="file" accept="image/*" className="w-full text-sm text-white/60 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-[#D4AF37] file:text-black" />
                 </div>
-                <button type="submit" className="w-full py-3 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black font-bold rounded-lg mt-4 shadow-lg shadow-[#D4AF37]/20 hover:scale-[1.02] transition-transform">
-                  Enregistrer
+                <button 
+                  type="submit" 
+                  disabled={isSaving}
+                  className="w-full py-3 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black font-bold rounded-lg mt-4 shadow-lg shadow-[#D4AF37]/20 hover:scale-[1.02] transition-transform disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {isSaving ? <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin" /> : null}
+                  {isSaving ? 'Enregistrement...' : 'Enregistrer'}
                 </button>
               </form>
             </motion.div>

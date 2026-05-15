@@ -9,7 +9,9 @@ import {
   doc, 
   setDoc,
   query,
-  orderBy
+  orderBy,
+  where,
+  getDocs
 } from 'firebase/firestore';
 
 export interface Service {
@@ -417,10 +419,15 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   };
 
   const removeFromGallery = async (url: string) => {
-    // Find the doc with this url
-    const snap = gallery.find(g => g === url);
-    // Note: This needs a more robust approach in production (searching by field)
-    // For now we'll assume the user deletes via the UI which has access to the ID if we provided it.
+    try {
+      const q = query(collection(db, 'gallery'), where('url', '==', url));
+      const snapshot = await getDocs(q);
+      snapshot.forEach(async (d) => {
+        await deleteDoc(d.ref);
+      });
+    } catch (error) {
+      console.error("Error removing from gallery:", error);
+    }
   };
 
   const addProduct = async (product: Omit<Product, 'id'>) => {
