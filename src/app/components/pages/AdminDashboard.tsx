@@ -258,13 +258,21 @@ export default function AdminDashboard() {
     return data;
   }, [approvedBookings]);
 
-  const totalRevenue = approvedBookings.reduce((sum, b) => {
-    return sum + (b.pricePaid || 0); // we use pricePaid if available
+  const totalRevenue = approvedBookings.reduce((sum, b) => sum + (b.pricePaid || 0), 0);
+  
+  const totalCash = approvedBookings.reduce((sum, b) => {
+    return b.paymentMethod === 'cash' ? sum + (b.pricePaid || 0) : sum;
+  }, 0);
+
+  const totalCard = approvedBookings.reduce((sum, b) => {
+    return b.paymentMethod === 'card' ? sum + (b.pricePaid || 0) : sum;
   }, 0);
 
   const stats = [
     { icon: DollarSign, label: 'Chiffre d\'affaires', value: `€${totalRevenue}`, change: '', color: 'from-green-500 to-emerald-600' },
-    { icon: Calendar, label: 'Réservations Totales', value: filteredBookings.length.toString(), change: '', color: 'from-blue-500 to-cyan-600' },
+    { icon: DollarSign, label: 'En Espèce', value: `€${totalCash}`, change: '', color: 'from-yellow-500 to-amber-600' },
+    { icon: DollarSign, label: 'Par Carte', value: `€${totalCard}`, change: '', color: 'from-blue-500 to-indigo-600' },
+    { icon: Calendar, label: 'Réservations', value: filteredBookings.length.toString(), change: '', color: 'from-cyan-500 to-teal-600' },
     { icon: Users, label: 'Clients Actifs', value: new Set(filteredBookings.map(b => b.clientEmail)).size.toString(), change: '', color: 'from-purple-500 to-pink-600' },
     { icon: Scissors, label: 'Services Réalisés', value: approvedBookings.length.toString(), change: '', color: 'from-[#D4AF37] to-[#FFD700]' },
   ];
@@ -397,7 +405,7 @@ export default function AdminDashboard() {
                   {renderDateFilterSelector()}
                 </div>
 
-                <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {stats.map((stat, index) => (
                     <motion.div
                       key={index}
