@@ -130,7 +130,7 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
               type="button"
               onClick={async () => {
                 setEmail('admin@test.com');
-                setPassword('password123');
+                setPassword('admin123');
                 await new Promise(r => setTimeout(r, 100));
                 handleSubmit({ preventDefault: () => {} } as any);
               }}
