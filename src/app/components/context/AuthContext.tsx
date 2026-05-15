@@ -61,12 +61,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const userData = userDoc.exists() ? userDoc.data() : {};
 
           const resolvedRole = isAdmin ? 'admin' : (isBarber ? 'barber' : (userData.role || 'client'));
+          
+          console.log("Auth State Resolved:", { 
+            email: firebaseUser.email, 
+            isAdmin, 
+            isBarber, 
+            resolvedRole 
+          });
 
           setUser({
             id: firebaseUser.uid,
             uid: firebaseUser.uid,
             email: firebaseUser.email || '',
-            name: userData.name || barberData?.name || firebaseUser.displayName || 'Utilisateur',
+            name: userData.name || barberData?.name || firebaseUser.displayName || 'Administrateur',
             role: resolvedRole as 'admin' | 'barber' | 'client',
             barberId: barberId
           });
