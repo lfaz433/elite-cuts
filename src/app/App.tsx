@@ -27,7 +27,10 @@ function AppLoader() {
 
 // --- Route Guard ---
 function ProtectedRoute({ children, role }: { children: React.ReactNode; role?: string }) {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
+  
+  if (isLoading) return <AppLoader />;
+  
   if (!user) return <Navigate to="/" replace />;
   if (role && user.role !== role) return <Navigate to="/" replace />;
   return <>{children}</>;

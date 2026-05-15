@@ -1,58 +1,110 @@
-import { createContext, useContext, useState, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  signOut, 
+  onAuthStateChanged,
+  updateProfile
+} from 'firebase/auth';
+import { doc, getDoc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { auth, db } from '../../lib/firebase';
 
 interface User {
   id: string;
+  uid: string;
   name: string;
   email: string;
   role: 'client' | 'admin' | 'barber';
-  barberId?: string; // for barber role: the Firestore barber document ID
+  barberId?: string;
 }
 
 interface AuthContextType {
   user: User | null;
-  login: (email: string, password: string, role: string, name?: string, barberId?: string) => void;
-  logout: () => void;
+  isLoading: boolean;
+  login: (email: string, password: string) => Promise<void>;
+  signup: (email: string, password: string, name: string) => Promise<void>;
+  logout: () => Promise<void>;
   isAuthenticated: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(() => {
-    try {
-      const saved = localStorage.getItem('barbershop_user');
-      return saved ? JSON.parse(saved) : null;
-    } catch {
-      return null;
-    }
-  });
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const login = (email: string, _password: string, role: string, name?: string, barberId?: string) => {
-    const resolvedName = name || email.split('@')[0].replace(/[._-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-    const newUser: User = {
-      id: barberId || Math.random().toString(36).substr(2, 9),
-      name: resolvedName,
-      email,
-      role: role as 'client' | 'admin' | 'barber',
-      barberId,
-    };
-    setUser(newUser);
-    try {
-      localStorage.setItem('barbershop_user', JSON.stringify(newUser));
-    } catch {
-      // localStorage might be full
-    }
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      setIsLoading(true);
+      if (firebaseUser) {
+        // Fetch additional profile data from Firestore
+        try {
+          // 1. Check if user is an admin (based on email in business info or hardcoded)
+          const adminEmail = (await getDoc(doc(db, 'settings', 'business'))).data()?.adminEmail || 'admin@test.com';
+          const isAdmin = firebaseUser.email === adminEmail;
+
+          // 2. Check if user is a barber (email matches a barber document)
+          const barberQ = query(collection(db, 'barbers'), where('email', '==', firebaseUser.email), where('archived', '==', false));
+          const barberSnap = await getDocs(barberQ);
+          const isBarber = !barberSnap.empty;
+          const barberData = isBarber ? barberSnap.docs[0].data() : null;
+          const barberId = isBarber ? barberSnap.docs[0].id : undefined;
+
+          // 3. Get profile from 'users' collection
+          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+          const userData = userDoc.exists() ? userDoc.data() : {};
+
+          const resolvedRole = isAdmin ? 'admin' : (isBarber ? 'barber' : (userData.role || 'client'));
+
+          setUser({
+            id: firebaseUser.uid,
+            uid: firebaseUser.uid,
+            email: firebaseUser.email || '',
+            name: userData.name || barberData?.name || firebaseUser.displayName || 'Utilisateur',
+            role: resolvedRole as 'admin' | 'barber' | 'client',
+            barberId: barberId
+          });
+        } catch (error) {
+          console.error("Error fetching user profile:", error);
+          setUser(null);
+        }
+      } else {
+        setUser(null);
+      }
+      setIsLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const login = async (email: string, password: string) => {
+    await signInWithEmailAndPassword(auth, email, password);
   };
 
-  const logout = () => {
-    setUser(null);
-    try {
-      localStorage.removeItem('barbershop_user');
-    } catch {}
+  const signup = async (email: string, password: string, name: string) => {
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    const firebaseUser = userCredential.user;
+    
+    await updateProfile(firebaseUser, { displayName: name });
+    
+    // Create profile in Firestore
+    const profile = {
+      uid: firebaseUser.uid,
+      email,
+      name,
+      role: 'client', // Default role for new signups
+      createdAt: new Date().toISOString()
+    };
+    
+    await setDoc(doc(db, 'users', firebaseUser.uid), profile);
+  };
+
+  const logout = async () => {
+    await signOut(auth);
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, isAuthenticated: !!user }}>
+    <AuthContext.Provider value={{ user, isLoading, login, signup, logout, isAuthenticated: !!user }}>
       {children}
     </AuthContext.Provider>
   );

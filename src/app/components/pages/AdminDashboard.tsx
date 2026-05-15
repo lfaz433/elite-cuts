@@ -1611,15 +1611,14 @@ export default function AdminDashboard() {
                   const data = {
                     name: formData.get('name') as string,
                     specialty: formData.get('specialty') as string,
-                    username: formData.get('username') as string,
+                    email: formData.get('email') as string,
                     commission: parseInt(formData.get('commission') as string) || 50,
-                    station: formData.get('station') as string,
                     image: imageUrl
                   };
                   
                   const dbAction = editingBarber 
                     ? updateBarber(editingBarber.id, data) 
-                    : addBarber({ ...data, password: 'password123', experience: '5 ans', rating: 5, archived: false });
+                    : addBarber({ ...data, experience: 'Nouveau', rating: 5, archived: false });
                   
                   await Promise.race([
                     dbAction,
@@ -1645,8 +1644,8 @@ export default function AdminDashboard() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-white/60 text-sm mb-1">Username</label>
-                    <input name="username" defaultValue={editingBarber?.username} required className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-[#D4AF37] focus:outline-none" />
+                    <label className="block text-white/60 text-sm mb-1">Email</label>
+                    <input name="email" type="email" defaultValue={editingBarber?.email} required className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-[#D4AF37] focus:outline-none" />
                   </div>
                   <div>
                   <label className="block text-white/60 text-sm mb-1">Commission %</label>

@@ -313,13 +313,22 @@ export default function BarberDashboard() {
   const [settlementModalOpen, setSettlementModalOpen] = useState(false);
   const [addServiceOpen, setAddServiceOpen] = useState(false);
 
-  // Match barber using id (set during login), then username, then name fallback
-  const currentBarber = barbers.find(b => b.id === user?.id)
-    || barbers.find(b => b.username === user?.name)
-    || barbers.find(b => b.name === user?.name)
-    || barbers[0];
+  // Strictly match barber using the barberId from the authenticated profile
+  const currentBarber = barbers.find(b => b.id === user?.barberId) || barbers.find(b => b.email === user?.email);
 
   const today = new Date().toISOString().split('T')[0];
+  
+  if (!currentBarber && user?.role === 'barber') {
+    return (
+      <div className="min-h-screen bg-black flex flex-col items-center justify-center p-6 text-center">
+        <Scissors className="w-12 h-12 text-[#D4AF37] mb-4 animate-bounce" />
+        <h2 className="text-xl font-bold text-white mb-2">Profil non lié</h2>
+        <p className="text-white/60 text-sm max-w-xs">Votre compte n'est pas encore lié à un profil de coiffeur. Veuillez contacter l'administrateur.</p>
+        <button onClick={logout} className="mt-6 px-6 py-2 bg-white/10 text-white rounded-lg">Déconnexion</button>
+      </div>
+    );
+  }
+
   const myBookings = bookings.filter(b => b.barberId === currentBarber?.id);
   const todayCompleted = myBookings.filter(b => b.status === 'completed' && b.date === today);
   

@@ -33,8 +33,6 @@ export interface Barber {
   shiftStart?: string; // HH:MM
   shiftEnd?: string; // HH:MM
   workingDays?: number[]; // 0 = Sunday, 1 = Monday, etc.
-  username?: string;
-  password?: string;
   phone?: string;
   email?: string;
   archived?: boolean;
