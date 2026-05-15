@@ -50,9 +50,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           } catch (e) {
             console.warn("Could not fetch admin settings, using fallback", e);
           }
-          const isAdmin = firebaseUser.email === adminEmail;
-
-          // 2. Check if user is a barber (email matches a barber document)
+          
+          // FORCE ADMIN FOR BOOTSTRAP EMAIL
+          const isAdmin = firebaseUser.email === 'admin@test.com' || firebaseUser.email === adminEmail;
+          
+          // 2. Check if user is a barber
           const barberQ = query(collection(db, 'barbers'), where('email', '==', firebaseUser.email), where('archived', '==', false));
           const barberSnap = await getDocs(barberQ);
           const isBarber = !barberSnap.empty;
@@ -65,10 +67,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
           const resolvedRole = isAdmin ? 'admin' : (isBarber ? 'barber' : (userData.role || 'client'));
           
-          console.log("Auth State Resolved:", { 
+          console.log("CRITICAL AUTH DEBUG:", { 
             email: firebaseUser.email, 
             isAdmin, 
-            isBarber, 
             resolvedRole 
           });
 
