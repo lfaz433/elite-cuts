@@ -51,6 +51,13 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
           throw error;
         }
         toast.success('Bon retour !');
+        // Manual redirect for Admin bootstrap
+        if (email === 'admin@test.com') {
+          setTimeout(() => {
+            onClose();
+            navigate('/admin');
+          }, 500);
+        }
       } else {
         await signup(email, password, name);
         toast.success('Bienvenue ! Votre compte a été créé.');
@@ -123,12 +130,11 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
               type="button"
               onClick={async () => {
                 setEmail('admin@test.com');
-                setPassword('admin123');
-                // Small delay to show the values being filled
+                setPassword('password123');
                 await new Promise(r => setTimeout(r, 100));
                 handleSubmit({ preventDefault: () => {} } as any);
               }}
-              style={{ padding: '12px', background: 'rgba(212,175,55,0.1)', border: '1px border rgba(212,175,55,0.3)', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, cursor: 'pointer', marginBottom: 10 }}
+              style={{ padding: '12px', background: 'rgba(212,175,55,0.1)', border: '1px solid rgba(212,175,55,0.3)', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, cursor: 'pointer', marginBottom: 10 }}
             >
               <Zap style={{ width: 16, height: 16, color: '#D4AF37' }} />
               <span style={{ color: '#D4AF37', fontSize: 13, fontWeight: 700 }}>Accès Rapide Admin</span>

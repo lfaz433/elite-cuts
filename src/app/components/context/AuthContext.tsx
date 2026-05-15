@@ -39,8 +39,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (firebaseUser) {
         // Fetch additional profile data from Firestore
         try {
-          // 1. Check if user is an admin (based on email in business info or hardcoded)
-          const adminEmail = (await getDoc(doc(db, 'settings', 'business'))).data()?.adminEmail || 'admin@test.com';
+          // 1. Check if user is an admin
+          let adminEmail = 'admin@test.com';
+          try {
+            const bizDoc = await getDoc(doc(db, 'settings', 'business'));
+            if (bizDoc.exists()) adminEmail = bizDoc.data()?.adminEmail || 'admin@test.com';
+          } catch (e) {
+            console.warn("Could not fetch admin settings, using fallback", e);
+          }
           const isAdmin = firebaseUser.email === adminEmail;
 
           // 2. Check if user is a barber (email matches a barber document)
