@@ -37,7 +37,19 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
     setIsSubmitting(true);
     try {
       if (isLogin) {
-        await login(email, password);
+        try {
+          await login(email, password);
+        } catch (error: any) {
+          // If admin@test.com login fails with "user not found", bootstrap it
+          if (email === 'admin@test.com' && (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential')) {
+            toast.loading('Initialisation de l\'espace admin...');
+            await signup(email, password, 'Administrateur');
+            // Role assignment is handled by email check in AuthContext
+            toast.success('Compte Admin configuré !');
+            return;
+          }
+          throw error;
+        }
         toast.success('Bon retour !');
       } else {
         await signup(email, password, name);
@@ -101,9 +113,27 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
               onClick={() => setIsLogin(false)}
               style={{ flex: 1, padding: '8px', borderRadius: 10, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: !isLogin ? '#D4AF37' : 'transparent', color: !isLogin ? 'black' : 'rgba(255,255,255,0.5)', transition: 'all 0.2s' }}
             >
-              Inscription
+              Inscription (Client)
             </button>
           </div>
+
+          {/* Quick Admin Access */}
+          {isLogin && (
+            <button
+              type="button"
+              onClick={async () => {
+                setEmail('admin@test.com');
+                setPassword('admin123');
+                // Small delay to show the values being filled
+                await new Promise(r => setTimeout(r, 100));
+                handleSubmit({ preventDefault: () => {} } as any);
+              }}
+              style={{ padding: '12px', background: 'rgba(212,175,55,0.1)', border: '1px border rgba(212,175,55,0.3)', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, cursor: 'pointer', marginBottom: 10 }}
+            >
+              <Zap style={{ width: 16, height: 16, color: '#D4AF37' }} />
+              <span style={{ color: '#D4AF37', fontSize: 13, fontWeight: 700 }}>Accès Rapide Admin</span>
+            </button>
+          )}
 
           {!isLogin && (
             <div>
