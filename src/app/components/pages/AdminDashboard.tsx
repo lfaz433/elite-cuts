@@ -61,7 +61,9 @@ export default function AdminDashboard() {
     attendance,
     settlements,
     addSettlement,
-    resetBarberBalance
+    resetBarberBalance,
+    seedDatabase,
+    gallery
   } = useBusiness();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -333,7 +335,8 @@ export default function AdminDashboard() {
               { id: 'barbers', icon: Users, label: 'Coiffeurs' },
               { id: 'services', icon: Scissors, label: 'Services' },
               { id: 'boutique', icon: ShoppingBag, label: 'Boutique' },
-              { id: 'branding', icon: ImageIcon, label: 'Portfolio' },
+              { id: 'branding', icon: ImageIcon, label: 'Branding' },
+              { id: 'gallery', icon: ImageIcon, label: 'Portfolio' },
               { id: 'settings', icon: Settings, label: 'Paramètres' },
             ].map((tab) => (
 
@@ -1500,7 +1503,8 @@ export default function AdminDashboard() {
           { id: 'boutique', icon: ShoppingBag, label: 'Boutique' },
           { id: 'barbers', icon: Users, label: 'Coiffeurs' },
           { id: 'services', icon: Scissors, label: 'Services' },
-          { id: 'branding', icon: ImageIcon, label: 'Portfolio' },
+          { id: 'branding', icon: ImageIcon, label: 'Branding' },
+          { id: 'gallery', icon: ImageIcon, label: 'Portfolio' },
           { id: 'settings', icon: Settings, label: 'Paramètres' },
         ].map((tab) => (
           <button
