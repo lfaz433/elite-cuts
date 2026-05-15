@@ -25,27 +25,6 @@ import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, R
 
 // --- Sub-components ---
 
-const SuccessOverlay = () => (
-  <motion.div
-    initial={{ opacity: 0 }}
-    animate={{ opacity: 1 }}
-    exit={{ opacity: 0 }}
-    className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm"
-  >
-    <motion.div
-      initial={{ scale: 0.5, opacity: 0 }}
-      animate={{ scale: 1, opacity: 1 }}
-      transition={{ type: 'spring', damping: 15 }}
-      className="bg-[#141414] p-8 rounded-3xl border border-green-500/50 flex flex-col items-center justify-center gap-4 shadow-2xl shadow-green-500/20"
-    >
-      <div className="w-24 h-24 bg-green-500/20 rounded-full flex items-center justify-center mb-2">
-        <CheckCircle className="w-12 h-12 text-green-500" />
-      </div>
-      <h3 className="text-2xl font-bold text-white">Action réussie !</h3>
-    </motion.div>
-  </motion.div>
-);
-
 const SettlementModal = ({ onClose, todayEarnings, currentBarber, addSettlement }: any) => {
   const [amountPaid, setAmountPaid] = useState(todayEarnings.total.toString());
   const balance = todayEarnings.total - parseFloat(amountPaid || '0');
@@ -114,16 +93,24 @@ const AddServiceModal = ({ bookingId, onClose, bookings, services, updateBooking
 
   if (!booking || !service) return null;
   const handleFinish = () => {
-    const price = parseInt(service.price.replace(/[^0-9]/g, ''));
-    updateBooking(bookingId, { status: 'completed', pricePaid: price, tip: parseFloat(tip) || 0, paymentMethod });
-    setIsSuccess(true);
-    setTimeout(() => {
-      setIsSuccess(false);
-      onClose();
-    }, 1500);
+    const price = parseInt((service.price || '').replace(/[^0-9]/g, '')) || 0;
+    try {
+      updateBooking(bookingId, { status: 'completed', pricePaid: price, tip: parseFloat(tip) || 0, paymentMethod });
+      toast.custom((t) => (
+        <div className="bg-[#141414] border border-green-500/50 p-6 rounded-2xl flex flex-col items-center justify-center gap-4 shadow-2xl w-full min-w-[300px]">
+          <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center">
+            <CheckCircle className="w-10 h-10 text-green-500" />
+          </div>
+          <h3 className="text-xl font-bold text-white">Action réussie !</h3>
+        </div>
+      ), { duration: 1500, position: 'top-center' });
+      setTimeout(() => {
+        onClose();
+      }, 1500);
+    } catch (error: any) {
+      alert("ERREUR: " + error.message);
+    }
   };
-
-  if (isSuccess) return <SuccessOverlay />;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
@@ -153,7 +140,7 @@ const WalkInModal = ({ onClose, services, currentBarber, commissionRate, addBook
   const [isSuccess, setIsSuccess] = useState(false);
 
   const selectedService = services.find((s: any) => s.id === selectedServiceId);
-  const price = selectedService ? parseInt(selectedService.price.replace(/[^0-9]/g, '')) : 0;
+  const price = selectedService ? parseInt((selectedService.price || '').replace(/[^0-9]/g, '')) : 0;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -175,15 +162,23 @@ const WalkInModal = ({ onClose, services, currentBarber, commissionRate, addBook
       paymentMethod
     };
     
-    addBooking(newBooking);
-    setIsSuccess(true);
-    setTimeout(() => {
-      setIsSuccess(false);
-      onClose();
-    }, 1500);
+    try {
+      addBooking(newBooking);
+      toast.custom((t) => (
+        <div className="bg-[#141414] border border-green-500/50 p-6 rounded-2xl flex flex-col items-center justify-center gap-4 shadow-2xl w-full min-w-[300px]">
+          <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center">
+            <CheckCircle className="w-10 h-10 text-green-500" />
+          </div>
+          <h3 className="text-xl font-bold text-white">Action réussie !</h3>
+        </div>
+      ), { duration: 1500, position: 'top-center' });
+      setTimeout(() => {
+        onClose();
+      }, 1500);
+    } catch (error: any) {
+      alert("ERREUR: " + error.message);
+    }
   };
-
-  if (isSuccess) return <SuccessOverlay />;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">

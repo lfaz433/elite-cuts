@@ -33,27 +33,6 @@ import { toast } from 'sonner';
 import { QRCodeCanvas } from 'qrcode.react';
 import type { Barber, Service, Product } from '../context/BusinessContext';
 
-const SuccessOverlay = () => (
-  <motion.div
-    initial={{ opacity: 0 }}
-    animate={{ opacity: 1 }}
-    exit={{ opacity: 0 }}
-    className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm"
-  >
-    <motion.div
-      initial={{ scale: 0.5, opacity: 0 }}
-      animate={{ scale: 1, opacity: 1 }}
-      transition={{ type: 'spring', damping: 15 }}
-      className="bg-[#141414] p-8 rounded-3xl border border-green-500/50 flex flex-col items-center justify-center gap-4 shadow-2xl shadow-green-500/20"
-    >
-      <div className="w-24 h-24 bg-green-500/20 rounded-full flex items-center justify-center mb-2">
-        <CheckCircle className="w-12 h-12 text-green-500" />
-      </div>
-      <h3 className="text-2xl font-bold text-white">Action réussie !</h3>
-    </motion.div>
-  </motion.div>
-);
-
 export default function AdminDashboard() {
   const { user, logout } = useAuth();
   const { 
@@ -89,12 +68,18 @@ export default function AdminDashboard() {
   const [dateFilter, setDateFilter] = useState<'all' | 'day' | 'week' | 'month' | 'custom'>('all');
   const [customDateRange, setCustomDateRange] = useState({ start: '', end: '' });
   const [barberFilter, setBarberFilter] = useState('all');
-  const [successOverlay, setSuccessOverlay] = useState(false);
 
   const triggerSuccess = (callback: () => void) => {
-    setSuccessOverlay(true);
+    toast.custom((t) => (
+      <div className="bg-[#141414] border border-green-500/50 p-6 rounded-2xl flex flex-col items-center justify-center gap-4 shadow-2xl w-full min-w-[300px]">
+        <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center">
+          <CheckCircle className="w-10 h-10 text-green-500" />
+        </div>
+        <h3 className="text-xl font-bold text-white">Action réussie !</h3>
+      </div>
+    ), { duration: 1500, position: 'top-center' });
+    
     setTimeout(() => {
-      setSuccessOverlay(false);
       callback();
     }, 1500);
   };
@@ -348,7 +333,7 @@ export default function AdminDashboard() {
               { id: 'barbers', icon: Users, label: 'Coiffeurs' },
               { id: 'services', icon: Scissors, label: 'Services' },
               { id: 'boutique', icon: ShoppingBag, label: 'Boutique' },
-              { id: 'branding', icon: ImageIcon, label: 'Branding' },
+              { id: 'branding', icon: ImageIcon, label: 'Portfolio' },
               { id: 'settings', icon: Settings, label: 'Paramètres' },
             ].map((tab) => (
 
@@ -963,7 +948,7 @@ export default function AdminDashboard() {
             {activeTab === 'gallery' && (
               <div className="space-y-6">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-3xl font-bold text-white">Gestion de la Galerie</h2>
+                  <h2 className="text-3xl font-bold text-white">Gestion du Portfolio</h2>
                   <button 
                     onClick={() => {
                       const url = prompt('URL de l\'image');
@@ -1515,7 +1500,7 @@ export default function AdminDashboard() {
           { id: 'boutique', icon: ShoppingBag, label: 'Boutique' },
           { id: 'barbers', icon: Users, label: 'Coiffeurs' },
           { id: 'services', icon: Scissors, label: 'Services' },
-          { id: 'branding', icon: ImageIcon, label: 'Branding' },
+          { id: 'branding', icon: ImageIcon, label: 'Portfolio' },
           { id: 'settings', icon: Settings, label: 'Paramètres' },
         ].map((tab) => (
           <button
@@ -1747,7 +1732,6 @@ export default function AdminDashboard() {
             </motion.div>
           </div>
         )}
-        {successOverlay && <SuccessOverlay />}
       </AnimatePresence>
     </div>
   );
