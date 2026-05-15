@@ -9,7 +9,8 @@ const firebaseConfig = {
   projectId: "elite-cuts-app",
   storageBucket: "elite-cuts-app.firebasestorage.app",
   messagingSenderId: "499181564992",
-  appId: "1:499181564992:web:9107775a6be461f6874ba5"
+  appId: "1:499181564992:web:afc888388b72144ccc9ba5",
+  measurementId: "G-QDWD7EKPM7"
 };
 
 const app = initializeApp(firebaseConfig);
