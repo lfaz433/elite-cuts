@@ -9,6 +9,9 @@ import {
 import { doc, getDoc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../../lib/firebase';
 
+// Forced correct key for bootstrap
+const CORRECT_API_KEY = "AIzaSyB455BHQ7ZIAcO0jwXYbYuzlcvXKt2Qpx4";
+
 interface User {
   id: string;
   uid: string;
