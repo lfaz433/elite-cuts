@@ -88,14 +88,21 @@ const AddServiceModal = ({ bookingId, onClose, bookings, services, updateBooking
   const booking = bookings.find((b: any) => b.id === bookingId);
   const service = services.find((s: any) => s.id === booking?.serviceId);
   const [tip, setTip] = useState('0');
+  const [pricePaid, setPricePaid] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card'>('cash');
   const [isSuccess, setIsSuccess] = useState(false);
 
+  useEffect(() => {
+    if (service) {
+      setPricePaid((service.price || '').replace(/[^0-9]/g, ''));
+    }
+  }, [service]);
+
   if (!booking || !service) return null;
   const handleFinish = () => {
-    const price = parseInt((service.price || '').replace(/[^0-9]/g, '')) || 0;
+    const finalPrice = parseFloat(pricePaid) || 0;
     try {
-      updateBooking(bookingId, { status: 'completed', pricePaid: price, tip: parseFloat(tip) || 0, paymentMethod });
+      updateBooking(bookingId, { status: 'completed', pricePaid: finalPrice, tip: parseFloat(tip) || 0, paymentMethod });
       toast.custom((t) => (
         <div className="bg-[#141414] border border-green-500/50 p-6 rounded-2xl flex flex-col items-center justify-center gap-4 shadow-2xl w-full min-w-[300px]">
           <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center">
@@ -124,8 +131,16 @@ const AddServiceModal = ({ bookingId, onClose, bookings, services, updateBooking
           <button onClick={() => setPaymentMethod('card')} className={`py-2 rounded-lg text-sm font-bold border ${paymentMethod === 'card' ? 'bg-[#D4AF37] text-black border-[#D4AF37]' : 'bg-transparent text-white/60 border-white/20'}`}>Carte Bancaire</button>
         </div>
 
-        <label className="block text-white/40 text-sm mb-2">Pourboire (Tip)</label>
-        <input type="number" value={tip} onChange={(e) => setTip(e.target.value)} className="w-full bg-white/5 border border-white/10 p-3 rounded-lg text-white mb-6" />
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          <div>
+            <label className="block text-white/40 text-[10px] mb-1 uppercase font-bold">Prix Payé (€)</label>
+            <input type="number" value={pricePaid} onChange={(e) => setPricePaid(e.target.value)} className="w-full bg-white/5 border border-white/10 p-3 rounded-lg text-white font-bold" />
+          </div>
+          <div>
+            <label className="block text-white/40 text-[10px] mb-1 uppercase font-bold">Pourboire (€)</label>
+            <input type="number" value={tip} onChange={(e) => setTip(e.target.value)} className="w-full bg-white/5 border border-white/10 p-3 rounded-lg text-white font-bold" />
+          </div>
+        </div>
         <button onClick={handleFinish} className="w-full py-3 bg-[#D4AF37] text-black rounded-lg font-bold">Encaisser & Terminer</button>
         <button onClick={onClose} className="w-full mt-2 text-white/40">Annuler</button>
       </div>
@@ -136,10 +151,17 @@ const AddServiceModal = ({ bookingId, onClose, bookings, services, updateBooking
 const WalkInModal = ({ onClose, services, currentBarber, commissionRate, addBooking }: any) => {
   const [selectedServiceId, setSelectedServiceId] = useState('');
   const [tipAmount, setTipAmount] = useState('0');
+  const [pricePaid, setPricePaid] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card'>('cash');
   const [isSuccess, setIsSuccess] = useState(false);
 
   const selectedService = services.find((s: any) => s.id === selectedServiceId);
+  
+  useEffect(() => {
+    if (selectedService) {
+      setPricePaid((selectedService.price || '').replace(/[^0-9]/g, ''));
+    }
+  }, [selectedService]);
   const price = selectedService ? parseInt((selectedService.price || '').replace(/[^0-9]/g, '')) : 0;
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -157,7 +179,7 @@ const WalkInModal = ({ onClose, services, currentBarber, commissionRate, addBook
       date: new Date().toISOString().split('T')[0],
       time: new Date().toTimeString().split(' ')[0].substring(0, 5),
       status: 'completed',
-      pricePaid: price,
+      pricePaid: parseFloat(pricePaid) || 0,
       tip: parseFloat(tipAmount) || 0,
       paymentMethod
     };
@@ -207,20 +229,43 @@ const WalkInModal = ({ onClose, services, currentBarber, commissionRate, addBook
           </div>
 
           {selectedServiceId && (
-            <div className="p-4 bg-white/5 rounded-lg border border-[#D4AF37]/20">
-              <p className="text-white/60 text-sm mb-2">Détails des gains</p>
-              <div className="space-y-1 text-white text-sm">
-                <div className="flex justify-between">
-                  <span>Prix du service:</span>
-                  <span className="text-[#D4AF37]">€{price}</span>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-white/40 text-[10px] mb-1 uppercase font-bold">Prix Payé (€)</label>
+                  <input 
+                    type="number" 
+                    value={pricePaid} 
+                    onChange={(e) => setPricePaid(e.target.value)} 
+                    className="w-full bg-white/10 border border-[#D4AF37]/30 p-3 rounded-lg text-white font-bold text-lg" 
+                  />
                 </div>
-                <div className="flex justify-between">
-                  <span>Votre part ({commissionRate}%):</span>
-                  <span className="text-green-400">€{(price * commissionRate) / 100}</span>
+                <div>
+                  <label className="block text-white/40 text-[10px] mb-1 uppercase font-bold">Pourboire (€)</label>
+                  <input 
+                    type="number" 
+                    value={tipAmount} 
+                    onChange={(e) => setTipAmount(e.target.value)} 
+                    className="w-full bg-white/5 border border-white/10 p-3 rounded-lg text-white font-bold text-lg" 
+                  />
                 </div>
-                <div className="flex justify-between">
-                  <span>Part du salon ({100 - commissionRate}%):</span>
-                  <span className="text-white/60">€{(price * (100 - commissionRate)) / 100}</span>
+              </div>
+
+              <div className="p-4 bg-white/5 rounded-lg border border-[#D4AF37]/20">
+                <p className="text-white/60 text-sm mb-2 font-bold">Récapitulatif des gains</p>
+                <div className="space-y-1 text-white text-sm">
+                  <div className="flex justify-between">
+                    <span>Montant total:</span>
+                    <span className="text-[#D4AF37] font-bold">€{parseFloat(pricePaid) || 0}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Votre part ({commissionRate}%):</span>
+                    <span className="text-green-400 font-bold">€{((parseFloat(pricePaid) || 0) * commissionRate) / 100}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Part du salon:</span>
+                    <span className="text-white/40 italic">€{((parseFloat(pricePaid) || 0) * (100 - commissionRate)) / 100}</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -232,26 +277,7 @@ const WalkInModal = ({ onClose, services, currentBarber, commissionRate, addBook
             <button type="button" onClick={() => setPaymentMethod('card')} className={`py-2 rounded-lg text-sm font-bold border ${paymentMethod === 'card' ? 'bg-[#D4AF37] text-black border-[#D4AF37]' : 'bg-transparent text-white/60 border-white/20'}`}>Carte Bancaire</button>
           </div>
 
-          <div>
-            <label className="block text-white mb-2 text-sm">Pourboire (Optionnel)</label>
-            <input
-              type="number"
-              value={tipAmount}
-              onChange={(e) => setTipAmount(e.target.value)}
-              placeholder="0"
-              className="w-full px-4 py-3 bg-white/5 border border-[#D4AF37]/20 rounded-lg text-white"
-              min="0"
-              step="0.5"
-            />
-          </div>
 
-          {tipAmount && parseFloat(tipAmount) > 0 && selectedServiceId && (
-            <div className="p-4 bg-green-500/10 rounded-lg border border-green-500/20">
-              <p className="text-green-400 text-sm">
-                Gains totaux: €{((price * commissionRate) / 100) + parseFloat(tipAmount)}
-              </p>
-            </div>
-          )}
 
           <div className="flex gap-3 pt-4">
             <button
