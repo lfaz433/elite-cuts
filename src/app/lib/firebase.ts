@@ -2,7 +2,7 @@ import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 
-// TODO: Replace with your actual Firebase config
+// Updated at: 2026-05-15 17:23:00
 const firebaseConfig = {
   apiKey: "AIzaSyB455BHQ7ZIAcO0jwXYbYuzlcvXKt2Qpx4",
   authDomain: "elite-cuts-app.firebaseapp.com",
