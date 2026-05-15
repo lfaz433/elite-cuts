@@ -422,9 +422,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     try {
       const q = query(collection(db, 'gallery'), where('url', '==', url));
       const snapshot = await getDocs(q);
-      snapshot.forEach(async (d) => {
-        await deleteDoc(d.ref);
-      });
+      await Promise.all(snapshot.docs.map(d => deleteDoc(d.ref)));
     } catch (error) {
       console.error("Error removing from gallery:", error);
     }

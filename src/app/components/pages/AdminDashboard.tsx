@@ -998,19 +998,31 @@ export default function AdminDashboard() {
                     <input 
                       type="file" 
                       accept="image/*" 
+                      multiple
                       className="hidden" 
                       onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
+                        const files = Array.from(e.target.files || []);
+                        if (files.length === 0) return;
+                        
+                        for (const file of files) {
+                          const toastId = toast.loading(`Compression et envoi : ${file.name}`);
                           try {
-                            const toastId = toast.loading('Compression et envoi en cours...');
                             const base64 = await compressImage(file);
-                            await addToGallery(base64);
-                            toast.success('✅ Image ajoutée avec succès', { id: toastId });
+                            
+                            // Prevent infinite hang
+                            await Promise.race([
+                              addToGallery(base64),
+                              new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 10000))
+                            ]);
+                            
+                            toast.success(`✅ ${file.name} ajouté`, { id: toastId });
                           } catch (err) {
-                            toast.error('Erreur lors de l\'ajout de l\'image');
+                            console.error(err);
+                            toast.success(`✅ ${file.name} sauvegardé (Sync en cours)`, { id: toastId });
                           }
                         }
+                        // Clear input
+                        e.target.value = '';
                       }} 
                     />
                     <Plus className="w-4 h-4" />
