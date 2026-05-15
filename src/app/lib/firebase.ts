@@ -4,7 +4,7 @@ import { getAuth } from 'firebase/auth';
 
 // TODO: Replace with your actual Firebase config
 const firebaseConfig = {
-  apiKey: "AIzaSyB455BHQ7ZIACo0jwXYbYuzlcvXKt2Qpx4",
+  apiKey: "AIzaSyB455BHQ7ZIAcO0jwXYbYuzlcvXKt2Qpx4",
   authDomain: "elite-cuts-app.firebaseapp.com",
   projectId: "elite-cuts-app",
   storageBucket: "elite-cuts-app.firebasestorage.app",
