@@ -1690,12 +1690,16 @@ export default function AdminDashboard() {
                   image: imageUrl
                 };
                 
-                if (editingProduct) {
-                  await updateProduct(editingProduct.id, data);
-                } else {
-                  await addProduct(data);
+                try {
+                  if (editingProduct) {
+                    await updateProduct(editingProduct.id, data);
+                  } else {
+                    await addProduct(data);
+                  }
+                  triggerSuccess(() => setProductModalOpen(false));
+                } catch (error: any) {
+                  alert("ERREUR: " + error.message);
                 }
-                triggerSuccess(() => setProductModalOpen(false));
               }} className="space-y-4">
                 <div>
                   <label className="block text-white/60 text-sm mb-1">Nom du produit</label>

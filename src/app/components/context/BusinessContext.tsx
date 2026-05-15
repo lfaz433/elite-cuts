@@ -455,65 +455,70 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   };
 
   const seedDatabase = async () => {
-    // We will bypass checks to force generating data for testing.
-    const hasServices = services.length > 0;
-    const hasBarbers = barbers.length > 0;
+    try {
+      // We will bypass checks to force generating data for testing.
+      const hasServices = services.length > 0;
+      const hasBarbers = barbers.length > 0;
 
-    if (!hasServices) {
-      for (const s of defaultServices) {
-        const { id: _id, ...data } = s;
-        await addDoc(collection(db, 'services'), data);
-      }
-    }
-    if (!hasBarbers) {
-      for (const b of defaultBarbers) {
-        const { id: _id, ...data } = b;
-        await addDoc(collection(db, 'barbers'), { ...data, archived: false });
-      }
-    }
-    if (true) { // Force seed products
-      for (const p of defaultProducts) {
-        const { id: _id, ...data } = p;
-        await addDoc(collection(db, 'products'), data);
-      }
-    }
-    
-    // Seed dummy bookings if services exist
-    if (services.length > 0 || defaultServices.length > 0) {
-      const activeServices = services.length > 0 ? services : defaultServices;
-      const activeBarbers = barbers.length > 0 ? barbers : defaultBarbers;
-      
-      const statuses = ['completed', 'completed', 'completed', 'pending', 'approved'];
-      for (let i = 0; i < 20; i++) {
-        const d = new Date();
-        d.setDate(d.getDate() - Math.floor(Math.random() * 14)); // Past 14 days
-        const status = statuses[Math.floor(Math.random() * statuses.length)];
-        const service = activeServices[Math.floor(Math.random() * activeServices.length)];
-        const b: any = {
-          clientName: `Client Test ${i+1}`,
-          clientEmail: `client${i}@test.com`,
-          clientPhone: '0600000000',
-          serviceId: service.id,
-          barberId: activeBarbers[0].id,
-          date: d.toISOString().split('T')[0],
-          time: '14:00',
-          status: status,
-          createdAt: new Date().toISOString()
-        };
-        if (status === 'completed') {
-          b.pricePaid = parseInt((service.price || '').replace(/[^0-9]/g, '')) || 15;
-          b.tip = Math.floor(Math.random() * 5);
-          b.paymentMethod = Math.random() > 0.5 ? 'cash' : 'card';
+      if (!hasServices) {
+        for (const s of defaultServices) {
+          const { id: _id, ...data } = s;
+          await addDoc(collection(db, 'services'), data);
         }
-        await addDoc(collection(db, 'bookings'), b);
       }
-    }
+      if (!hasBarbers) {
+        for (const b of defaultBarbers) {
+          const { id: _id, ...data } = b;
+          await addDoc(collection(db, 'barbers'), { ...data, archived: false });
+        }
+      }
+      if (true) { // Force seed products
+        for (const p of defaultProducts) {
+          const { id: _id, ...data } = p;
+          await addDoc(collection(db, 'products'), data);
+        }
+      }
+      
+      // Seed dummy bookings if services exist
+      if (services.length > 0 || defaultServices.length > 0) {
+        const activeServices = services.length > 0 ? services : defaultServices;
+        const activeBarbers = barbers.length > 0 ? barbers : defaultBarbers;
+        
+        const statuses = ['completed', 'completed', 'completed', 'pending', 'approved'];
+        for (let i = 0; i < 20; i++) {
+          const d = new Date();
+          d.setDate(d.getDate() - Math.floor(Math.random() * 14)); // Past 14 days
+          const status = statuses[Math.floor(Math.random() * statuses.length)];
+          const service = activeServices[Math.floor(Math.random() * activeServices.length)];
+          const b: any = {
+            clientName: `Client Test ${i+1}`,
+            clientEmail: `client${i}@test.com`,
+            clientPhone: '0600000000',
+            serviceId: service.id,
+            barberId: activeBarbers[0].id,
+            date: d.toISOString().split('T')[0],
+            time: '14:00',
+            status: status,
+            createdAt: new Date().toISOString()
+          };
+          if (status === 'completed') {
+            b.pricePaid = parseInt((service.price || '').replace(/[^0-9]/g, '')) || 15;
+            b.tip = Math.floor(Math.random() * 5);
+            b.paymentMethod = Math.random() > 0.5 ? 'cash' : 'card';
+          }
+          await addDoc(collection(db, 'bookings'), b);
+        }
+      }
 
-    // Seed business info
-    await setDoc(doc(db, 'business', 'info'), defaultBusinessInfo, { merge: true });
-    
-    // Notify user
-    alert("Les données de test ont été générées avec succès !");
+      // Seed business info
+      await setDoc(doc(db, 'business', 'info'), defaultBusinessInfo, { merge: true });
+      
+      // Notify user
+      alert("Les données de test ont été générées avec succès !");
+    } catch (error: any) {
+      console.error("Firebase Error:", error);
+      alert("ERREUR FIREBASE: " + error.message + "\n\nCela signifie probablement que vos règles de sécurité Firestore bloquent la création de la collection 'products'.");
+    }
   };
 
   const resetBarberBalance = async (barberId: string) => {
