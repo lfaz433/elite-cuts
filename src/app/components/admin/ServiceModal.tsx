@@ -44,7 +44,27 @@ const ServiceModal = ({
           </div>
           <div>
             <label className="block text-white/60 text-sm mb-2">Description</label>
-            <textarea value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-[#D4AF37] outline-none transition-colors h-24 resize-none" />
+            <textarea value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-[#D4AF37] outline-none transition-colors h-20 resize-none" />
+          </div>
+          <div>
+            <label className="block text-white/60 text-sm mb-2">Photo du Service</label>
+            <div className="relative aspect-video rounded-xl bg-white/5 border-2 border-dashed border-white/10 overflow-hidden flex flex-col items-center justify-center gap-2 group hover:border-[#D4AF37]/50 transition-colors">
+              {formData.image ? (
+                <img src={formData.image} alt="Preview" className="w-full h-full object-cover" />
+              ) : (
+                <>
+                  <ImageIcon className="w-6 h-6 text-white/20" />
+                  <span className="text-[10px] text-white/20 uppercase font-bold">Upload Photo</span>
+                </>
+              )}
+              <input type="file" accept="image/*" className="absolute inset-0 opacity-0 cursor-pointer" onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                  const url = await handleImageUpload(file);
+                  setFormData({ ...formData, image: url });
+                }
+              }} />
+            </div>
           </div>
         </div>
         <button onClick={() => onSave(formData)} disabled={isSaving} className="w-full mt-8 py-4 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black rounded-xl font-bold hover:shadow-lg hover:shadow-[#D4AF37]/20 transition-all active:scale-95 disabled:opacity-50">

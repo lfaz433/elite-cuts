@@ -46,6 +46,26 @@ const ProductModal = ({
             <label className="block text-white/60 text-sm mb-2">Stock Initial</label>
             <input type="number" value={formData.stock} onChange={e => setFormData({ ...formData, stock: parseInt(e.target.value) })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-[#D4AF37] outline-none transition-colors" />
           </div>
+          <div>
+            <label className="block text-white/60 text-sm mb-2">Photo du Produit</label>
+            <div className="relative aspect-square rounded-xl bg-white/5 border-2 border-dashed border-white/10 overflow-hidden flex flex-col items-center justify-center gap-2 group hover:border-[#D4AF37]/50 transition-colors">
+              {formData.image ? (
+                <img src={formData.image} alt="Preview" className="w-full h-full object-cover" />
+              ) : (
+                <>
+                  <ImageIcon className="w-6 h-6 text-white/20" />
+                  <span className="text-[10px] text-white/20 uppercase font-bold">Upload Photo</span>
+                </>
+              )}
+              <input type="file" accept="image/*" className="absolute inset-0 opacity-0 cursor-pointer" onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                  const url = await handleImageUpload(file);
+                  setFormData({ ...formData, image: url });
+                }
+              }} />
+            </div>
+          </div>
         </div>
         <button onClick={() => onSave(formData)} disabled={isSaving} className="w-full mt-8 py-4 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black rounded-xl font-bold hover:shadow-lg hover:shadow-[#D4AF37]/20 transition-all active:scale-95 disabled:opacity-50">
           {isSaving ? 'Enregistrement...' : product ? 'Mettre à jour' : 'Ajouter le produit'}
