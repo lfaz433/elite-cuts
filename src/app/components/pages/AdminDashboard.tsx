@@ -38,6 +38,7 @@ const RevenueChart = lazy(() => import('../admin/AdminCharts').then(m => ({ defa
 const BarberModal = lazy(() => import('../admin/BarberModal'));
 const ServiceModal = lazy(() => import('../admin/ServiceModal'));
 const ProductModal = lazy(() => import('../admin/ProductModal'));
+import { createBarberAccount } from '../../lib/adminAuth';
 
 // New optimized sections
 const BrandingSection = lazy(() => import('../admin/BrandingSection').then(m => ({ default: m.BrandingSection })));
@@ -507,7 +508,30 @@ export default function AdminDashboard() {
       </div>
 
       <Suspense fallback={null}>
-        {barberModalOpen && <BarberModal barber={editingBarber} isSaving={isSaving} handleImageUpload={handleImageUpload} onClose={() => setBarberModalOpen(false)} onSave={async (data) => { setIsSaving(true); try { if (editingBarber) await updateBarber(editingBarber.id, data); else await addBarber(data as any); triggerSuccess(() => setBarberModalOpen(false)); } finally { setIsSaving(false); } }} />}
+        {barberModalOpen && <BarberModal barber={editingBarber} isSaving={isSaving} handleImageUpload={handleImageUpload} onClose={() => setBarberModalOpen(false)} onSave={async (data) => { 
+          setIsSaving(true); 
+          try { 
+            if (editingBarber) {
+              await updateBarber(editingBarber.id, data); 
+            } else {
+              // Create AUTH account first if password provided
+              if (data.email && data.password) {
+                try {
+                  await createBarberAccount(data.email, data.password);
+                } catch (err: any) {
+                  if (err.code === 'auth/email-already-in-use') {
+                    // Ignore, user might already have a client account
+                  } else throw err;
+                }
+              }
+              const { password, ...barberData } = data;
+              await addBarber(barberData as any); 
+            }
+            triggerSuccess(() => setBarberModalOpen(false)); 
+          } finally { 
+            setIsSaving(false); 
+          } 
+        }} />}
         {serviceModalOpen && <ServiceModal service={editingService} isSaving={isSaving} handleImageUpload={handleImageUpload} onClose={() => setServiceModalOpen(false)} onSave={async (data) => { setIsSaving(true); try { if (editingService) await updateService(editingService.id, data); else await addService(data as any); triggerSuccess(() => setServiceModalOpen(false)); } finally { setIsSaving(false); } }} />}
         {productModalOpen && <ProductModal product={editingProduct} isSaving={isSaving} handleImageUpload={handleImageUpload} onClose={() => setProductModalOpen(false)} onSave={async (data) => { setIsSaving(true); try { if (editingProduct) await updateProduct(editingProduct.id, data); else await addProduct(data as any); triggerSuccess(() => setProductModalOpen(false)); } finally { setIsSaving(false); } }} />}
       </Suspense>

@@ -56,6 +56,13 @@ const BarberModal = ({
                   <input type="email" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} className="w-full bg-white/10 border border-[#D4AF37]/30 rounded-xl px-4 py-3 text-white focus:border-[#D4AF37] outline-none transition-colors" placeholder="barber@mail.com" />
                 </div>
               </div>
+              {!barber && (
+                <div>
+                  <label className="block text-white/30 text-sm mb-2 font-bold text-[#D4AF37]">Mot de Passe (Initial)</label>
+                  <input type="password" value={(formData as any).password || ''} onChange={e => setFormData({ ...formData, password: e.target.value } as any)} className="w-full bg-white/10 border border-[#D4AF37]/30 rounded-xl px-4 py-3 text-white focus:border-[#D4AF37] outline-none transition-colors" placeholder="••••••••" />
+                  <p className="text-[10px] text-white/30 mt-2 italic">Ce mot de passe sera utilisé par le coiffeur pour sa première connexion.</p>
+                </div>
+              )}
             </div>
             <div className="space-y-4">
               <label className="block text-white/60 text-sm mb-2">Photo de Profil</label>
