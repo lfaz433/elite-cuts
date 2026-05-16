@@ -406,10 +406,19 @@ export default function AdminDashboard() {
         </main>
       </div>
 
-      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-black/80 backdrop-blur-2xl border-t border-white/5 flex overflow-x-auto scrollbar-hide z-50 py-2">
-        {sidebarTabs.slice(0, 5).map(tab => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex-1 p-3 flex flex-col items-center gap-1 transition-all ${activeTab === tab.id ? 'text-[#D4AF37] scale-110' : 'text-white/20'}`}><tab.icon className="w-5 h-5" /></button>
-        ))}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-black/90 backdrop-blur-3xl border-t border-white/10 flex items-center overflow-x-auto no-scrollbar z-50 py-3 px-4">
+        <div className="flex gap-4 mx-auto">
+          {sidebarTabs.map(tab => (
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex flex-col items-center gap-1.5 transition-all min-w-[65px] ${activeTab === tab.id ? 'text-[#D4AF37] scale-110' : 'text-white/20'}`}>
+              <tab.icon className="w-5 h-5" />
+              <span className="text-[9px] font-black uppercase tracking-tighter">{tab.label.split(' ')[0]}</span>
+            </button>
+          ))}
+          <button onClick={handleLogout} className="flex flex-col items-center gap-1.5 text-red-500/40 min-w-[65px]">
+            <LogOut className="w-5 h-5" />
+            <span className="text-[9px] font-black uppercase tracking-tighter">Exit</span>
+          </button>
+        </div>
       </div>
 
       <Suspense fallback={null}>
