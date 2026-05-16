@@ -15,7 +15,7 @@ import {
   limit
 } from 'firebase/firestore';
 import { toast } from 'sonner';
-import { useMemo, useCallback } from 'react';
+import { useCallback } from 'react';
 
 export interface Service {
   id: string;
@@ -310,70 +310,56 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     // Safety timeout — never stay loading forever
     const timeout = setTimeout(() => setLoading(false), 10000);
 
-    // Staggered Real-time Listeners
-    const initListeners = async () => {
-      // 1. Critical for Landing & Client (Immediate)
-      const unsubServices = onSnapshot(collection(db, 'services'), (snapshot) => {
-        setServices(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Service)));
-        markLoaded();
-      }, () => markLoaded());
+    // Real-time Listeners (Immediate)
+    const unsubServices = onSnapshot(collection(db, 'services'), (snapshot) => {
+      setServices(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Service)));
+      markLoaded();
+    }, () => markLoaded());
 
-      const unsubBarbers = onSnapshot(collection(db, 'barbers'), (snapshot) => {
-        setBarbers(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Barber)));
-        markLoaded();
-      }, () => markLoaded());
+    const unsubBarbers = onSnapshot(collection(db, 'barbers'), (snapshot) => {
+      setBarbers(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Barber)));
+      markLoaded();
+    }, () => markLoaded());
 
-      const unsubInfo = onSnapshot(doc(db, 'business', 'info'), (doc) => {
-        if (doc.exists()) setBusinessInfo(doc.data() as BusinessInfo);
-        markLoaded();
-      }, () => markLoaded());
+    const unsubInfo = onSnapshot(doc(db, 'business', 'info'), (doc) => {
+      if (doc.exists()) setBusinessInfo(doc.data() as BusinessInfo);
+      markLoaded();
+    }, () => markLoaded());
 
-      // 2. Dashboards (Slight delay)
-      await new Promise(r => setTimeout(r, 100));
-      const unsubBookings = onSnapshot(query(collection(db, 'bookings'), orderBy('createdAt', 'desc'), limit(50)), (snapshot) => {
-        setBookings(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Booking)));
-        markLoaded();
-      }, () => markLoaded());
+    const unsubBookings = onSnapshot(query(collection(db, 'bookings'), orderBy('createdAt', 'desc'), limit(100)), (snapshot) => {
+      setBookings(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Booking)));
+      markLoaded();
+    }, () => markLoaded());
 
-      const unsubGallery = onSnapshot(collection(db, 'gallery'), (snapshot) => {
-        setGallery(snapshot.docs.map(d => (d.data() as any).url));
-        markLoaded();
-      }, () => markLoaded());
+    const unsubGallery = onSnapshot(collection(db, 'gallery'), (snapshot) => {
+      setGallery(snapshot.docs.map(d => (d.data() as any).url));
+      markLoaded();
+    }, () => markLoaded());
 
-      // 3. Heavy Admin Data (Staggered more)
-      await new Promise(r => setTimeout(r, 200));
-      const unsubProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
-        setProducts(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Product)));
-        markLoaded();
-      }, () => markLoaded());
+    const unsubProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
+      setProducts(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Product)));
+      markLoaded();
+    }, () => markLoaded());
 
-      const unsubSales = onSnapshot(query(collection(db, 'sales'), orderBy('date', 'desc'), limit(50)), (snapshot) => {
-        setSales(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Sale)));
-        markLoaded();
-      }, () => markLoaded());
+    const unsubSales = onSnapshot(query(collection(db, 'sales'), orderBy('date', 'desc'), limit(100)), (snapshot) => {
+      setSales(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Sale)));
+      markLoaded();
+    }, () => markLoaded());
 
-      const unsubAttendance = onSnapshot(query(collection(db, 'attendance'), orderBy('date', 'desc'), limit(50)), (snapshot) => {
-        setAttendance(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Attendance)));
-        markLoaded();
-      }, () => markLoaded());
+    const unsubAttendance = onSnapshot(query(collection(db, 'attendance'), orderBy('date', 'desc'), limit(100)), (snapshot) => {
+      setAttendance(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Attendance)));
+      markLoaded();
+    }, () => markLoaded());
 
-      const unsubSettlements = onSnapshot(query(collection(db, 'settlements'), orderBy('createdAt', 'desc'), limit(50)), (snapshot) => {
-        setSettlements(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Settlement)));
-        markLoaded();
-      }, () => markLoaded());
-
-      return () => {
-        unsubServices(); unsubBarbers(); unsubBookings(); unsubInfo();
-        unsubGallery(); unsubProducts(); unsubSales(); unsubAttendance(); unsubSettlements();
-      };
-    };
-
-    let cleaner: () => void;
-    initListeners().then(c => cleaner = c);
+    const unsubSettlements = onSnapshot(query(collection(db, 'settlements'), orderBy('createdAt', 'desc'), limit(100)), (snapshot) => {
+      setSettlements(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Settlement)));
+      markLoaded();
+    }, () => markLoaded());
 
     return () => {
       clearTimeout(timeout);
-      if (cleaner) cleaner();
+      unsubServices(); unsubBarbers(); unsubBookings(); unsubInfo();
+      unsubGallery(); unsubProducts(); unsubSales(); unsubAttendance(); unsubSettlements();
     };
   }, []);
 

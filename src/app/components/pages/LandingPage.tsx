@@ -14,10 +14,17 @@ const STAT_ICONS: Record<string, any> = {
   rating: TrendingUp,
 };
 
-// --- Loading Skeleton Component ---
+// --- Helpers ---
 const Skeleton = ({ className }: { className: string }) => (
   <div className={`animate-pulse bg-white/5 rounded-2xl ${className}`} />
 );
+
+const getOptimizedImage = (url: string, width: number = 800) => {
+  if (!url) return '';
+  if (url.startsWith('data:')) return url; // Don't optimize base64
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}auto=format&w=${width}&q=75`;
+};
 
 export default function LandingPage() {
   const [loginOpen, setLoginOpen] = useState(false);
@@ -27,7 +34,7 @@ export default function LandingPage() {
   const heroRef = useRef<HTMLElement>(null);
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { services, barbers, gallery, businessInfo, products, loading } = useBusiness();
+  const { services, barbers, gallery, businessInfo, loading } = useBusiness();
 
   // Dynamic branding from admin
   const heroImage = businessInfo.heroImage || 'https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=1920&h=1080&fit=crop';
@@ -59,7 +66,7 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="flex items-center gap-3">
             {logo ? (
-              <img src={logo} alt="Logo" className="h-10 object-contain" loading="eager" decoding="async" />
+              <img src={getOptimizedImage(logo, 200)} alt="Logo" className="h-10 object-contain" loading="eager" />
             ) : (
               <div className="flex items-center gap-2">
                 <Scissors className="w-8 h-8 text-[#D4AF37]" />
@@ -106,50 +113,61 @@ export default function LandingPage() {
               exit={{ opacity: 0, height: 0 }}
               className="md:hidden bg-black/95 border-b border-[#D4AF37]/20 overflow-hidden"
             >
-              <div className="px-6 py-8 flex flex-col gap-6">
-                <a href="#services" onClick={() => setMobileMenuOpen(false)} className="text-xl text-white/90 font-semibold">Services</a>
-                <a href="#team" onClick={() => setMobileMenuOpen(false)} className="text-xl text-white/90 font-semibold">Équipe</a>
-                <a href="#gallery" onClick={() => setMobileMenuOpen(false)} className="text-xl text-white/90 font-semibold">Galerie</a>
-                <a href="#contact" onClick={() => setMobileMenuOpen(false)} className="text-xl text-white/90 font-semibold">Contact</a>
-                <div className="pt-4 border-t border-white/10">
-                  {user ? (
-                    <button onClick={() => { navigate(`/${user.role}`); setMobileMenuOpen(false); }} className="w-full py-4 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black rounded-xl font-bold text-lg">
-                      Tableau de bord
-                    </button>
-                  ) : (
-                    <button onClick={() => { setLoginOpen(true); setMobileMenuOpen(false); }} className="w-full py-4 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black rounded-xl font-bold text-lg">
-                      Connexion
-                    </button>
-                  )}
-                </div>
+              <div className="flex flex-col p-6 gap-6">
+                <a href="#services" onClick={() => setMobileMenuOpen(false)} className="text-xl font-bold text-white">Services</a>
+                <a href="#team" onClick={() => setMobileMenuOpen(false)} className="text-xl font-bold text-white">Équipe</a>
+                <a href="#gallery" onClick={() => setMobileMenuOpen(false)} className="text-xl font-bold text-white">Galerie</a>
+                <a href="#contact" onClick={() => setMobileMenuOpen(false)} className="text-xl font-bold text-white">Contact</a>
+                {user ? (
+                  <button onClick={() => { navigate(`/${user.role}`); setMobileMenuOpen(false); }} className="w-full py-4 bg-[#D4AF37] text-black rounded-xl font-bold">Tableau de bord</button>
+                ) : (
+                  <button onClick={() => { setLoginOpen(true); setMobileMenuOpen(false); }} className="w-full py-4 bg-[#D4AF37] text-black rounded-xl font-bold">Connexion</button>
+                )}
               </div>
             </motion.div>
           )}
         </AnimatePresence>
       </nav>
 
-      {/* Hero */}
+      {/* Hero Section */}
       <section ref={heroRef} className="relative h-screen flex items-center justify-center overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-black via-black to-[#1a1a1a]" />
-        <div className="absolute inset-0 bg-cover bg-center opacity-20" style={{ backgroundImage: `url('${heroImage}&auto=format&w=1920&q=75')` }} />
-        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent" />
-        <div className="relative z-10 text-center max-w-5xl mx-auto px-6">
-          <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8 }}>
-            <h1 className="text-5xl md:text-8xl font-bold mb-6 bg-gradient-to-r from-[#FFD700] via-[#D4AF37] to-[#B8960A] bg-clip-text text-transparent leading-tight">
-              {heroTitle}
+        <div className="absolute inset-0 z-0">
+          <img
+            src={getOptimizedImage(heroImage, 1920)}
+            className="w-full h-full object-cover"
+            alt="Hero"
+            loading="eager"
+          />
+          <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-black/40 to-black" />
+        </div>
+
+        <div className="relative z-10 max-w-5xl mx-auto px-6 text-center">
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8 }}
+          >
+            <h1 className="text-6xl md:text-8xl font-black text-white mb-6 tracking-tighter leading-none">
+              {heroTitle.split(' ').map((word, i) => (
+                <span key={i} className={i === 1 ? "text-[#D4AF37]" : ""}>{word} </span>
+              ))}
             </h1>
-            <p className="text-lg md:text-2xl text-white/80 mb-12 max-w-3xl mx-auto">{heroSubtitle}</p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <button onClick={() => setBookingOpen(true)} className="px-8 py-4 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black rounded-xl font-bold hover:shadow-2xl hover:shadow-[#D4AF37]/50 transition-all transform hover:scale-105 active:scale-95 flex items-center justify-center gap-2">
-                <Calendar className="w-5 h-5" />
-                {heroButtonText}
+            <p className="text-xl md:text-2xl text-white/80 mb-10 max-w-2xl mx-auto leading-relaxed">
+              {heroSubtitle}
+            </p>
+            <div className="flex flex-col md:flex-row items-center justify-center gap-6">
+              <button
+                onClick={() => setBookingOpen(true)}
+                className="group relative px-10 py-5 bg-[#D4AF37] text-black font-black uppercase tracking-widest rounded-full overflow-hidden transition-all hover:scale-105 active:scale-95 shadow-2xl shadow-[#D4AF37]/30"
+              >
+                <span className="relative z-10">{heroButtonText}</span>
+                <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform" />
               </button>
-              <button onClick={() => document.getElementById('services')?.scrollIntoView({ behavior: 'smooth' })} className="px-8 py-4 bg-white/5 backdrop-blur-sm text-white rounded-xl border border-[#D4AF37]/30 hover:bg-white/10 transition-all active:scale-95">
-                Voir les Services
-              </button>
+              <a href="#services" className="text-white font-bold hover:text-[#D4AF37] transition-colors border-b-2 border-white/20 hover:border-[#D4AF37]">Explorer nos services</a>
             </div>
           </motion.div>
         </div>
+
         <div className="absolute bottom-10 left-1/2 -translate-x-1/2 animate-bounce hidden md:block">
           <div className="w-6 h-10 border-2 border-[#D4AF37]/50 rounded-full flex items-start justify-center p-2">
             <div className="w-1.5 h-3 bg-[#D4AF37] rounded-full" />
@@ -194,9 +212,9 @@ export default function LandingPage() {
           ) : services.length > 0 ? (
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
               {services.map((service, index) => (
-                <motion.div key={index} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: index * 0.1 }} className="group relative bg-gradient-to-br from-[#141414] to-[#1a1a1a] rounded-2xl overflow-hidden border border-[#D4AF37]/20 hover:border-[#D4AF37]/50 transition-all hover:shadow-xl hover:shadow-[#D4AF37]/20">
+                <motion.div key={service.id} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: index * 0.1 }} className="group relative bg-gradient-to-br from-[#141414] to-[#1a1a1a] rounded-2xl overflow-hidden border border-[#D4AF37]/20 hover:border-[#D4AF37]/50 transition-all hover:shadow-xl hover:shadow-[#D4AF37]/20">
                   <div className="aspect-video overflow-hidden">
-                    <img src={`${service.image}${service.image.includes('?') ? '&' : '?'}auto=format&w=800&q=75`} alt={service.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" loading="lazy" decoding="async" />
+                    <img src={getOptimizedImage(service.image, 800)} alt={service.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" loading="lazy" />
                   </div>
                   <div className="p-6">
                     <h3 className="text-2xl font-bold text-white mb-2">{service.name}</h3>
@@ -236,9 +254,9 @@ export default function LandingPage() {
           ) : barbers.filter(b => !b.archived).length > 0 ? (
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-8">
               {barbers.filter(b => !b.archived).map((barber, index) => (
-                <motion.div key={index} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: index * 0.1 }} className="group relative bg-gradient-to-br from-[#141414] to-[#1a1a1a] rounded-2xl overflow-hidden border border-[#D4AF37]/20 hover:border-[#D4AF37]/50 transition-all hover:shadow-xl hover:shadow-[#D4AF37]/20">
+                <motion.div key={barber.id} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: index * 0.1 }} className="group relative bg-gradient-to-br from-[#141414] to-[#1a1a1a] rounded-2xl overflow-hidden border border-[#D4AF37]/20 hover:border-[#D4AF37]/50 transition-all hover:shadow-xl hover:shadow-[#D4AF37]/20">
                   <div className="aspect-square overflow-hidden">
-                    <img src={`${barber.image}${barber.image.includes('?') ? '&' : '?'}auto=format&w=400&q=75`} alt={barber.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" loading="lazy" decoding="async" />
+                    <img src={getOptimizedImage(barber.image, 400)} alt={barber.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" loading="lazy" />
                   </div>
                   <div className="p-6">
                     <h3 className="text-xl font-bold text-white mb-1">{barber.name}</h3>
@@ -275,7 +293,7 @@ export default function LandingPage() {
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
               {gallery.map((image, index) => (
                 <motion.div key={index} initial={{ opacity: 0, scale: 0.9 }} whileInView={{ opacity: 1, scale: 1 }} viewport={{ once: true }} transition={{ delay: index * 0.1 }} className="group relative aspect-square rounded-2xl overflow-hidden border border-[#D4AF37]/20 hover:border-[#D4AF37]/50 transition-all">
-                  <img src={`${image}${image.includes('?') ? '&' : '?'}auto=format&w=600&q=75`} alt={`Gallery ${index + 1}`} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" loading="lazy" decoding="async" />
+                  <img src={getOptimizedImage(image, 600)} alt={`Gallery ${index + 1}`} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" loading="lazy" />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/0 to-black/0 opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-6">
                     <span className="text-white font-bold">Inspiration Elite</span>
                   </div>
@@ -299,7 +317,7 @@ export default function LandingPage() {
               <div className="space-y-8">
                 {[
                   { icon: MapPin, title: 'Emplacement', text: businessInfo.address },
-                  { icon: Clock, title: 'Horaires', text: `Lun-Ven: ${businessInfo.hours.weekdays}\nSam-Dim: ${businessInfo.hours.weekends}` },
+                  { icon: Clock, title: 'Horaires', text: `Lun-Ven: ${businessInfo.hours?.weekdays || '9h-19h'}\nSam-Dim: ${businessInfo.hours?.weekends || '10h-17h'}` },
                   { icon: Phone, title: 'Contact', text: `${businessInfo.phone}\n${businessInfo.email}` },
                 ].map(({ icon: Icon, title, text }) => (
                   <div key={title} className="flex items-start gap-6">
@@ -333,7 +351,7 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-6">
           <div className="flex flex-col md:flex-row items-center justify-between gap-8">
             <div className="flex items-center gap-3">
-              {logo ? <img src={logo} alt="Logo" className="h-10 object-contain" /> : <div className="flex items-center gap-2"><Scissors className="w-8 h-8 text-[#D4AF37]" /><span className="text-2xl font-bold bg-gradient-to-r from-[#D4AF37] to-[#FFD700] bg-clip-text text-transparent">{businessInfo.name || 'Elite Cuts'}</span></div>}
+              {logo ? <img src={getOptimizedImage(logo, 200)} alt="Logo" className="h-10 object-contain" /> : <div className="flex items-center gap-2"><Scissors className="w-8 h-8 text-[#D4AF37]" /><span className="text-2xl font-bold bg-gradient-to-r from-[#D4AF37] to-[#FFD700] bg-clip-text text-transparent">{businessInfo.name || 'Elite Cuts'}</span></div>}
             </div>
             <div className="flex gap-8 text-white/40 text-sm font-medium">
               <a href="#" className="hover:text-[#D4AF37] transition-colors">Mentions Légales</a>
@@ -349,25 +367,25 @@ export default function LandingPage() {
       <AnimatePresence>
         {showStickyBtn && (
           <motion.div
-            initial={{ opacity: 0, y: 40 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 40 }}
-            transition={{ duration: 0.3, ease: 'easeOut' }}
-            className="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 w-[90%] z-40"
+            initial={{ y: 100 }}
+            animate={{ y: 0 }}
+            exit={{ y: 100 }}
+            className="md:hidden fixed bottom-6 left-6 right-6 z-50"
           >
             <button
               onClick={() => setBookingOpen(true)}
-              className="w-full py-4 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black rounded-2xl font-bold text-lg shadow-2xl shadow-[#D4AF37]/40 active:scale-95 transition-transform flex items-center justify-center gap-2"
+              className="w-full py-4 bg-[#D4AF37] text-black font-black uppercase tracking-widest rounded-2xl shadow-2xl shadow-[#D4AF37]/40 active:scale-95 transition-transform"
             >
-              <Calendar className="w-5 h-5" />
               {heroButtonText}
             </button>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {loginOpen && <LoginModal onClose={() => setLoginOpen(false)} />}
-      {bookingOpen && <BookingModal onClose={() => setBookingOpen(false)} />}
+      <Suspense fallback={null}>
+        {loginOpen && <LoginModal onClose={() => setLoginOpen(false)} />}
+        {bookingOpen && <BookingModal onClose={() => setBookingOpen(false)} />}
+      </Suspense>
     </div>
   );
 }
