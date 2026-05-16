@@ -39,6 +39,13 @@ const BarberModal = lazy(() => import('../admin/BarberModal'));
 const ServiceModal = lazy(() => import('../admin/ServiceModal'));
 const ProductModal = lazy(() => import('../admin/ProductModal'));
 
+// New optimized sections
+const BrandingSection = lazy(() => import('../admin/BrandingSection').then(m => ({ default: m.BrandingSection })));
+const AttendanceHistory = lazy(() => import('../admin/AttendanceHistory').then(m => ({ default: m.AttendanceHistory })));
+const SalesReport = lazy(() => import('../admin/SalesReport').then(m => ({ default: m.SalesReport })));
+const ProductManagement = lazy(() => import('../admin/ProductManagement').then(m => ({ default: m.ProductManagement })));
+const FinanceReport = lazy(() => import('../admin/FinanceReport').then(m => ({ default: m.FinanceReport })));
+
 const compressImage = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -83,7 +90,6 @@ export default function AdminDashboard() {
   const [customDateRange, setCustomDateRange] = useState({ start: '', end: '' });
   const [barberFilter, setBarberFilter] = useState('all');
   const [isSaving, setIsSaving] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
 
   const [barberModalOpen, setBarberModalOpen] = useState(false);
   const [editingBarber, setEditingBarber] = useState<Barber | null>(null);
@@ -108,27 +114,21 @@ export default function AdminDashboard() {
     return await compressImage(file);
   };
 
-  const parsePrice = (priceStr: string | undefined) => priceStr ? (parseInt(priceStr.replace(/[^0-9]/g, ''), 10) || 0) : 0;
-  
   const isDateInRange = (dateStr: string) => {
     if (dateFilter === 'all') return true;
     if (!dateStr) return false;
     const date = new Date(dateStr);
     if (isNaN(date.getTime())) return false;
-    
     const now = new Date();
     let start = new Date(0);
     let end = new Date(3000, 0, 1);
-
     if (dateFilter === 'day') {
       start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
       end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
     } else if (dateFilter === 'week') {
       const first = now.getDate() - now.getDay() + (now.getDay() === 0 ? -6 : 1);
       start = new Date(now.getFullYear(), now.getMonth(), first, 0, 0, 0, 0);
-      end = new Date(start.getTime());
-      end.setDate(start.getDate() + 6);
-      end.setHours(23, 59, 59, 999);
+      end = new Date(start.getTime()); end.setDate(start.getDate() + 6); end.setHours(23, 59, 59, 999);
     } else if (dateFilter === 'month') {
       start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
       end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
@@ -141,16 +141,11 @@ export default function AdminDashboard() {
 
   const filteredBookings = useMemo(() => bookings.filter(b => isDateInRange(b.date) && (barberFilter === 'all' || b.barberId === barberFilter)), [bookings, dateFilter, customDateRange, barberFilter]);
   const approvedBookings = useMemo(() => filteredBookings.filter(b => b.status === 'completed' || b.status === 'approved'), [filteredBookings]);
-  const pendingBookings = useMemo(() => bookings.filter(b => b.status === 'pending'), [bookings]);
-
   const totalRevenue = useMemo(() => approvedBookings.reduce((sum, b) => sum + (b.pricePaid || 0), 0), [approvedBookings]);
-  const totalCash = useMemo(() => approvedBookings.reduce((sum, b) => b.paymentMethod === 'cash' ? sum + (b.pricePaid || 0) : sum, 0), [approvedBookings]);
-  const totalCard = useMemo(() => approvedBookings.reduce((sum, b) => b.paymentMethod === 'card' ? sum + (b.pricePaid || 0) : sum, 0), [approvedBookings]);
 
   const revenueTrend = useMemo(() => {
     const last7Days = Array.from({ length: 7 }, (_, i) => {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
+      const d = new Date(); d.setDate(d.getDate() - i);
       return d.toISOString().split('T')[0];
     }).reverse();
     return last7Days.map(date => ({
@@ -177,277 +172,246 @@ export default function AdminDashboard() {
       </div>
       {dateFilter === 'custom' && (
         <div className="flex items-center gap-2">
-          <input type="date" value={customDateRange.start} onChange={(e) => setCustomDateRange(prev => ({ ...prev, start: e.target.value }))} className="bg-[#141414] border border-[#D4AF37]/20 text-white text-xs rounded-lg px-2 py-1.5 outline-none focus:border-[#D4AF37]" />
-          <input type="date" value={customDateRange.end} onChange={(e) => setCustomDateRange(prev => ({ ...prev, end: e.target.value }))} className="bg-[#141414] border border-[#D4AF37]/20 text-white text-xs rounded-lg px-2 py-1.5 outline-none focus:border-[#D4AF37]" />
+          <input type="date" value={customDateRange.start} onChange={(e) => setCustomDateRange(prev => ({ ...prev, start: e.target.value }))} className="bg-[#141414] border border-[#D4AF37]/20 text-white text-xs rounded-lg px-2 py-1.5 outline-none" />
+          <input type="date" value={customDateRange.end} onChange={(e) => setCustomDateRange(prev => ({ ...prev, end: e.target.value }))} className="bg-[#141414] border border-[#D4AF37]/20 text-white text-xs rounded-lg px-2 py-1.5 outline-none" />
         </div>
       )}
     </div>
   );
 
+  const sidebarTabs = [
+    { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+    { id: 'bookings', icon: Calendar, label: 'Réservations' },
+    { id: 'reports', icon: TrendingUp, label: 'Rapports' },
+    { id: 'barbers', icon: Users, label: 'Coiffeurs' },
+    { id: 'services', icon: Scissors, label: 'Services' },
+    { id: 'boutique', icon: ShoppingBag, label: 'Boutique' },
+    { id: 'gallery', icon: ImageIcon, label: 'Portfolio' },
+    { id: 'attendance', icon: Clock, label: 'Pointage' },
+    { id: 'branding', icon: ImageIcon, label: 'Design' },
+    { id: 'settings', icon: Settings, label: 'Paramètres' },
+  ];
+
   return (
-    <div className="min-h-screen bg-background text-white">
-      {/* Header */}
-      <nav className="bg-[#0f0f0f] border-b border-[#D4AF37]/20 px-6 py-4 sticky top-0 z-50 backdrop-blur-md bg-opacity-80">
+    <div className="min-h-screen bg-background text-white font-sans">
+      <nav className="bg-black/60 backdrop-blur-xl border-b border-white/5 px-6 py-4 sticky top-0 z-50">
         <div className="max-w-[1600px] mx-auto flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <h1 className="text-xl font-bold bg-gradient-to-r from-[#D4AF37] to-[#FFD700] bg-clip-text text-transparent">Elite Cuts Admin</h1>
+            <h1 className="text-xl font-black bg-gradient-to-r from-[#D4AF37] to-[#FFD700] bg-clip-text text-transparent tracking-tighter">ELITE CUTS ADMIN</h1>
           </div>
           <div className="flex items-center gap-6">
-            <div className="hidden md:block text-right">
-              <p className="text-sm font-bold">{user?.name || 'Administrateur'}</p>
-              <p className="text-[10px] text-white/40 uppercase tracking-widest">Premium Access</p>
-            </div>
-            <button onClick={handleLogout} className="p-2 hover:bg-white/5 rounded-full transition-colors text-white/60 hover:text-white"><LogOut className="w-5 h-5" /></button>
+            <button onClick={handleLogout} className="p-2.5 hover:bg-red-500/10 rounded-full transition-all text-white/40 hover:text-red-500"><LogOut className="w-5 h-5" /></button>
           </div>
         </div>
       </nav>
 
       <div className="max-w-[1600px] mx-auto flex flex-col md:flex-row gap-8 p-6 pb-24 md:pb-8">
-        {/* Sidebar */}
-        <aside className="md:w-64 space-y-2 hidden md:block">
-          {[
-            { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-            { id: 'bookings', icon: Calendar, label: 'Réservations' },
-            { id: 'reports', icon: TrendingUp, label: 'Rapports' },
-            { id: 'barbers', icon: Users, label: 'Coiffeurs' },
-            { id: 'services', icon: Scissors, label: 'Services' },
-            { id: 'boutique', icon: ShoppingBag, label: 'Boutique' },
-            { id: 'gallery', icon: ImageIcon, label: 'Portfolio' },
-            { id: 'attendance', icon: Clock, label: 'Pointage' },
-            { id: 'branding', icon: Settings, label: 'Design' },
-            { id: 'settings', icon: Settings, label: 'Paramètres' },
-          ].map(tab => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === tab.id ? 'bg-[#D4AF37] text-black font-bold shadow-lg shadow-[#D4AF37]/20' : 'text-white/60 hover:bg-white/5'}`}>
+        <aside className="md:w-64 space-y-1 hidden md:block">
+          {sidebarTabs.map(tab => (
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === tab.id ? 'bg-[#D4AF37] text-black font-bold shadow-2xl shadow-[#D4AF37]/30 scale-[1.02]' : 'text-white/40 hover:bg-white/5 hover:text-white'}`}>
               <tab.icon className="w-5 h-5" />
-              <span>{tab.label}</span>
+              <span className="text-sm">{tab.label}</span>
             </button>
           ))}
         </aside>
 
-        {/* Main Content */}
         <main className="flex-1 min-w-0">
           <AnimatePresence mode="wait">
-            {activeTab === 'dashboard' && (
-              <motion.div key="dashboard" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <h2 className="text-3xl font-bold">Vue d'ensemble</h2>
-                  {renderDateFilterSelector()}
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {[
-                    { label: 'Revenu Total', value: `€${totalRevenue}`, icon: DollarSign, color: 'text-green-400' },
-                    { label: 'Réservations', value: filteredBookings.length, icon: Calendar, color: 'text-blue-400' },
-                    { label: 'Coiffeurs Actifs', value: barbers.filter(b => !b.archived).length, icon: Users, color: 'text-purple-400' },
-                  ].map((stat, i) => (
-                    <div key={i} className="bg-[#141414] border border-[#D4AF37]/10 p-6 rounded-3xl hover:border-[#D4AF37]/30 transition-colors group">
-                      <div className="flex items-center justify-between mb-4">
-                        <div className={`p-3 rounded-2xl bg-white/5 group-hover:scale-110 transition-transform ${stat.color}`}><stat.icon className="w-6 h-6" /></div>
-                      </div>
-                      <p className="text-white/40 text-sm">{stat.label}</p>
-                      <p className="text-3xl font-bold mt-1">{stat.value}</p>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="grid lg:grid-cols-2 gap-8">
-                  <div className="bg-[#141414] border border-[#D4AF37]/10 p-8 rounded-3xl">
-                    <h3 className="text-xl font-bold mb-8">Performance des Coiffeurs</h3>
-                    <div className="h-[300px]">
-                      <Suspense fallback={<div className="w-full h-full bg-white/5 animate-pulse rounded-2xl" />}>
-                        <PerformanceChart data={barberPerformance} />
-                      </Suspense>
-                    </div>
-                  </div>
-                  <div className="bg-[#141414] border border-[#D4AF37]/10 p-8 rounded-3xl">
-                    <h3 className="text-xl font-bold mb-8">Tendance des Revenus</h3>
-                    <div className="h-[300px]">
-                      <Suspense fallback={<div className="w-full h-full bg-white/5 animate-pulse rounded-2xl" />}>
-                        <RevenueChart data={revenueTrend} />
-                      </Suspense>
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-
-            {activeTab === 'bookings' && (
-              <motion.div key="bookings" className="space-y-6">
-                <div className="flex justify-between items-center">
-                  <h2 className="text-3xl font-bold">Réservations</h2>
-                  <div className="flex gap-4">
+            <Suspense fallback={<div className="w-full h-96 flex items-center justify-center"><div className="w-10 h-10 border-4 border-[#D4AF37] border-t-transparent rounded-full animate-spin"></div></div>}>
+              {activeTab === 'dashboard' && (
+                <motion.div key="dashboard" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <h2 className="text-4xl font-black tracking-tight">VUE D'ENSEMBLE</h2>
                     {renderDateFilterSelector()}
                   </div>
-                </div>
-                <div className="space-y-4">
-                  {filteredBookings.length === 0 ? (
-                    <div className="text-center py-20 bg-[#141414] rounded-3xl border border-[#D4AF37]/10 text-white/40 italic">Aucune réservation trouvée.</div>
-                  ) : (
-                    filteredBookings.map(booking => (
-                      <div key={booking.id} className="bg-[#141414] border border-[#D4AF37]/10 p-6 rounded-2xl flex flex-col md:flex-row justify-between items-center gap-6">
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {[
+                      { label: 'Revenu Total', value: `€${totalRevenue.toFixed(0)}`, icon: DollarSign, color: 'text-green-400', bg: 'bg-green-500/10' },
+                      { label: 'Réservations', value: filteredBookings.length, icon: Calendar, color: 'text-blue-400', bg: 'bg-blue-500/10' },
+                      { label: 'Services Prévus', value: bookings.filter(b => b.status === 'approved').length, icon: Scissors, color: 'text-[#D4AF37]', bg: 'bg-[#D4AF37]/10' },
+                    ].map((stat, i) => (
+                      <div key={i} className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem] hover:border-[#D4AF37]/20 transition-all group relative overflow-hidden">
+                        <div className={`p-4 rounded-3xl ${stat.bg} w-fit mb-6 group-hover:scale-110 transition-transform ${stat.color}`}><stat.icon className="w-7 h-7" /></div>
+                        <p className="text-white/30 text-xs font-bold uppercase tracking-widest">{stat.label}</p>
+                        <p className="text-4xl font-black mt-2">{stat.value}</p>
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-white/[0.02] to-transparent rounded-full -mr-16 -mt-16" />
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="grid lg:grid-cols-2 gap-8">
+                    <div className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem]">
+                      <h3 className="text-xl font-bold mb-8 flex items-center gap-2"><Users className="w-5 h-5 text-[#D4AF37]" /> Performance Coiffeurs</h3>
+                      <div className="h-[300px]"><PerformanceChart data={barberPerformance} /></div>
+                    </div>
+                    <div className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem]">
+                      <h3 className="text-xl font-bold mb-8 flex items-center gap-2"><TrendingUp className="w-5 h-5 text-green-400" /> Tendance Revenus</h3>
+                      <div className="h-[300px]"><RevenueChart data={revenueTrend} /></div>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {activeTab === 'bookings' && (
+                <motion.div key="bookings" className="space-y-6">
+                  <div className="flex justify-between items-center"><h2 className="text-3xl font-black">RÉSERVATIONS</h2>{renderDateFilterSelector()}</div>
+                  <div className="space-y-3">
+                    {filteredBookings.length === 0 ? (
+                      <div className="text-center py-24 bg-[#141414] rounded-[2.5rem] border border-white/5 text-white/20 italic">Aucune réservation pour cette période.</div>
+                    ) : filteredBookings.map(booking => (
+                      <div key={booking.id} className="bg-[#141414] border border-white/5 p-6 rounded-3xl flex flex-col md:flex-row justify-between items-center gap-6 hover:border-[#D4AF37]/30 transition-all">
                         <div className="flex gap-6 items-center w-full md:w-auto">
-                          <div className="w-12 h-12 bg-white/5 rounded-full flex items-center justify-center font-bold text-[#D4AF37]">{booking.clientName[0]}</div>
+                          <div className="w-14 h-14 bg-gradient-to-br from-[#D4AF37] to-[#FFD700] rounded-2xl flex items-center justify-center font-black text-black text-xl shadow-lg shadow-[#D4AF37]/20">{booking.clientName[0]}</div>
                           <div>
                             <h4 className="font-bold text-lg">{booking.clientName}</h4>
-                            <div className="flex gap-4 text-sm text-white/40 mt-1">
+                            <p className="text-[#D4AF37] text-xs font-bold uppercase tracking-wider">{services.find(s => s.id === booking.serviceId)?.name}</p>
+                            <div className="flex gap-4 text-[10px] text-white/40 mt-1 uppercase font-bold">
                               <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> {booking.date}</span>
                               <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {booking.time}</span>
                             </div>
                           </div>
                         </div>
-                        <div className="flex gap-4 w-full md:w-auto justify-end">
+                        <div className="flex gap-3 w-full md:w-auto justify-end">
                           {booking.status === 'pending' && (
                             <>
-                              <button onClick={() => updateBookingStatus(booking.id, 'approved')} className="px-6 py-2 bg-green-500/20 text-green-400 rounded-xl hover:bg-green-500 hover:text-white transition-all font-bold">Approuver</button>
-                              <button onClick={() => updateBookingStatus(booking.id, 'rejected')} className="px-6 py-2 bg-red-500/20 text-red-400 rounded-xl hover:bg-red-500 hover:text-white transition-all font-bold">Rejeter</button>
+                              <button onClick={() => updateBookingStatus(booking.id, 'approved')} className="px-6 py-2.5 bg-green-500/10 text-green-400 rounded-xl hover:bg-green-500 hover:text-white transition-all text-xs font-black uppercase">Approuver</button>
+                              <button onClick={() => updateBookingStatus(booking.id, 'rejected')} className="px-6 py-2.5 bg-red-500/10 text-red-400 rounded-xl hover:bg-red-500 hover:text-white transition-all text-xs font-black uppercase">Rejeter</button>
                             </>
                           )}
-                          <span className={`px-4 py-2 rounded-xl text-xs font-bold ${booking.status === 'approved' ? 'bg-green-500/20 text-green-400' : booking.status === 'rejected' ? 'bg-red-500/20 text-red-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
-                            {booking.status.toUpperCase()}
+                          <span className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest ${booking.status === 'approved' ? 'bg-green-500/10 text-green-400' : booking.status === 'rejected' ? 'bg-red-500/10 text-red-400' : booking.status === 'completed' ? 'bg-blue-500/10 text-blue-400' : 'bg-yellow-500/10 text-yellow-400'}`}>
+                            {booking.status}
                           </span>
                         </div>
                       </div>
-                    ))
-                  )}
-                </div>
-              </motion.div>
-            )}
-
-            {activeTab === 'barbers' && (
-              <motion.div key="barbers" className="space-y-6">
-                <div className="flex justify-between items-center">
-                  <h2 className="text-3xl font-bold">Coiffeurs</h2>
-                  <button onClick={() => { setEditingBarber(null); setBarberModalOpen(true); }} className="px-6 py-3 bg-[#D4AF37] text-black rounded-xl font-bold hover:scale-105 transition-all">Ajouter Coiffeur</button>
-                </div>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {barbers.map(barber => (
-                    <div key={barber.id} className="bg-[#141414] border border-[#D4AF37]/10 p-6 rounded-3xl flex gap-6 items-center group">
-                      <img src={barber.image} className="w-24 h-24 rounded-2xl object-cover" />
-                      <div className="flex-1">
-                        <h4 className="text-xl font-bold">{barber.name}</h4>
-                        <p className="text-[#D4AF37] text-sm">{barber.specialty}</p>
-                        <div className="mt-4 flex gap-2">
-                          <button onClick={() => { setEditingBarber(barber); setBarberModalOpen(true); }} className="p-2 bg-white/5 rounded-lg text-white/60 hover:text-[#D4AF37] transition-colors"><Edit className="w-5 h-5" /></button>
-                          <button onClick={() => { if (confirm('Supprimer ce coiffeur ?')) deleteBarber(barber.id); }} className="p-2 bg-white/5 rounded-lg text-white/60 hover:text-red-400 transition-colors"><Trash2 className="w-5 h-5" /></button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </motion.div>
-            )}
-
-            {/* Other tabs follow the same optimized pattern... */}
-            {activeTab === 'services' && (
-              <motion.div key="services" className="space-y-6">
-                <div className="flex justify-between items-center">
-                  <h2 className="text-3xl font-bold">Services</h2>
-                  <button onClick={() => { setEditingService(null); setServiceModalOpen(true); }} className="px-6 py-3 bg-[#D4AF37] text-black rounded-xl font-bold">Ajouter Service</button>
-                </div>
-                <div className="space-y-4">
-                  {services.map(service => (
-                    <div key={service.id} className="bg-[#141414] border border-[#D4AF37]/10 p-6 rounded-2xl flex justify-between items-center">
-                      <div className="flex gap-6 items-center">
-                        <img src={service.image} className="w-16 h-16 rounded-xl object-cover" />
-                        <div>
-                          <h4 className="font-bold">{service.name}</h4>
-                          <p className="text-sm text-white/40">{service.duration} • <span className="text-[#D4AF37] font-bold">{service.price}</span></p>
-                        </div>
-                      </div>
-                      <div className="flex gap-2">
-                        <button onClick={() => { setEditingService(service); setServiceModalOpen(true); }} className="p-2 text-white/40 hover:text-[#D4AF37]"><Edit className="w-5 h-5" /></button>
-                        <button onClick={() => { if (confirm('Supprimer ce service ?')) deleteService(service.id); }} className="p-2 text-white/40 hover:text-red-400"><Trash2 className="w-5 h-5" /></button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </motion.div>
-            )}
-
-            {activeTab === 'gallery' && (
-              <motion.div key="gallery" className="space-y-6">
-                <div className="flex justify-between items-center">
-                  <h2 className="text-3xl font-bold">Portfolio</h2>
-                  <label className="px-6 py-3 bg-[#D4AF37] text-black rounded-xl font-bold cursor-pointer">
-                    <input type="file" className="hidden" accept="image/*" multiple onChange={async (e) => {
-                      const files = Array.from(e.target.files || []);
-                      for (const file of files) {
-                        const url = await handleImageUpload(file);
-                        await addToGallery(url);
-                      }
-                      toast.success('Gallery updated');
-                    }} />
-                    Envoyer des Photos
-                  </label>
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {gallery.map((url, i) => (
-                    <div key={i} className="relative aspect-square rounded-2xl overflow-hidden group border border-white/5">
-                      <img src={url} className="w-full h-full object-cover" />
-                      <button onClick={() => removeFromGallery(url)} className="absolute top-2 right-2 p-2 bg-red-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="w-4 h-4" /></button>
-                    </div>
-                  ))}
-                </div>
-              </motion.div>
-            )}
-            
-            {activeTab === 'attendance' && (
-              <motion.div key="attendance" className="space-y-6">
-                 <div className="flex justify-between items-center">
-                  <h2 className="text-3xl font-bold">Pointage & QR Codes</h2>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {barbers.map(barber => (
-                    <div key={barber.id} className="bg-[#141414] border border-[#D4AF37]/10 p-8 rounded-3xl text-center flex flex-col items-center">
-                      <p className="font-bold mb-4">{barber.name}</p>
-                      <div className="bg-white p-4 rounded-2xl mb-4">
-                        <QRCodeCanvas value={JSON.stringify({ barberId: barber.id, type: 'check-in' })} size={150} />
-                      </div>
-                      <p className="text-[10px] text-white/40 uppercase">Scanner pour pointer</p>
-                    </div>
-                  ))}
-                </div>
-              </motion.div>
-            )}
-
-            {activeTab === 'settings' && (
-              <motion.div key="settings" className="space-y-6">
-                <h2 className="text-3xl font-bold">Paramètres Entreprise</h2>
-                <div className="bg-[#141414] border border-[#D4AF37]/10 p-8 rounded-3xl space-y-6 max-w-2xl">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                      <label className="block text-white/40 text-sm mb-2">Nom du Salon</label>
-                      <input defaultValue={businessInfo.name} onBlur={(e) => updateBusinessInfo({ name: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37]" />
-                    </div>
-                    <div>
-                      <label className="block text-white/40 text-sm mb-2">Téléphone</label>
-                      <input defaultValue={businessInfo.phone} onBlur={(e) => updateBusinessInfo({ phone: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37]" />
-                    </div>
+                    ))}
                   </div>
-                  <button onClick={() => { if (confirm('Seed database with default data?')) seedDatabase(); }} className="w-full py-4 border border-[#D4AF37]/30 rounded-xl text-[#D4AF37] font-bold hover:bg-[#D4AF37]/10 transition-colors">Réinitialiser les données (Seed)</button>
-                </div>
-              </motion.div>
-            )}
+                </motion.div>
+              )}
+
+              {activeTab === 'barbers' && (
+                <motion.div key="barbers" className="space-y-6">
+                  <div className="flex justify-between items-center"><h2 className="text-3xl font-black uppercase">Coiffeurs</h2><button onClick={() => { setEditingBarber(null); setBarberModalOpen(true); }} className="px-6 py-3 bg-[#D4AF37] text-black rounded-2xl font-black text-sm hover:scale-105 transition-all shadow-xl shadow-[#D4AF37]/20 uppercase">Nouveau Coiffeur</button></div>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {barbers.map(barber => (
+                      <div key={barber.id} className="bg-[#141414] border border-white/5 p-6 rounded-[2rem] flex gap-6 items-center group relative overflow-hidden">
+                        <img src={barber.image} className="w-24 h-24 rounded-3xl object-cover group-hover:scale-105 transition-transform" />
+                        <div className="flex-1">
+                          <h4 className="text-xl font-bold">{barber.name}</h4>
+                          <p className="text-[#D4AF37] text-xs font-black uppercase tracking-widest">{barber.specialty}</p>
+                          <div className="mt-4 flex gap-2">
+                            <button onClick={() => { setEditingBarber(barber); setBarberModalOpen(true); }} className="p-3 bg-white/5 rounded-xl text-white/40 hover:text-[#D4AF37] transition-colors"><Edit className="w-5 h-5" /></button>
+                            <button onClick={() => { if (confirm('Supprimer ce coiffeur ?')) deleteBarber(barber.id); }} className="p-3 bg-white/5 rounded-xl text-white/40 hover:text-red-400 transition-colors"><Trash2 className="w-5 h-5" /></button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+
+              {activeTab === 'services' && (
+                <motion.div key="services" className="space-y-6">
+                  <div className="flex justify-between items-center"><h2 className="text-3xl font-black uppercase">Services</h2><button onClick={() => { setEditingService(null); setServiceModalOpen(true); }} className="px-6 py-3 bg-[#D4AF37] text-black rounded-2xl font-black text-sm uppercase">Nouveau Service</button></div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {services.map(service => (
+                      <div key={service.id} className="bg-[#141414] border border-white/5 p-6 rounded-3xl flex justify-between items-center group">
+                        <div className="flex gap-6 items-center">
+                          <img src={service.image} className="w-20 h-20 rounded-2xl object-cover group-hover:scale-105 transition-transform" />
+                          <div>
+                            <h4 className="font-bold text-lg">{service.name}</h4>
+                            <p className="text-xs text-white/40 font-bold uppercase tracking-widest">{service.duration} • <span className="text-[#D4AF37]">€{service.price}</span></p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={() => { setEditingService(service); setServiceModalOpen(true); }} className="p-2 text-white/20 hover:text-[#D4AF37] transition-colors"><Edit className="w-5 h-5" /></button>
+                          <button onClick={() => { if (confirm('Supprimer ce service ?')) deleteService(service.id); }} className="p-2 text-white/20 hover:text-red-400 transition-colors"><Trash2 className="w-5 h-5" /></button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+
+              {activeTab === 'boutique' && (
+                <motion.div key="boutique" className="space-y-8">
+                  <div className="flex justify-between items-center"><h2 className="text-3xl font-black uppercase">Boutique</h2></div>
+                  <div className="space-y-12">
+                    <section><h3 className="text-lg font-bold mb-6 flex items-center gap-2"><Archive className="w-5 h-5 text-[#D4AF37]" /> Stock & Inventaire</h3><ProductManagement products={products} onEdit={(p: any) => { setEditingProduct(p); setProductModalOpen(true); }} onDelete={deleteProduct} onAdd={() => { setEditingProduct(null); setProductModalOpen(true); }} /></section>
+                    <section><h3 className="text-lg font-bold mb-6 flex items-center gap-2"><DollarSign className="w-5 h-5 text-green-400" /> Historique des Ventes</h3><SalesReport sales={sales} products={products} barbers={barbers} /></section>
+                  </div>
+                </motion.div>
+              )}
+
+              {activeTab === 'reports' && (
+                <motion.div key="reports" className="space-y-8">
+                  <h2 className="text-3xl font-black uppercase">Rapports Financiers</h2>
+                  <FinanceReport bookings={bookings} services={services} sales={sales} />
+                </motion.div>
+              )}
+
+              {activeTab === 'attendance' && (
+                <motion.div key="attendance" className="space-y-12">
+                  <section>
+                    <h2 className="text-3xl font-black uppercase mb-8">Pointage Coiffeurs</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {barbers.map(barber => (
+                        <div key={barber.id} className="bg-[#141414] border border-white/5 p-10 rounded-[2.5rem] text-center flex flex-col items-center group">
+                          <p className="font-black text-lg mb-6 uppercase tracking-tight">{barber.name}</p>
+                          <div className="bg-white p-6 rounded-[2rem] mb-6 shadow-2xl shadow-white/5 group-hover:scale-105 transition-transform"><QRCodeCanvas value={JSON.stringify({ barberId: barber.id, type: 'check-in' })} size={180} /></div>
+                          <p className="text-[10px] text-white/30 uppercase font-black tracking-[0.2em]">Scanner pour pointer</p>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                  <section><AttendanceHistory attendance={attendance} barbers={barbers} /></section>
+                </motion.div>
+              )}
+
+              {activeTab === 'branding' && (
+                <motion.div key="branding" className="space-y-8">
+                  <h2 className="text-3xl font-black uppercase">Design & Branding</h2>
+                  <BrandingSection businessInfo={businessInfo} updateBusinessInfo={updateBusinessInfo} handleImageUpload={handleImageUpload} />
+                </motion.div>
+              )}
+
+              {activeTab === 'gallery' && (
+                <motion.div key="gallery" className="space-y-8">
+                  <div className="flex justify-between items-center"><h2 className="text-3xl font-black uppercase">Portfolio</h2><label className="px-8 py-4 bg-[#D4AF37] text-black rounded-2xl font-black text-sm cursor-pointer shadow-xl shadow-[#D4AF37]/20 uppercase">Envoyer des Photos<input type="file" className="hidden" accept="image/*" multiple onChange={async (e) => { const files = Array.from(e.target.files || []); for (const file of files) { const url = await handleImageUpload(file); await addToGallery(url); } toast.success('Galerie mise à jour'); }} /></label></div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
+                    {gallery.map((url, i) => (
+                      <div key={i} className="relative aspect-square rounded-[2rem] overflow-hidden group border border-white/5 shadow-2xl shadow-black/50">
+                        <img src={url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                        <button onClick={() => removeFromGallery(url)} className="absolute top-4 right-4 p-3 bg-red-500 rounded-2xl opacity-0 group-hover:opacity-100 transition-all hover:scale-110"><Trash2 className="w-5 h-5" /></button>
+                      </div>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+
+              {activeTab === 'settings' && (
+                <motion.div key="settings" className="space-y-8">
+                  <h2 className="text-3xl font-black uppercase">Paramètres</h2>
+                  <div className="bg-[#141414] border border-white/5 p-10 rounded-[2.5rem] space-y-8 max-w-2xl">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      <div><label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-3">Nom du Salon</label><input defaultValue={businessInfo.name} onBlur={(e) => updateBusinessInfo({ name: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 outline-none focus:border-[#D4AF37] font-bold" /></div>
+                      <div><label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-3">Téléphone</label><input defaultValue={businessInfo.phone} onBlur={(e) => updateBusinessInfo({ phone: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 outline-none focus:border-[#D4AF37] font-bold" /></div>
+                    </div>
+                    <div className="pt-8 border-t border-white/5"><button onClick={() => { if (confirm('Générer des données de test ? Cela ne supprimera pas vos données existantes.')) seedDatabase(); }} className="w-full py-5 border-2 border-[#D4AF37]/20 rounded-[1.5rem] text-[#D4AF37] font-black text-sm uppercase hover:bg-[#D4AF37] hover:text-black transition-all">Générer Données de Test (Seed)</button></div>
+                  </div>
+                </motion.div>
+              )}
+            </Suspense>
           </AnimatePresence>
         </main>
       </div>
 
-      {/* Mobile Bottom Nav */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-[#0f0f0f] border-t border-[#D4AF37]/20 flex overflow-x-auto scrollbar-hide z-50">
-        {[
-          { id: 'dashboard', icon: LayoutDashboard },
-          { id: 'bookings', icon: Calendar },
-          { id: 'barbers', icon: Users },
-          { id: 'services', icon: Scissors },
-          { id: 'gallery', icon: ImageIcon },
-        ].map(tab => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex-1 p-4 flex justify-center items-center ${activeTab === tab.id ? 'text-[#D4AF37]' : 'text-white/40'}`}>
-            <tab.icon className="w-6 h-6" />
-          </button>
+      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-black/80 backdrop-blur-2xl border-t border-white/5 flex overflow-x-auto scrollbar-hide z-50 py-2">
+        {sidebarTabs.slice(0, 5).map(tab => (
+          <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex-1 p-3 flex flex-col items-center gap-1 transition-all ${activeTab === tab.id ? 'text-[#D4AF37] scale-110' : 'text-white/20'}`}><tab.icon className="w-5 h-5" /></button>
         ))}
       </div>
 
-      {/* Lazy Modals */}
       <Suspense fallback={null}>
         {barberModalOpen && <BarberModal barber={editingBarber} isSaving={isSaving} handleImageUpload={handleImageUpload} onClose={() => setBarberModalOpen(false)} onSave={async (data) => { setIsSaving(true); try { if (editingBarber) await updateBarber(editingBarber.id, data); else await addBarber(data as any); triggerSuccess(() => setBarberModalOpen(false)); } finally { setIsSaving(false); } }} />}
         {serviceModalOpen && <ServiceModal service={editingService} isSaving={isSaving} handleImageUpload={handleImageUpload} onClose={() => setServiceModalOpen(false)} onSave={async (data) => { setIsSaving(true); try { if (editingService) await updateService(editingService.id, data); else await addService(data as any); triggerSuccess(() => setServiceModalOpen(false)); } finally { setIsSaving(false); } }} />}

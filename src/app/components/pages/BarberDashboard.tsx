@@ -27,6 +27,7 @@ import { useMemo, useCallback, lazy, Suspense } from 'react';
 // Lazy load heavy components
 const ScannerModal = lazy(() => import('../modals/ScannerModal'));
 const SettlementModal = lazy(() => import('../modals/SettlementModal'));
+const SaleModal = lazy(() => import('../modals/SaleModal').then(m => ({ default: m.SaleModal })));
 
 // --- Sub-components ---
 
@@ -259,6 +260,7 @@ export default function BarberDashboard() {
   const [checkInModalOpen, setCheckInModalOpen] = useState(false);
   const [settlementModalOpen, setSettlementModalOpen] = useState(false);
   const [addServiceOpen, setAddServiceOpen] = useState(false);
+  const [saleModalOpen, setSaleModalOpen] = useState(false);
 
   // Strictly match barber using the barberId from the authenticated profile
   const currentBarber = barbers.find(b => b.id === user?.barberId) || barbers.find(b => b.email === user?.email);
@@ -633,19 +635,7 @@ export default function BarberDashboard() {
                     <p className="text-white/40 text-[10px] mb-2">{product.category || 'Général'}</p>
                     <div className="flex justify-between items-center">
                       <p className="text-[#D4AF37] font-bold">€{product.sellPrice}</p>
-                      <button onClick={() => {
-                        const qtyStr = prompt(`Quantité de ${product.name} à vendre ?`, '1');
-                        if (qtyStr) {
-                          addSale({
-                            productId: product.id,
-                            sellerId: currentBarber.id,
-                            quantity: parseInt(qtyStr) || 1,
-                            buyPrice: product.buyPrice,
-                            sellPrice: product.sellPrice
-                          });
-                          toast.success('✅ Action completed successfully');
-                        }
-                      }} className="w-8 h-8 flex items-center justify-center bg-white/5 rounded-lg text-white hover:bg-[#D4AF37] hover:text-black transition-colors">
+                      <button onClick={() => setSaleModalOpen(true)} className="w-8 h-8 flex items-center justify-center bg-white/5 rounded-lg text-white hover:bg-[#D4AF37] hover:text-black transition-colors">
                         <Plus className="w-4 h-4" />
                       </button>
                     </div>
@@ -743,6 +733,7 @@ export default function BarberDashboard() {
         {settlementModalOpen && <SettlementModal onClose={() => setSettlementModalOpen(false)} todayEarnings={{total: stats.today.earnings}} currentBarber={currentBarber} addSettlement={addSettlement} />}
         {activeBookingId && <AddServiceModal bookingId={activeBookingId} onClose={() => setActiveBookingId(null)} bookings={bookings} services={services} updateBooking={updateBooking} />}
         {addServiceOpen && <WalkInModal onClose={() => setAddServiceOpen(false)} services={services} currentBarber={currentBarber} commissionRate={commissionRate} addBooking={addBooking} />}
+        {saleModalOpen && <SaleModal onClose={() => setSaleModalOpen(false)} products={products} currentBarber={currentBarber} addSale={addSale} />}
       </Suspense>
     </div>
   );
