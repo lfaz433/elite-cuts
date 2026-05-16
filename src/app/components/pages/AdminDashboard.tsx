@@ -390,14 +390,99 @@ export default function AdminDashboard() {
               )}
 
               {activeTab === 'settings' && (
-                <motion.div key="settings" className="space-y-8">
-                  <h2 className="text-3xl font-black uppercase">Paramètres</h2>
-                  <div className="bg-[#141414] border border-white/5 p-10 rounded-[2.5rem] space-y-8 max-w-2xl">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                      <div><label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-3">Nom du Salon</label><input defaultValue={businessInfo.name} onBlur={(e) => updateBusinessInfo({ name: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 outline-none focus:border-[#D4AF37] font-bold" /></div>
-                      <div><label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-3">Téléphone</label><input defaultValue={businessInfo.phone} onBlur={(e) => updateBusinessInfo({ phone: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 outline-none focus:border-[#D4AF37] font-bold" /></div>
+                <motion.div key="settings" className="space-y-8 pb-20">
+                  <h2 className="text-3xl font-black uppercase tracking-tighter">Paramètres Généraux</h2>
+                  
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    {/* Basic Info */}
+                    <div className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem] space-y-6">
+                      <div className="flex items-center gap-3 mb-4">
+                        <div className="w-10 h-10 rounded-xl bg-[#D4AF37]/10 flex items-center justify-center">
+                          <Settings className="w-5 h-5 text-[#D4AF37]" />
+                        </div>
+                        <h3 className="text-xl font-bold">Identité & Contact</h3>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                          <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Nom du Salon</label>
+                          <input defaultValue={businessInfo.name} onBlur={(e) => updateBusinessInfo({ name: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" />
+                        </div>
+                        <div>
+                          <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Téléphone</label>
+                          <input defaultValue={businessInfo.phone} onBlur={(e) => updateBusinessInfo({ phone: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" />
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Adresse E-mail</label>
+                        <input defaultValue={businessInfo.email} onBlur={(e) => updateBusinessInfo({ email: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Adresse Physique</label>
+                        <input defaultValue={businessInfo.address} onBlur={(e) => updateBusinessInfo({ address: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" />
+                      </div>
+
+                      <div className="pt-4">
+                        <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Lien Instagram</label>
+                        <div className="flex gap-2">
+                           <div className="bg-white/5 p-3 rounded-xl border border-white/10"><Instagram className="w-5 h-5 text-pink-500" /></div>
+                           <input defaultValue={businessInfo.instagram} onBlur={(e) => updateBusinessInfo({ instagram: e.target.value })} className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" placeholder="https://instagram.com/..." />
+                        </div>
+                      </div>
                     </div>
-                    <div className="pt-8 border-t border-white/5"><button onClick={() => { if (confirm('Générer des données de test ? Cela ne supprimera pas vos données existantes.')) seedDatabase(); }} className="w-full py-5 border-2 border-[#D4AF37]/20 rounded-[1.5rem] text-[#D4AF37] font-black text-sm uppercase hover:bg-[#D4AF37] hover:text-black transition-all">Générer Données de Test (Seed)</button></div>
+
+                    {/* Hours & Logo */}
+                    <div className="space-y-8">
+                       <div className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem] space-y-6">
+                        <div className="flex items-center gap-3 mb-4">
+                          <div className="w-10 h-10 rounded-xl bg-[#D4AF37]/10 flex items-center justify-center">
+                            <Clock className="w-5 h-5 text-[#D4AF37]" />
+                          </div>
+                          <h3 className="text-xl font-bold">Horaires d'Ouverture</h3>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <div>
+                            <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">En Semaine (Lun-Ven)</label>
+                            <input defaultValue={businessInfo.hours.weekdays} onBlur={(e) => updateBusinessInfo({ hours: { ...businessInfo.hours, weekdays: e.target.value } })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" placeholder="ex: 9h-19h" />
+                          </div>
+                          <div>
+                            <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Week-end (Sam-Dim)</label>
+                            <input defaultValue={businessInfo.hours.weekends} onBlur={(e) => updateBusinessInfo({ hours: { ...businessInfo.hours, weekends: e.target.value } })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" placeholder="ex: 10h-17h" />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem]">
+                        <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-4">Logo du Salon</label>
+                        <div className="flex items-center gap-8">
+                           <div className="w-24 h-24 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center overflow-hidden">
+                              {businessInfo.logo ? <img src={businessInfo.logo} className="w-full h-full object-contain p-2" /> : <Scissors className="w-8 h-8 text-white/10" />}
+                           </div>
+                           <label className="px-6 py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl font-bold text-sm cursor-pointer transition-colors">
+                              Modifier le Logo
+                              <input type="file" className="hidden" accept="image/*" onChange={async (e) => {
+                                 const file = e.target.files?.[0];
+                                 if (file) {
+                                    const url = await handleImageUpload(file);
+                                    updateBusinessInfo({ logo: url });
+                                    toast.success('Logo mis à jour');
+                                 }
+                              }} />
+                           </label>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Danger Zone */}
+                  <div className="bg-red-500/5 border border-red-500/10 p-8 rounded-[2.5rem]">
+                    <h3 className="text-red-500 font-bold mb-4 flex items-center gap-2"><X className="w-5 h-5" /> Zone de Danger</h3>
+                    <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+                       <p className="text-white/40 text-sm max-w-md">Utilisez ce bouton pour réinitialiser les données de test (Seed). Vos données existantes ne seront pas supprimées.</p>
+                       <button onClick={() => { if (confirm('Générer des données de test ?')) seedDatabase(); }} className="px-8 py-4 border-2 border-red-500/20 text-red-500 rounded-2xl font-black uppercase text-sm hover:bg-red-500 hover:text-white transition-all">Générer Données de Test</button>
+                    </div>
                   </div>
                 </motion.div>
               )}
