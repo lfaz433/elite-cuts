@@ -32,6 +32,7 @@ import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, R
 import { toast } from 'sonner';
 import { QRCodeCanvas } from 'qrcode.react';
 import type { Barber, Service, Product } from '../context/BusinessContext';
+import { useMemo, useCallback, lazy, Suspense } from 'react';
 
 const compressImage = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -134,6 +135,7 @@ export default function AdminDashboard() {
   const [productModalOpen, setProductModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
 
   const handleImageUpload = async (file: File): Promise<string> => {
     return await compressImage(file);
@@ -268,14 +270,16 @@ export default function AdminDashboard() {
     return b.paymentMethod === 'card' ? sum + (b.pricePaid || 0) : sum;
   }, 0);
 
-  const stats = [
-    { icon: DollarSign, label: 'Chiffre d\'affaires', value: `€${totalRevenue}`, change: '', color: 'from-green-500 to-emerald-600' },
-    { icon: DollarSign, label: 'En Espèce', value: `€${totalCash}`, change: '', color: 'from-yellow-500 to-amber-600' },
-    { icon: DollarSign, label: 'Par Carte', value: `€${totalCard}`, change: '', color: 'from-blue-500 to-indigo-600' },
-    { icon: Calendar, label: 'Réservations', value: filteredBookings.length.toString(), change: '', color: 'from-cyan-500 to-teal-600' },
-    { icon: Users, label: 'Clients Actifs', value: new Set(filteredBookings.map(b => b.clientEmail)).size.toString(), change: '', color: 'from-purple-500 to-pink-600' },
-    { icon: Scissors, label: 'Services Réalisés', value: approvedBookings.length.toString(), change: '', color: 'from-[#D4AF37] to-[#FFD700]' },
-  ];
+  const stats = useMemo(() => {
+    return [
+      { icon: DollarSign, label: 'Chiffre d\'affaires', value: `€${totalRevenue}`, change: '', color: 'from-green-500 to-emerald-600' },
+      { icon: DollarSign, label: 'En Espèce', value: `€${totalCash}`, change: '', color: 'from-yellow-500 to-amber-600' },
+      { icon: DollarSign, label: 'Par Carte', value: `€${totalCard}`, change: '', color: 'from-blue-500 to-indigo-600' },
+      { icon: Calendar, label: 'Réservations', value: filteredBookings.length.toString(), change: '', color: 'from-cyan-500 to-teal-600' },
+      { icon: Users, label: 'Clients Actifs', value: new Set(filteredBookings.map(b => b.clientEmail)).size.toString(), change: '', color: 'from-purple-500 to-pink-600' },
+      { icon: Scissors, label: 'Services Réalisés', value: approvedBookings.length.toString(), change: '', color: 'from-[#D4AF37] to-[#FFD700]' },
+    ];
+  }, [totalRevenue, totalCash, totalCard, filteredBookings, approvedBookings]);
 
   const pendingBookings = bookings.filter(b => b.status === 'pending');
 
@@ -1304,18 +1308,37 @@ export default function AdminDashboard() {
                     <div>
                       <label className="block text-white/60 text-sm mb-2">Image Hero (fond)</label>
                       {businessInfo.heroImage && <img src={businessInfo.heroImage} className="w-full h-32 object-cover rounded-lg mb-2 opacity-60" />}
-                      <input type="file" accept="image/*" onChange={async (e) => {
+                      <input type="file" accept="image/*" disabled={isUploading} onChange={async (e) => {
                         const file = e.target.files?.[0];
-                        if (file) { const url = await handleImageUpload(file); updateBusinessInfo({ heroImage: url }); toast.success('✅ Action completed successfully'); }
-                      }} className="w-full text-sm text-white/60 file:mr-3 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-[#D4AF37] file:text-black" />
+                        if (file) { 
+                          setIsUploading(true);
+                          try {
+                            const url = await handleImageUpload(file); 
+                            updateBusinessInfo({ heroImage: url }); 
+                            toast.success('✅ Image mise à jour'); 
+                          } finally {
+                            setIsUploading(false);
+                          }
+                        }
+                      }} className="w-full text-sm text-white/60 file:mr-3 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-[#D4AF37] file:text-black disabled:opacity-50" />
+                      {isUploading && <p className="text-[10px] text-[#D4AF37] mt-1 animate-pulse">Compression & Envoi en cours...</p>}
                     </div>
                     <div>
                       <label className="block text-white/60 text-sm mb-2">Logo Navbar</label>
                       {businessInfo.logo && <img src={businessInfo.logo} className="h-16 object-contain mb-2 bg-white/5 p-2 rounded-lg" />}
-                      <input type="file" accept="image/*" onChange={async (e) => {
+                      <input type="file" accept="image/*" disabled={isUploading} onChange={async (e) => {
                         const file = e.target.files?.[0];
-                        if (file) { const url = await handleImageUpload(file); updateBusinessInfo({ logo: url }); toast.success('✅ Action completed successfully'); }
-                      }} className="w-full text-sm text-white/60 file:mr-3 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-[#D4AF37] file:text-black" />
+                        if (file) { 
+                          setIsUploading(true);
+                          try {
+                            const url = await handleImageUpload(file); 
+                            updateBusinessInfo({ logo: url }); 
+                            toast.success('✅ Logo mis à jour'); 
+                          } finally {
+                            setIsUploading(false);
+                          }
+                        }
+                      }} className="w-full text-sm text-white/60 file:mr-3 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-[#D4AF37] file:text-black disabled:opacity-50" />
                       {businessInfo.logo && <button onClick={() => { updateBusinessInfo({ logo: '' }); toast.success('✅ Action completed successfully'); }} className="mt-2 text-xs text-red-400 hover:text-red-300">Supprimer le logo</button>}
                     </div>
                   </div>

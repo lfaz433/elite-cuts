@@ -22,6 +22,10 @@ import { useBusiness } from '../context/BusinessContext';
 import { useNavigate } from 'react-router';
 import { Html5Qrcode } from 'html5-qrcode';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { useMemo, useCallback, lazy, Suspense } from 'react';
+
+// Lazy load heavy components
+const ScannerModal = lazy(() => import('../modals/ScannerModal'));
 
 // --- Sub-components ---
 
@@ -334,56 +338,69 @@ export default function BarberDashboard() {
   
   const commissionRate = currentBarber?.commission || 50;
   
-  const getPeriodEarnings = (daysAgoStart: number, daysAgoEnd: number) => {
-    const start = new Date(); start.setDate(start.getDate() - daysAgoStart);
-    const end = new Date(); end.setDate(end.getDate() - daysAgoEnd);
-    const sDate = start.toISOString().split('T')[0];
-    const eDate = end.toISOString().split('T')[0];
-    const periodBookings = myBookings.filter(b => b.status === 'completed' && b.date >= sDate && b.date <= eDate);
-    return periodBookings.reduce((sum, b) => sum + ((b.pricePaid || 0) * commissionRate / 100) + (b.tip || 0), 0);
-  };
+  // Memoize heavy calculations
+  const stats = useMemo(() => {
+    const getPeriodEarnings = (daysAgoStart: number, daysAgoEnd: number) => {
+      const start = new Date(); start.setDate(start.getDate() - daysAgoStart);
+      const end = new Date(); end.setDate(end.getDate() - daysAgoEnd);
+      const sDate = start.toISOString().split('T')[0];
+      const eDate = end.toISOString().split('T')[0];
+      const periodBookings = myBookings.filter(b => b.status === 'completed' && b.date >= sDate && b.date <= eDate);
+      return periodBookings.reduce((sum, b) => sum + ((b.pricePaid || 0) * commissionRate / 100) + (b.tip || 0), 0);
+    };
 
-  const getPeriodServices = (daysAgoStart: number, daysAgoEnd: number) => {
-    const start = new Date(); start.setDate(start.getDate() - daysAgoStart);
-    const end = new Date(); end.setDate(end.getDate() - daysAgoEnd);
-    const sDate = start.toISOString().split('T')[0];
-    const eDate = end.toISOString().split('T')[0];
-    return myBookings.filter(b => b.status === 'completed' && b.date >= sDate && b.date <= eDate).length;
-  };
+    const getPeriodServices = (daysAgoStart: number, daysAgoEnd: number) => {
+      const start = new Date(); start.setDate(start.getDate() - daysAgoStart);
+      const end = new Date(); end.setDate(end.getDate() - daysAgoEnd);
+      const sDate = start.toISOString().split('T')[0];
+      const eDate = end.toISOString().split('T')[0];
+      return myBookings.filter(b => b.status === 'completed' && b.date >= sDate && b.date <= eDate).length;
+    };
 
-  const todayRevenue = todayCompleted.reduce((sum, b) => sum + (b.pricePaid || 0), 0);
-  const todayTips = todayCompleted.reduce((sum, b) => sum + (b.tip || 0), 0);
-  const todayBarberShare = (todayRevenue * commissionRate / 100);
-  const todayTotal = todayBarberShare + todayTips;
+    const todayRevenue = todayCompleted.reduce((sum, b) => sum + (b.pricePaid || 0), 0);
+    const todayTips = todayCompleted.reduce((sum, b) => sum + (b.tip || 0), 0);
+    const todayBarberShare = (todayRevenue * commissionRate / 100);
+    const todayTotal = todayBarberShare + todayTips;
 
-  const stats = {
-    today: { services: todayCompleted.length, earnings: todayTotal },
-    week: { services: getPeriodServices(7, 0), earnings: getPeriodEarnings(7, 0) },
-    month: { services: getPeriodServices(30, 0), earnings: getPeriodEarnings(30, 0) },
-  };
+    return {
+      today: { services: todayCompleted.length, earnings: todayTotal, share: todayBarberShare, tips: todayTips },
+      week: { services: getPeriodServices(7, 0), earnings: getPeriodEarnings(7, 0) },
+      month: { services: getPeriodServices(30, 0), earnings: getPeriodEarnings(30, 0) },
+    };
+  }, [myBookings, todayCompleted, commissionRate]);
 
-  // Generate Weekly Data (Last 7 Days)
-  const getPastDays = (days: number) => {
-    return Array.from({ length: days }).map((_, i) => {
-      const d = new Date();
-      d.setDate(d.getDate() - (days - 1 - i));
-      return d.toISOString().split('T')[0];
+  const weeklyData = useMemo(() => {
+    const getPastDays = (days: number) => {
+      return Array.from({ length: days }).map((_, i) => {
+        const d = new Date();
+        d.setDate(d.getDate() - (days - 1 - i));
+        return d.toISOString().split('T')[0];
+      });
+    };
+    return getPastDays(7).map(date => {
+      const dayBookings = myBookings.filter(b => b.status === 'completed' && b.date === date);
+      const earnings = dayBookings.reduce((sum, b) => sum + ((b.pricePaid || 0) * commissionRate / 100) + (b.tip || 0), 0);
+      const dayName = new Date(date).toLocaleDateString('en-US', { weekday: 'short' });
+      return { day: dayName, services: dayBookings.length, earnings };
     });
-  };
-  const weeklyData = getPastDays(7).map(date => {
-    const dayBookings = myBookings.filter(b => b.status === 'completed' && b.date === date);
-    const earnings = dayBookings.reduce((sum, b) => sum + ((b.pricePaid || 0) * commissionRate / 100) + (b.tip || 0), 0);
-    const dayName = new Date(date).toLocaleDateString('en-US', { weekday: 'short' });
-    return { day: dayName, services: dayBookings.length, earnings };
-  });
+  }, [myBookings, commissionRate]);
 
-  // Generate Monthly Data (Last 4 Weeks)
-  const monthlyData = [
-    { week: 'Semaine -3', earnings: getPeriodEarnings(28, 21) },
-    { week: 'Semaine -2', earnings: getPeriodEarnings(21, 14) },
-    { week: 'Semaine -1', earnings: getPeriodEarnings(14, 7) },
-    { week: 'Cette Semaine', earnings: getPeriodEarnings(7, 0) },
-  ];
+  const monthlyData = useMemo(() => {
+    const getPeriodEarnings = (daysAgoStart: number, daysAgoEnd: number) => {
+      const start = new Date(); start.setDate(start.getDate() - daysAgoStart);
+      const end = new Date(); end.setDate(end.getDate() - daysAgoEnd);
+      const sDate = start.toISOString().split('T')[0];
+      const eDate = end.toISOString().split('T')[0];
+      const periodBookings = myBookings.filter(b => b.status === 'completed' && b.date >= sDate && b.date <= eDate);
+      return periodBookings.reduce((sum, b) => sum + ((b.pricePaid || 0) * commissionRate / 100) + (b.tip || 0), 0);
+    };
+    return [
+      { week: 'Sem-3', earnings: getPeriodEarnings(28, 21) },
+      { week: 'Sem-2', earnings: getPeriodEarnings(21, 14) },
+      { week: 'Sem-1', earnings: getPeriodEarnings(14, 7) },
+      { week: 'Actuelle', earnings: getPeriodEarnings(7, 0) },
+    ];
+  }, [myBookings, commissionRate]);
 
   const recentServicesList = todayCompleted.map((b, idx) => {
     const s = services.find(serv => serv.id === b.serviceId);
@@ -491,10 +508,10 @@ export default function BarberDashboard() {
                 <p className="text-white/60 text-xs mb-3">{stats.today.services} services terminés</p>
                 <div className="pt-3 border-t border-white/10 space-y-1">
                   <div className="flex justify-between text-xs">
-                    <span className="text-white/40">Part Coiffeur:</span><span className="text-green-400 font-bold">€{todayBarberShare.toFixed(2)}</span>
+                    <span className="text-white/40">Part Coiffeur:</span><span className="text-green-400 font-bold">€{stats.today.share.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-xs">
-                    <span className="text-white/40">Pourboires:</span><span className="text-[#D4AF37] font-bold">€{todayTips.toFixed(2)}</span>
+                    <span className="text-white/40">Pourboires:</span><span className="text-[#D4AF37] font-bold">€{stats.today.tips.toFixed(2)}</span>
                   </div>
                 </div>
               </motion.div>
@@ -778,12 +795,12 @@ export default function BarberDashboard() {
         <button onClick={() => setActiveTab('horaires')} className={`flex-1 p-3 flex flex-col items-center gap-1 ${activeTab === 'horaires' ? 'text-[#D4AF37]' : 'text-white/20'} hover:text-[#D4AF37] transition-colors`}><Clock className="w-5 h-5" /><span className="text-[10px] font-bold">Horaires</span></button>
       </div>
 
-      <AnimatePresence>
+      <Suspense fallback={<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"><div className="w-8 h-8 border-4 border-[#D4AF37] border-t-transparent rounded-full animate-spin"></div></div>}>
         {checkInModalOpen && <ScannerModal onClose={() => setCheckInModalOpen(false)} currentBarber={currentBarber} handleCheckInSuccess={handleCheckInSuccess} />}
         {settlementModalOpen && <SettlementModal onClose={() => setSettlementModalOpen(false)} todayEarnings={{total: stats.today.earnings}} currentBarber={currentBarber} addSettlement={addSettlement} />}
         {activeBookingId && <AddServiceModal bookingId={activeBookingId} onClose={() => setActiveBookingId(null)} bookings={bookings} services={services} updateBooking={updateBooking} />}
         {addServiceOpen && <WalkInModal onClose={() => setAddServiceOpen(false)} services={services} currentBarber={currentBarber} commissionRate={commissionRate} addBooking={addBooking} />}
-      </AnimatePresence>
+      </Suspense>
     </div>
   );
 }

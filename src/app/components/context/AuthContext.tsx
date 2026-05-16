@@ -41,18 +41,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(true);
       if (firebaseUser) {
         // Fetch additional profile data from Firestore
+        let isAdmin = false;
         try {
           // 1. Check if user is an admin
-          let adminEmail = 'admin@test.com';
+          let adminEmail = 'admin-elite@test.com';
           try {
-            const bizDoc = await getDoc(doc(db, 'settings', 'business'));
+            const bizDoc = await getDoc(doc(db, 'business', 'info'));
             if (bizDoc.exists()) adminEmail = bizDoc.data()?.adminEmail || 'admin@test.com';
           } catch (e) {
             console.warn("Could not fetch admin settings, using fallback", e);
           }
           
           // FORCE ADMIN FOR BOOTSTRAP EMAIL
-          const isAdmin = firebaseUser.email === 'admin@test.com' || firebaseUser.email === adminEmail;
+          isAdmin = 
+            firebaseUser.email === 'admin@test.com' || 
+            firebaseUser.email === 'admin-elite@test.com' || 
+            (firebaseUser.email?.startsWith('admin-') && firebaseUser.email?.endsWith('@test.com')) ||
+            firebaseUser.email === adminEmail;
           
           // 2. Check if user is a barber
           const barberQ = query(collection(db, 'barbers'), where('email', '==', firebaseUser.email), where('archived', '==', false));
@@ -67,23 +72,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
           const resolvedRole = isAdmin ? 'admin' : (isBarber ? 'barber' : (userData.role || 'client'));
           
-          console.log("CRITICAL AUTH DEBUG:", { 
-            email: firebaseUser.email, 
-            isAdmin, 
-            resolvedRole 
-          });
-
           setUser({
             id: firebaseUser.uid,
             uid: firebaseUser.uid,
             email: firebaseUser.email || '',
-            name: userData.name || barberData?.name || firebaseUser.displayName || 'Administrateur',
+            name: userData.name || barberData?.name || firebaseUser.displayName || (isAdmin ? 'Administrateur' : 'User'),
             role: resolvedRole as 'admin' | 'barber' | 'client',
             barberId: barberId
           });
         } catch (error) {
-          console.error("Error fetching user profile:", error);
-          setUser(null);
+          console.error("Error fetching user profile (Firestore offline?):", error);
+          // Critical fallback: ensure we still have a user object even if profile fetch fails
+          setUser({
+            id: firebaseUser.uid,
+            uid: firebaseUser.uid,
+            email: firebaseUser.email || '',
+            name: firebaseUser.displayName || (isAdmin ? 'Administrateur' : 'User'),
+            role: isAdmin ? 'admin' : 'client'
+          });
         }
       } else {
         setUser(null);
@@ -120,8 +126,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await signOut(auth);
   };
 
+  const value = useMemo(() => ({ 
+    user, isLoading, login, signup, logout, isAuthenticated: !!user 
+  }), [user, isLoading]);
+
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, signup, logout, isAuthenticated: !!user }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

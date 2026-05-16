@@ -3,13 +3,16 @@ import { Suspense } from 'react';
 import { Toaster } from 'sonner';
 import PublicLayout from './components/layouts/PublicLayout';
 import LandingPage from './components/pages/LandingPage';
-import ClientDashboard from './components/pages/ClientDashboard';
-import AdminDashboard from './components/pages/AdminDashboard';
-import BarberDashboard from './components/pages/BarberDashboard';
 import { AuthProvider, useAuth } from './components/context/AuthContext';
 import { BusinessProvider } from './components/context/BusinessContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import { Scissors } from 'lucide-react';
+import { lazy } from 'react';
+
+// Lazy load heavy dashboard components
+const ClientDashboard = lazy(() => import('./components/pages/ClientDashboard'));
+const AdminDashboard = lazy(() => import('./components/pages/AdminDashboard'));
+const BarberDashboard = lazy(() => import('./components/pages/BarberDashboard'));
 
 // --- Premium Loading Spinner ---
 function AppLoader() {

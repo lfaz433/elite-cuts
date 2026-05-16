@@ -18,13 +18,18 @@ export default defineConfig({
   },
 
   build: {
+    target: 'esnext',
+    minify: 'esbuild',
     rollupOptions: {
       output: {
         manualChunks: {
-          firebase: ['firebase/app', 'firebase/firestore', 'firebase/auth'],
+          'vendor-react': ['react', 'react-dom', 'react-router'],
+          'vendor-firebase': ['firebase/app', 'firebase/auth', 'firebase/firestore'],
+          'vendor-ui': ['motion/react', 'lucide-react', 'recharts', 'sonner'],
         },
       },
     },
+    chunkSizeWarningLimit: 1000,
   },
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],

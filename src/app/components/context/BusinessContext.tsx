@@ -11,8 +11,11 @@ import {
   query,
   orderBy,
   where,
-  getDocs
+  getDocs,
+  limit
 } from 'firebase/firestore';
+import { toast } from 'sonner';
+import { useMemo, useCallback } from 'react';
 
 export interface Service {
   id: string;
@@ -231,7 +234,7 @@ const defaultBusinessInfo: BusinessInfo = {
   address: '123 Rue Premium, Centre Ville, 12345',
   phone: '+33 1 23 45 67 89',
   email: 'info@elitecuts.fr',
-  adminEmail: 'admin@test.com',
+  adminEmail: 'admin-elite@test.com',
   adminPassword: 'password123',
   hours: {
     weekdays: '9:00 - 20:00',
@@ -318,7 +321,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       markLoaded();
     }, () => markLoaded());
 
-    const unsubBookings = onSnapshot(query(collection(db, 'bookings'), orderBy('createdAt', 'desc')), (snapshot) => {
+    const unsubBookings = onSnapshot(query(collection(db, 'bookings'), orderBy('createdAt', 'desc'), limit(100)), (snapshot) => {
       setBookings(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Booking)));
       markLoaded();
     }, () => markLoaded());
@@ -338,7 +341,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       markLoaded();
     }, () => markLoaded());
 
-    const unsubSales = onSnapshot(query(collection(db, 'sales'), orderBy('date', 'desc')), (snapshot) => {
+    const unsubSales = onSnapshot(query(collection(db, 'sales'), orderBy('date', 'desc'), limit(100)), (snapshot) => {
       setSales(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Sale)));
       markLoaded();
     }, () => markLoaded());
@@ -348,7 +351,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       markLoaded();
     }, () => markLoaded());
 
-    const unsubSettlements = onSnapshot(query(collection(db, 'settlements'), orderBy('createdAt', 'desc')), (snapshot) => {
+    const unsubSettlements = onSnapshot(query(collection(db, 'settlements'), orderBy('createdAt', 'desc'), limit(100)), (snapshot) => {
       setSettlements(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Settlement)));
       markLoaded();
     }, () => markLoaded());
@@ -359,6 +362,17 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       unsubGallery(); unsubProducts(); unsubSales(); unsubAttendance(); unsubSettlements();
     };
   }, []);
+
+  const [isSeeding, setIsSeeding] = useState(false);
+
+  // Auto-seed if empty (Dev/First Run)
+  useEffect(() => {
+    if (!loading && services.length === 0 && barbers.length === 0 && !isSeeding) {
+      setIsSeeding(true);
+      console.log("Database empty, seeding default data...");
+      seedDatabase().finally(() => setIsSeeding(false));
+    }
+  }, [loading, services.length, barbers.length, isSeeding]);
 
   const addService = async (service: Omit<Service, 'id'>) => {
     await addDoc(collection(db, 'services'), service);
@@ -517,10 +531,10 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       await setDoc(doc(db, 'business', 'info'), defaultBusinessInfo, { merge: true });
       
       // Notify user
-      alert("Les données de test ont été générées avec succès !");
+      toast.success("Données de test générées !");
     } catch (error: any) {
       console.error("Firebase Error:", error);
-      alert("ERREUR FIREBASE: " + error.message + "\n\nCela signifie probablement que vos règles de sécurité Firestore bloquent la création de la collection 'products'.");
+      toast.error("Erreur de synchronisation Firestore");
     }
   };
 
@@ -582,19 +596,24 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  const value = useMemo(() => ({
+    services, barbers, bookings, businessInfo, gallery, products, sales,
+    attendance, settlements, loading,
+    addService, updateService, deleteService,
+    addBarber, updateBarber, deleteBarber,
+    addBooking, updateBookingStatus, updateBooking, deleteBooking,
+    updateBusinessInfo, addToGallery, removeFromGallery,
+    addProduct, updateProduct, deleteProduct, addSale,
+    addAttendance, addSettlement, resetBarberBalance, seedDatabase,
+    updateBarberStatus,
+    getAvailableBarbers, getAvailableTimeSlots
+  }), [
+    services, barbers, bookings, businessInfo, gallery, products, sales,
+    attendance, settlements, loading
+  ]);
+
   return (
-    <BusinessContext.Provider value={{
-      services, barbers, bookings, businessInfo, gallery, products, sales,
-      attendance, settlements, loading,
-      addService, updateService, deleteService,
-      addBarber, updateBarber, deleteBarber,
-      addBooking, updateBookingStatus, updateBooking, deleteBooking,
-      updateBusinessInfo, addToGallery, removeFromGallery,
-      addProduct, updateProduct, deleteProduct, addSale,
-      addAttendance, addSettlement, resetBarberBalance, seedDatabase,
-      updateBarberStatus,
-      getAvailableBarbers, getAvailableTimeSlots
-    }}>
+    <BusinessContext.Provider value={value}>
       {children}
     </BusinessContext.Provider>
   );
