@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { DollarSign, Scissors, TrendingUp, Calendar, CreditCard, Wallet } from 'lucide-react';
+import { DollarSign, Scissors, TrendingUp, Calendar, CreditCard, Wallet, ShoppingBag } from 'lucide-react';
 
 export const FinanceReport = ({ bookings, services, sales }: any) => {
   const completedBookings = bookings.filter((b: any) => b.status === 'completed' || b.status === 'approved');
