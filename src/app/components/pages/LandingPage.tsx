@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Scissors, Star, Calendar, Clock, MapPin, Phone, Instagram, Award, TrendingUp, ChevronLeft, ChevronRight, Menu, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
