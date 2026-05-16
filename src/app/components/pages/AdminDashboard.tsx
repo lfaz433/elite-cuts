@@ -415,8 +415,8 @@ export default function AdminDashboard() {
                       </div>
                       
                       <div>
-                        <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Adresse E-mail</label>
-                        <input defaultValue={businessInfo.email} onBlur={(e) => updateBusinessInfo({ email: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" />
+                        <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2 text-[#D4AF37]">Adresse E-mail (Admin Login)</label>
+                        <input defaultValue={businessInfo.email} onBlur={(e) => updateBusinessInfo({ email: e.target.value })} className="w-full bg-white/10 border border-[#D4AF37]/30 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" />
                       </div>
                       
                       <div>

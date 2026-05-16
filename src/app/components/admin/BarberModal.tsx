@@ -46,6 +46,16 @@ const BarberModal = ({
                 <label className="block text-white/60 text-sm mb-2">Expérience</label>
                 <input type="text" value={formData.experience} onChange={e => setFormData({ ...formData, experience: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-[#D4AF37] outline-none transition-colors" placeholder="Ex: 5 ans" />
               </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-white/60 text-sm mb-2">Téléphone</label>
+                  <input type="text" value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-[#D4AF37] outline-none transition-colors" placeholder="06..." />
+                </div>
+                <div>
+                  <label className="block text-white/30 text-sm mb-2 font-bold text-[#D4AF37]">E-mail (Login)</label>
+                  <input type="email" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} className="w-full bg-white/10 border border-[#D4AF37]/30 rounded-xl px-4 py-3 text-white focus:border-[#D4AF37] outline-none transition-colors" placeholder="barber@mail.com" />
+                </div>
+              </div>
             </div>
             <div className="space-y-4">
               <label className="block text-white/60 text-sm mb-2">Photo de Profil</label>
