@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { motion } from 'motion/react';
 import { Calendar, Clock, User, Star, LogOut, History, CreditCard, Scissors } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -16,9 +16,21 @@ export default function ClientDashboard() {
   const handleLogout = () => { logout(); navigate('/'); };
 
   // Filter bookings by this client's name (since no user ID in Firestore bookings)
-  const myBookings = bookings.filter(b => b.clientName?.toLowerCase() === user?.name?.toLowerCase());
-  const upcoming = myBookings.filter(b => b.status === 'pending' || b.status === 'approved');
-  const past = myBookings.filter(b => b.status === 'completed');
+  // Memoize filtered lists
+  const myBookings = useMemo(() => 
+    bookings.filter(b => b.clientName?.toLowerCase() === user?.name?.toLowerCase()),
+    [bookings, user?.name]
+  );
+
+  const upcoming = useMemo(() => 
+    myBookings.filter(b => b.status === 'pending' || b.status === 'approved'),
+    [myBookings]
+  );
+
+  const past = useMemo(() => 
+    myBookings.filter(b => b.status === 'completed'),
+    [myBookings]
+  );
 
   const getBarberName = (barberId: string) => barbers.find(b => b.id === barberId)?.name || 'Coiffeur';
   const getServiceName = (serviceId: string) => services.find(s => s.id === serviceId)?.name || 'Service';
