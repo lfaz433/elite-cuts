@@ -205,7 +205,7 @@ export default function BookingModal({ onClose }: { onClose: () => void }) {
                       cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12,
                     }}
                   >
-                    <img src={barber.image} alt={barber.name} style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover' }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                    <img src={barber.image} alt={barber.name} style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover' }} onError={(e) => { (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&h=100&fit=crop'; }} />
                     <div>
                       <div style={{ fontWeight: 700, color: 'white' }}>{barber.name}</div>
                       <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>{barber.specialty}</div>

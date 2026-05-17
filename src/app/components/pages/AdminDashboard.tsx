@@ -31,6 +31,8 @@ import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { QRCodeCanvas } from 'qrcode.react';
 import type { Barber, Service, Product } from '../context/BusinessContext';
+import { db } from '../../lib/firebase';
+import { collection, query, where, getDocs, updateDoc, doc } from 'firebase/firestore';
 
 // Lazy load components
 const PerformanceChart = lazy(() => import('../admin/AdminCharts').then(m => ({ default: m.PerformanceChart })));
@@ -56,8 +58,8 @@ const compressImage = (file: File): Promise<string> => {
       img.src = event.target?.result as string;
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 800;
-        const MAX_HEIGHT = 800;
+        const MAX_WIDTH = 400; // Smaller for faster storage
+        const MAX_HEIGHT = 400;
         let width = img.width;
         let height = img.height;
         if (width > height) { if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; } }
@@ -66,7 +68,7 @@ const compressImage = (file: File): Promise<string> => {
         canvas.height = height;
         const ctx = canvas.getContext('2d');
         ctx?.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', 0.7));
+        resolve(canvas.toDataURL('image/jpeg', 0.5)); // Lower quality for performance
       };
       img.onerror = (error) => reject(error);
     };
@@ -100,15 +102,21 @@ export default function AdminDashboard() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
 
   const triggerSuccess = (callback: () => void) => {
-    toast.custom((t) => (
-      <div className="bg-[#141414] border border-green-500/50 p-6 rounded-2xl flex flex-col items-center justify-center gap-4 shadow-2xl w-full min-w-[300px]">
-        <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center">
-          <CheckCircle className="w-10 h-10 text-green-500" />
-        </div>
-        <h3 className="text-xl font-bold text-white">Action réussie !</h3>
-      </div>
-    ), { duration: 1500, position: 'top-center' });
-    setTimeout(callback, 1500);
+    return new Promise<void>((resolve) => {
+      setIsSaving(false);
+      
+      // Use a standard but high-visibility success toast
+      toast.success("DONNÉES ENREGISTRÉES AVEC SUCCÈS", {
+        description: "La synchronisation avec la base de données est terminée.",
+        duration: 3000,
+        position: 'top-center'
+      });
+      
+      setTimeout(() => {
+        callback();
+        resolve();
+      }, 1000); // Close modal slightly earlier than toast disappears
+    });
   };
 
   const handleImageUpload = async (file: File): Promise<string> => {
@@ -296,7 +304,7 @@ export default function AdminDashboard() {
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {barbers.map(barber => (
                       <div key={barber.id} className="bg-[#141414] border border-white/5 p-6 rounded-[2rem] flex gap-6 items-center group relative overflow-hidden">
-                        <img src={barber.image} className="w-24 h-24 rounded-3xl object-cover group-hover:scale-105 transition-transform" />
+                        <img src={barber.image} className="w-24 h-24 rounded-3xl object-cover group-hover:scale-105 transition-transform" onError={(e) => { (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&h=150&fit=crop'; }} />
                         <div className="flex-1">
                           <h4 className="text-xl font-bold">{barber.name}</h4>
                           <p className="text-[#D4AF37] text-xs font-black uppercase tracking-widest">{barber.specialty}</p>
@@ -318,7 +326,7 @@ export default function AdminDashboard() {
                     {services.map(service => (
                       <div key={service.id} className="bg-[#141414] border border-white/5 p-6 rounded-3xl flex justify-between items-center group">
                         <div className="flex gap-6 items-center">
-                          <img src={service.image} className="w-20 h-20 rounded-2xl object-cover group-hover:scale-105 transition-transform" />
+                          <img src={service.image} className="w-20 h-20 rounded-2xl object-cover group-hover:scale-105 transition-transform" onError={(e) => { (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=150&h=150&fit=crop'; }} />
                           <div>
                             <h4 className="font-bold text-lg">{service.name}</h4>
                             <p className="text-xs text-white/40 font-bold uppercase tracking-widest">{service.duration} • <span className="text-[#D4AF37]">€{service.price}</span></p>
@@ -508,32 +516,76 @@ export default function AdminDashboard() {
       </div>
 
       <Suspense fallback={null}>
-        {barberModalOpen && <BarberModal barber={editingBarber} isSaving={isSaving} handleImageUpload={handleImageUpload} onClose={() => setBarberModalOpen(false)} onSave={async (data) => { 
-          setIsSaving(true); 
-          try { 
+        {barberModalOpen && <BarberModal barber={editingBarber} isSaving={isSaving} handleImageUpload={handleImageUpload} onClose={() => setBarberModalOpen(false)} onSave={async (data) => {
+          setIsSaving(true);
+          try {
+            // Trim and lowercase the email address
+            if (data.email) {
+              data.email = data.email.trim().toLowerCase();
+            }
             if (editingBarber) {
-              await updateBarber(editingBarber.id, data); 
+              await updateBarber(editingBarber.id, data);
             } else {
-              // Create AUTH account first if password provided
               if (data.email && data.password) {
                 try {
-                  await createBarberAccount(data.email, data.password);
+                  await Promise.race([
+                    createBarberAccount(data.email, data.password),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error("Auth Timeout")), 35000))
+                  ]);
                 } catch (err: any) {
                   if (err.code === 'auth/email-already-in-use') {
-                    // Ignore, user might already have a client account
+                    console.warn("Email already in use");
+                  } else if (err.message === "Auth Timeout") {
+                    console.warn("Auth creation taking time, proceeding...");
                   } else throw err;
                 }
               }
               const { password, ...barberData } = data;
-              await addBarber(barberData as any); 
+              await addBarber(barberData as any);
+              
+              // Try to pre-set user profile role for immediate Barber Dashboard routing
+              try {
+                const usersCol = collection(db, 'users');
+                const q = query(usersCol, where('email', '==', data.email));
+                const snap = await getDocs(q);
+                if (!snap.empty) {
+                  await updateDoc(doc(db, 'users', snap.docs[0].id), { role: 'barber' });
+                }
+              } catch (e) {
+                console.warn("Could not pre-set user role", e);
+              }
             }
-            triggerSuccess(() => setBarberModalOpen(false)); 
-          } finally { 
-            setIsSaving(false); 
-          } 
+            await triggerSuccess(() => setBarberModalOpen(false));
+          } catch (err: any) {
+            setIsSaving(false);
+            console.error(err);
+            toast.error(err.message ?? 'Erreur lors de l\'enregistrement');
+          }
         }} />}
-        {serviceModalOpen && <ServiceModal service={editingService} isSaving={isSaving} handleImageUpload={handleImageUpload} onClose={() => setServiceModalOpen(false)} onSave={async (data) => { setIsSaving(true); try { if (editingService) await updateService(editingService.id, data); else await addService(data as any); triggerSuccess(() => setServiceModalOpen(false)); } finally { setIsSaving(false); } }} />}
-        {productModalOpen && <ProductModal product={editingProduct} isSaving={isSaving} handleImageUpload={handleImageUpload} onClose={() => setProductModalOpen(false)} onSave={async (data) => { setIsSaving(true); try { if (editingProduct) await updateProduct(editingProduct.id, data); else await addProduct(data as any); triggerSuccess(() => setProductModalOpen(false)); } finally { setIsSaving(false); } }} />}
+        {serviceModalOpen && <ServiceModal service={editingService} isSaving={isSaving} handleImageUpload={handleImageUpload} onClose={() => setServiceModalOpen(false)} onSave={async (data) => {
+          setIsSaving(true);
+          try {
+            if (editingService) await updateService(editingService.id, data);
+            else await addService(data as any);
+            await triggerSuccess(() => setServiceModalOpen(false));
+          } catch (err) {
+            setIsSaving(false);
+            console.error(err);
+            toast.error('Erreur lors de l\'enregistrement');
+          }
+        }} />}
+        {productModalOpen && <ProductModal product={editingProduct} isSaving={isSaving} handleImageUpload={handleImageUpload} onClose={() => setProductModalOpen(false)} onSave={async (data) => {
+          setIsSaving(true);
+          try {
+            if (editingProduct) await updateProduct(editingProduct.id, data);
+            else await addProduct(data as any);
+            await triggerSuccess(() => setProductModalOpen(false));
+          } catch (err) {
+            setIsSaving(false);
+            console.error(err);
+            toast.error('Erreur lors de l\'enregistrement');
+          }
+        }} />}
       </Suspense>
     </div>
   );

@@ -305,28 +305,39 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let loaded = 0;
     const total = 9;
-    const markLoaded = () => { loaded++; if (loaded >= total) setLoading(false); };
+    const essential = ['services', 'barbers', 'businessInfo'];
+    const loadedEssential = new Set<string>();
+
+    const markLoaded = (name?: string) => { 
+      loaded++; 
+      if (name && essential.includes(name)) loadedEssential.add(name);
+      
+      // Either all are loaded, or at least the essential ones are loaded
+      if (loaded >= total || loadedEssential.size >= essential.length) {
+        setLoading(false); 
+      }
+    };
 
     // Safety timeout — never stay loading forever
-    const timeout = setTimeout(() => setLoading(false), 10000);
+    const timeout = setTimeout(() => setLoading(false), 3000);
 
     // Real-time Listeners (Immediate)
     const unsubServices = onSnapshot(collection(db, 'services'), (snapshot) => {
       setServices(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Service)));
-      markLoaded();
-    }, () => markLoaded());
+      markLoaded('services');
+    }, () => markLoaded('services'));
 
     const unsubBarbers = onSnapshot(collection(db, 'barbers'), (snapshot) => {
       setBarbers(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Barber)));
-      markLoaded();
-    }, () => markLoaded());
+      markLoaded('barbers');
+    }, () => markLoaded('barbers'));
 
     const unsubInfo = onSnapshot(doc(db, 'business', 'info'), (doc) => {
       if (doc.exists()) setBusinessInfo(doc.data() as BusinessInfo);
-      markLoaded();
-    }, () => markLoaded());
+      markLoaded('businessInfo');
+    }, () => markLoaded('businessInfo'));
 
-    const unsubBookings = onSnapshot(query(collection(db, 'bookings'), orderBy('createdAt', 'desc'), limit(100)), (snapshot) => {
+    const unsubBookings = onSnapshot(query(collection(db, 'bookings')), (snapshot) => {
       setBookings(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Booking)));
       markLoaded();
     }, () => markLoaded());
@@ -341,17 +352,17 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       markLoaded();
     }, () => markLoaded());
 
-    const unsubSales = onSnapshot(query(collection(db, 'sales'), orderBy('date', 'desc'), limit(100)), (snapshot) => {
+    const unsubSales = onSnapshot(query(collection(db, 'sales')), (snapshot) => {
       setSales(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Sale)));
       markLoaded();
     }, () => markLoaded());
 
-    const unsubAttendance = onSnapshot(query(collection(db, 'attendance'), orderBy('date', 'desc'), limit(100)), (snapshot) => {
+    const unsubAttendance = onSnapshot(query(collection(db, 'attendance')), (snapshot) => {
       setAttendance(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Attendance)));
       markLoaded();
     }, () => markLoaded());
 
-    const unsubSettlements = onSnapshot(query(collection(db, 'settlements'), orderBy('createdAt', 'desc'), limit(100)), (snapshot) => {
+    const unsubSettlements = onSnapshot(query(collection(db, 'settlements')), (snapshot) => {
       setSettlements(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Settlement)));
       markLoaded();
     }, () => markLoaded());
@@ -387,11 +398,24 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   };
 
   const addBarber = async (barber: Omit<Barber, 'id'>) => {
-    await addDoc(collection(db, 'barbers'), { ...barber, archived: false });
+    const cleanedBarber = {
+      ...barber,
+      email: barber.email?.trim().toLowerCase() || '',
+      archived: false
+    };
+    // Add a 35s timeout to allow slow connections to complete successfully
+    await Promise.race([
+      addDoc(collection(db, 'barbers'), cleanedBarber),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore Timeout")), 35000))
+    ]);
   };
 
   const updateBarber = async (id: string, updated: Partial<Barber>) => {
-    await updateDoc(doc(db, 'barbers', id), updated);
+    const cleanedUpdate = { ...updated };
+    if (cleanedUpdate.email) {
+      cleanedUpdate.email = cleanedUpdate.email.trim().toLowerCase();
+    }
+    await updateDoc(doc(db, 'barbers', id), cleanedUpdate);
   };
 
   const deleteBarber = async (id: string) => {
@@ -473,46 +497,52 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
 
   const seedDatabase = async () => {
     try {
-      // We will bypass checks to force generating data for testing.
-      const hasServices = services.length > 0;
-      const hasBarbers = barbers.length > 0;
+      const seedingPromises = [];
 
-      if (!hasServices) {
+      if (services.length === 0) {
         for (const s of defaultServices) {
           const { id: _id, ...data } = s;
-          await addDoc(collection(db, 'services'), data);
+          seedingPromises.push(addDoc(collection(db, 'services'), data));
         }
       }
-      if (!hasBarbers) {
+      if (barbers.length === 0) {
         for (const b of defaultBarbers) {
           const { id: _id, ...data } = b;
-          await addDoc(collection(db, 'barbers'), { ...data, archived: false });
-        }
-      }
-      if (true) { // Force seed products
-        for (const p of defaultProducts) {
-          const { id: _id, ...data } = p;
-          await addDoc(collection(db, 'products'), data);
+          seedingPromises.push(addDoc(collection(db, 'barbers'), { ...data, archived: false }));
         }
       }
       
-      // Seed dummy bookings if services exist
-      if (services.length > 0 || defaultServices.length > 0) {
+      // Always ensure some products exist for demo
+      if (products.length === 0) {
+        for (const p of defaultProducts) {
+          const { id: _id, ...data } = p;
+          seedingPromises.push(addDoc(collection(db, 'products'), data));
+        }
+      }
+      
+      // Run base seeding
+      await Promise.all(seedingPromises);
+
+      // Seed dummy bookings if needed
+      if (bookings.length < 5) {
         const activeServices = services.length > 0 ? services : defaultServices;
         const activeBarbers = barbers.length > 0 ? barbers : defaultBarbers;
         
+        const bookingPromises = [];
         const statuses = ['completed', 'completed', 'completed', 'pending', 'approved'];
-        for (let i = 0; i < 20; i++) {
+        
+        for (let i = 0; i < 15; i++) {
           const d = new Date();
-          d.setDate(d.getDate() - Math.floor(Math.random() * 14)); // Past 14 days
+          d.setDate(d.getDate() - Math.floor(Math.random() * 14));
           const status = statuses[Math.floor(Math.random() * statuses.length)];
           const service = activeServices[Math.floor(Math.random() * activeServices.length)];
+          
           const b: any = {
             clientName: `Client Test ${i+1}`,
             clientEmail: `client${i}@test.com`,
             clientPhone: '0600000000',
-            serviceId: service.id,
-            barberId: activeBarbers[0].id,
+            serviceId: service.id || '1',
+            barberId: activeBarbers[0].id || '1',
             date: d.toISOString().split('T')[0],
             time: '14:00',
             status: status,
@@ -523,18 +553,17 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
             b.tip = Math.floor(Math.random() * 5);
             b.paymentMethod = Math.random() > 0.5 ? 'cash' : 'card';
           }
-          await addDoc(collection(db, 'bookings'), b);
+          bookingPromises.push(addDoc(collection(db, 'bookings'), b));
         }
+        await Promise.all(bookingPromises);
       }
 
       // Seed business info
       await setDoc(doc(db, 'business', 'info'), defaultBusinessInfo, { merge: true });
       
-      // Notify user
-      toast.success("Données de test générées !");
+      toast.success("Données initialisées !");
     } catch (error: any) {
-      console.error("Firebase Error:", error);
-      toast.error("Erreur de synchronisation Firestore");
+      console.error("Firebase Seeding Error:", error);
     }
   };
 

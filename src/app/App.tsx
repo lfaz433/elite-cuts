@@ -66,12 +66,15 @@ export default function App() {
               </Suspense>
             </div>
             <Toaster
-              position="top-right"
+              position="top-center"
+              richColors
               toastOptions={{
                 style: {
                   background: '#141414',
                   border: '1px solid rgba(212,175,55,0.3)',
                   color: 'white',
+                  borderRadius: '16px',
+                  padding: '16px',
                 },
               }}
             />

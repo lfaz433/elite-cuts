@@ -52,13 +52,20 @@ const AddServiceModal = ({ bookingId, onClose, bookings, services, updateBooking
     try {
       updateBooking(bookingId, { status: 'completed', pricePaid: finalPrice, tip: parseFloat(tip) || 0, paymentMethod });
       toast.custom((t) => (
-        <div className="bg-[#141414] border border-green-500/50 p-6 rounded-2xl flex flex-col items-center justify-center gap-4 shadow-2xl w-full min-w-[300px]">
-          <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center">
-            <CheckCircle className="w-10 h-10 text-green-500" />
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.9, y: 20 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          className="bg-[#141414] border-2 border-[#D4AF37] p-8 rounded-3xl flex flex-col items-center justify-center gap-6 shadow-[0_0_50px_rgba(212,175,55,0.3)] w-full max-w-sm mx-auto"
+        >
+          <div className="w-20 h-20 bg-[#D4AF37]/20 rounded-full flex items-center justify-center">
+            <CheckCircle className="w-12 h-12 text-[#D4AF37]" />
           </div>
-          <h3 className="text-xl font-bold text-white">Action réussie !</h3>
-        </div>
-      ), { duration: 1500, position: 'top-center' });
+          <div className="text-center">
+            <h3 className="text-2xl font-black text-white mb-2">SUCCÈS</h3>
+            <p className="text-white/60 text-sm font-medium">L'action a été enregistrée avec succès.</p>
+          </div>
+        </motion.div>
+      ), { duration: 2000, position: 'top-center' });
       setTimeout(() => {
         onClose();
       }, 1500);
@@ -389,7 +396,7 @@ export default function BarberDashboard() {
       status: 'on-time'
     });
     setCheckInModalOpen(false);
-    toast.success("✅ Action completed successfully");
+    toast.success("Pointage effectué avec succès !");
   };
 
   const handleLogout = () => {
@@ -609,7 +616,7 @@ export default function BarberDashboard() {
                     <div className="flex gap-2">
                       <a href={`tel:${b.clientPhone}`} className="flex-1 bg-white/5 text-white py-2 rounded-lg text-center text-xs font-bold border border-white/10 hover:bg-white/10">Appeler</a>
                       {b.status === 'pending' ? (
-                        <button onClick={() => { updateBookingStatus(b.id, 'approved'); toast.success('✅ Action completed successfully'); }} className="flex-1 bg-green-500/20 text-green-400 py-2 rounded-lg text-xs font-bold border border-green-500/20 hover:bg-green-500/30">Approuver</button>
+                        <button onClick={() => { updateBookingStatus(b.id, 'approved'); toast.success('Rendez-vous approuvé !'); }} className="flex-1 bg-green-500/20 text-green-400 py-2 rounded-lg text-xs font-bold border border-green-500/20 hover:bg-green-500/30">Approuver</button>
                       ) : (
                         <button onClick={() => setActiveBookingId(b.id)} className="flex-1 bg-[#D4AF37] text-black py-2 rounded-lg text-xs font-bold hover:bg-[#FFD700]">Terminer</button>
                       )}
@@ -628,7 +635,7 @@ export default function BarberDashboard() {
               {products.map(product => (
                 <div key={product.id} className="bg-[#141414] rounded-xl border border-white/10 overflow-hidden hover:border-[#D4AF37]/50 transition-all">
                   <div className="h-24 bg-white/5 flex items-center justify-center p-2">
-                    <img src={product.image} className="max-h-full object-contain" />
+                    <img src={product.image} className="max-h-full object-contain" onError={(e) => { (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1599305090598-fe179d501227?w=150&h=150&fit=crop'; }} />
                   </div>
                   <div className="p-3">
                     <p className="text-white text-sm font-bold truncate">{product.name}</p>
@@ -673,7 +680,7 @@ export default function BarberDashboard() {
                             ? currentDays.filter((d: number) => d !== day.id)
                             : [...currentDays, day.id];
                           updateBarber(currentBarber.id, { workingDays: newDays });
-                          toast.success('✅ Action completed successfully');
+                      toast.success('Horaires mis à jour !');
                         }}
                         className={`w-12 h-12 rounded-lg font-bold flex items-center justify-center transition-all ${
                           isWorking 

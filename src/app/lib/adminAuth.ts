@@ -7,26 +7,36 @@ import { firebaseConfig } from './firebase';
  * This prevents the current Admin user from being logged out during the process.
  */
 export const createBarberAccount = async (email: string, password: string) => {
+  const appName = `SecondaryApp-${Date.now()}`;
   let secondaryApp;
   try {
-    // 1. Initialize a temporary secondary app
-    secondaryApp = initializeApp(firebaseConfig, 'SecondaryApp');
+    // 1. Initialize with unique name to avoid collisions
+    secondaryApp = initializeApp(firebaseConfig, appName);
     const secondaryAuth = getAuth(secondaryApp);
 
-    // 2. Create the user
-    await createUserWithEmailAndPassword(secondaryAuth, email, password);
-    
-    // 3. Sign out of the secondary app immediately
-    await signOut(secondaryAuth);
+    // 2. Wrap creation in a timeout to prevent infinite hanging
+    const creationPromise = (async () => {
+      await createUserWithEmailAndPassword(secondaryAuth, email, password);
+      await signOut(secondaryAuth);
+    })();
+
+    await Promise.race([
+      creationPromise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Auth Timeout")), 35000))
+    ]);
     
     return { success: true };
   } catch (error: any) {
     console.error("Error creating barber account:", error);
     throw error;
   } finally {
-    // 4. Cleanup: Delete the secondary app instance
+    // 3. Cleanup: Delete the secondary app instance
     if (secondaryApp) {
-      await deleteApp(secondaryApp);
+      try {
+        await deleteApp(secondaryApp);
+      } catch (err) {
+        console.warn("Error deleting secondary app:", err);
+      }
     }
   }
 };

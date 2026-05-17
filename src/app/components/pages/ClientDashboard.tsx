@@ -61,7 +61,9 @@ export default function ClientDashboard() {
           <div className="flex items-center gap-3">
             <div className="text-right hidden sm:block">
               <p className="text-white text-sm font-medium">{user?.name}</p>
-              <p className="text-white/40 text-xs">Client</p>
+              <p className="text-white/40 text-[10px] uppercase tracking-widest font-bold">
+                {user?.role === 'admin' ? 'Administrateur' : user?.role === 'barber' ? 'Coiffeur' : 'Client'}
+              </p>
             </div>
             <button onClick={handleLogout} className="p-2 hover:bg-white/10 rounded-lg transition-colors text-white/60 hover:text-white">
               <LogOut className="w-5 h-5" />

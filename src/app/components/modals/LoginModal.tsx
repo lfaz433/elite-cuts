@@ -28,38 +28,39 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     if (user && !authLoading) {
       onClose();
-      navigate(`/${user.role}`);
+      // Use replace: true to prevent going back to login modal
+      navigate(`/${user.role}`, { replace: true });
     }
   }, [user, authLoading, navigate, onClose]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
+    
+    // Clear auth cache on new login attempt to prevent stale role redirection
+    Object.keys(localStorage).forEach(key => {
+      if (key.startsWith('user_profile_')) localStorage.removeItem(key);
+    });
+
+    const cleanEmail = email.trim().toLowerCase();
+
     try {
       if (isLogin) {
         try {
-          await login(email, password);
+          await login(cleanEmail, password);
         } catch (error: any) {
           // If admin@test.com login fails with "user not found", bootstrap it
-          if (email === 'admin@test.com' && (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential')) {
+          if (cleanEmail === 'admin@test.com' && (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential')) {
             toast.loading('Initialisation de l\'espace admin...');
-            await signup(email, password, 'Administrateur');
-            // Role assignment is handled by email check in AuthContext
+            await signup(cleanEmail, password, 'Administrateur');
             toast.success('Compte Admin configuré !');
             return;
           }
           throw error;
         }
         toast.success('Bon retour !');
-        // Manual redirect for Admin bootstrap
-        if (email === 'admin@test.com') {
-          setTimeout(() => {
-            onClose();
-            navigate('/admin');
-          }, 500);
-        }
       } else {
-        await signup(email, password, name);
+        await signup(cleanEmail, password, name);
         toast.success('Bienvenue ! Votre compte a été créé.');
       }
     } catch (error: any) {
@@ -138,38 +139,8 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
                 try {
                   // Try 1: Login
                   await login(adminEmail, adminPass);
-                  toast.success('Accès Admin accordé !');
-                  onClose();
-                  navigate('/admin');
                 } catch (error: any) {
-                  console.warn("Initial admin login failed, attempting recovery...", error.code);
-                  
-                  if (error.code === 'auth/user-not-found') {
-                    // Try 2: Create account if missing
-                    try {
-                      toast.loading('Initialisation de l\'admin...');
-                      await signup(adminEmail, adminPass, 'Administrateur');
-                      toast.success('Compte Admin créé !');
-                      onClose();
-                      navigate('/admin');
-                    } catch (signupError: any) {
-                      toast.error('Erreur de création admin');
-                    }
-                  } else if (error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password') {
-                    // Password changed? Try a fallback admin email
-                    const fallbackEmail = `admin-${Date.now()}@test.com`;
-                    try {
-                      toast.loading('Récupération de l\'accès...');
-                      await signup(fallbackEmail, adminPass, 'Administrateur');
-                      toast.success('Accès de secours activé !');
-                      onClose();
-                      navigate('/admin');
-                    } catch (fallbackError) {
-                      toast.error('Échec de la récupération');
-                    }
-                  } else {
-                    toast.error('Erreur d\'authentification');
-                  }
+                  toast.error('Erreur d\'authentification');
                 } finally {
                   setIsSubmitting(false);
                 }

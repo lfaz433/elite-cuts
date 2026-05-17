@@ -38,61 +38,106 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      setIsLoading(true);
       if (firebaseUser) {
-        // Fetch additional profile data from Firestore
-        let isAdmin = false;
+        setIsLoading(true);
         try {
-          // 1. Check if user is an admin
-          let adminEmail = 'admin-elite@test.com';
-          try {
-            const bizDoc = await getDoc(doc(db, 'business', 'info'));
-            if (bizDoc.exists()) adminEmail = bizDoc.data()?.adminEmail || 'admin@test.com';
-          } catch (e) {
-            console.warn("Could not fetch admin settings, using fallback", e);
+          const email = firebaseUser.email?.trim().toLowerCase() || '';
+          
+          // 1. FAST TRACK: Hardcoded admin check (Sync/Instant)
+          const hardcodedAdmins = ['admin@test.com', 'admin-elite@test.com'];
+          const isHardcodedAdmin = hardcodedAdmins.includes(email) || 
+                                  (email.startsWith('admin-') && email.endsWith('@test.com'));
+
+          if (isHardcodedAdmin) {
+            const adminProfile: User = {
+              id: firebaseUser.uid,
+              uid: firebaseUser.uid,
+              email: email,
+              name: 'Administrateur',
+              role: 'admin'
+            };
+            setUser(adminProfile);
+            localStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(adminProfile));
+            setIsLoading(false);
+            return;
           }
-          
-          // FORCE ADMIN FOR BOOTSTRAP EMAIL
-          isAdmin = 
-            firebaseUser.email === 'admin@test.com' || 
-            firebaseUser.email === 'admin-elite@test.com' || 
-            (firebaseUser.email?.startsWith('admin-') && firebaseUser.email?.endsWith('@test.com')) ||
-            firebaseUser.email === adminEmail;
-          
-          // 2. Check if user is a barber
-          const barberQ = query(collection(db, 'barbers'), where('email', '==', firebaseUser.email), where('archived', '==', false));
-          const barberSnap = await getDocs(barberQ);
-          const isBarber = !barberSnap.empty;
-          const barberData = isBarber ? barberSnap.docs[0].data() : null;
-          const barberId = isBarber ? barberSnap.docs[0].id : undefined;
 
-          // 3. Get profile from 'users' collection
-          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-          const userData = userDoc.exists() ? userDoc.data() : {};
+          // 2. Check Cache
+          const cachedProfile = localStorage.getItem(`user_profile_${firebaseUser.uid}`);
+          if (cachedProfile) {
+            setUser(JSON.parse(cachedProfile));
+            // Don't set isLoading(false) here, wait for fresh check to confirm role
+          }
 
-          const resolvedRole = isAdmin ? 'admin' : (isBarber ? 'barber' : (userData.role || 'client'));
-          
-          setUser({
-            id: firebaseUser.uid,
-            uid: firebaseUser.uid,
-            email: firebaseUser.email || '',
-            name: userData.name || barberData?.name || firebaseUser.displayName || (isAdmin ? 'Administrateur' : 'User'),
-            role: resolvedRole as 'admin' | 'barber' | 'client',
-            barberId: barberId
-          });
+          // 3. Fresh Fetch
+          const profilePromise = (async () => {
+            const [adminEmailSnap, barberSnap, userDoc] = await Promise.all([
+              getDoc(doc(db, 'business', 'info')).catch(() => null),
+              getDocs(query(collection(db, 'barbers'), where('email', '==', email))).catch(() => ({ empty: true, docs: [] })),
+              getDoc(doc(db, 'users', firebaseUser.uid)).catch(() => null)
+            ]);
+
+            const bizData = adminEmailSnap?.exists() ? adminEmailSnap.data() : null;
+            const isAdmin = email === bizData?.adminEmail?.toLowerCase();
+            
+            // Check barber by email (case-insensitive and space-resilient)
+            let isBarber = barberSnap && !barberSnap.empty;
+            let barberDoc = isBarber ? barberSnap.docs[0] : null;
+
+            // If not found or if the direct match was imprecise, scan all barbers to avoid Firestore spacing bugs
+            if (!isBarber || !barberDoc?.data().email || barberDoc.data().email.trim().toLowerCase() !== email) {
+               const allBarbers = await getDocs(collection(db, 'barbers'));
+               barberDoc = allBarbers.docs.find(d => {
+                 const bEmail = d.data().email?.trim().toLowerCase();
+                 return bEmail && bEmail === email;
+               }) || null;
+               isBarber = !!barberDoc;
+            }
+
+            const barberData = barberDoc?.data();
+            const barberId = barberDoc?.id;
+            const userData = userDoc?.exists() ? userDoc.data() : {};
+
+            const resolvedRole = isAdmin ? 'admin' : (isBarber ? 'barber' : (userData.role || 'client'));
+            
+            const fullProfile: User = {
+              id: firebaseUser.uid,
+              uid: firebaseUser.uid,
+              email: email,
+              name: userData.name || barberData?.name || firebaseUser.displayName || (isAdmin ? 'Administrateur' : 'Utilisateur'),
+              role: resolvedRole as 'admin' | 'barber' | 'client',
+              barberId: barberId
+            };
+
+            setUser(fullProfile);
+            localStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(fullProfile));
+            setIsLoading(false); // Clear loading as soon as we have fresh data
+          })();
+
+          // Wait max 3s for fresh data, then proceed
+          await Promise.race([
+            profilePromise,
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3000))
+          ]);
+
         } catch (error) {
-          console.error("Error fetching user profile (Firestore offline?):", error);
-          // Critical fallback: ensure we still have a user object even if profile fetch fails
-          setUser({
-            id: firebaseUser.uid,
-            uid: firebaseUser.uid,
-            email: firebaseUser.email || '',
-            name: firebaseUser.displayName || (isAdmin ? 'Administrateur' : 'User'),
-            role: isAdmin ? 'admin' : 'client'
-          });
+          console.error("Auth profile fetch issue:", error);
+          if (!user) {
+            setUser({
+              id: firebaseUser.uid,
+              uid: firebaseUser.uid,
+              email: firebaseUser.email || '',
+              name: firebaseUser.displayName || 'Utilisateur',
+              role: 'client'
+            });
+          }
         }
       } else {
         setUser(null);
+        // Clear caches on logout
+        Object.keys(localStorage).forEach(key => {
+          if (key.startsWith('user_profile_')) localStorage.removeItem(key);
+        });
       }
       setIsLoading(false);
     });

@@ -34,7 +34,7 @@ export const ProductManagement = ({ products, onEdit, onDelete, onAdd }: any) =>
         {filteredProducts.map((product: any) => (
           <div key={product.id} className="bg-[#141414] border border-white/10 rounded-3xl overflow-hidden group hover:border-[#D4AF37]/30 transition-all">
             <div className="h-48 bg-white/[0.02] flex items-center justify-center p-6 relative overflow-hidden">
-              <img src={product.image} className="max-h-full object-contain group-hover:scale-110 transition-transform duration-500" />
+              <img src={product.image} className="max-h-full object-contain group-hover:scale-110 transition-transform duration-500" onError={(e) => { (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1599305090598-fe179d501227?w=300&h=300&fit=crop'; }} />
               <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button onClick={() => onEdit(product)} className="p-2 bg-black/60 backdrop-blur-md rounded-lg text-white hover:text-[#D4AF37]"><Edit className="w-4 h-4" /></button>
                 <button onClick={() => onDelete(product.id)} className="p-2 bg-black/60 backdrop-blur-md rounded-lg text-white hover:text-red-500"><Trash2 className="w-4 h-4" /></button>

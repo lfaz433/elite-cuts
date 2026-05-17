@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Scissors, Star, Calendar, Clock, MapPin, Phone, Instagram, Award, TrendingUp, ChevronLeft, ChevronRight, Menu, X } from 'lucide-react';
+import { Scissors, Star, Calendar, Clock, MapPin, Phone, Instagram, Award, TrendingUp, ChevronLeft, ChevronRight, Menu, X, ShoppingBag } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useBusiness } from '../context/BusinessContext';
 import { useNavigate } from 'react-router';
@@ -34,7 +34,7 @@ export default function LandingPage() {
   const heroRef = useRef<HTMLElement>(null);
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { services, barbers, gallery, businessInfo, loading } = useBusiness();
+  const { services, barbers, gallery, businessInfo, products, loading } = useBusiness();
 
   // Dynamic branding from admin
   const heroImage = businessInfo.heroImage || 'https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=1920&h=1080&fit=crop';
@@ -78,6 +78,7 @@ export default function LandingPage() {
           {/* Desktop Links */}
           <div className="hidden md:flex items-center gap-8">
             <a href="#services" className="text-white/80 hover:text-[#D4AF37] transition-colors font-medium">Services</a>
+            <a href="#boutique" className="text-white/80 hover:text-[#D4AF37] transition-colors font-medium">Boutique</a>
             <a href="#team" className="text-white/80 hover:text-[#D4AF37] transition-colors font-medium">Équipe</a>
             <a href="#gallery" className="text-white/80 hover:text-[#D4AF37] transition-colors font-medium">Galerie</a>
             <a href="#contact" className="text-white/80 hover:text-[#D4AF37] transition-colors font-medium">Contact</a>
@@ -214,7 +215,7 @@ export default function LandingPage() {
               {services.map((service, index) => (
                 <motion.div key={service.id} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: index * 0.1 }} className="group relative bg-gradient-to-br from-[#141414] to-[#1a1a1a] rounded-2xl overflow-hidden border border-[#D4AF37]/20 hover:border-[#D4AF37]/50 transition-all hover:shadow-xl hover:shadow-[#D4AF37]/20">
                   <div className="aspect-video overflow-hidden">
-                    <img src={getOptimizedImage(service.image, 800)} alt={service.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" loading="lazy" />
+                    <img src={getOptimizedImage(service.image, 800)} alt={service.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=800&h=450&fit=crop'; }} />
                   </div>
                   <div className="p-6">
                     <h3 className="text-2xl font-bold text-white mb-2">{service.name}</h3>
@@ -256,7 +257,7 @@ export default function LandingPage() {
               {barbers.filter(b => !b.archived).map((barber, index) => (
                 <motion.div key={barber.id} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: index * 0.1 }} className="group relative bg-gradient-to-br from-[#141414] to-[#1a1a1a] rounded-2xl overflow-hidden border border-[#D4AF37]/20 hover:border-[#D4AF37]/50 transition-all hover:shadow-xl hover:shadow-[#D4AF37]/20">
                   <div className="aspect-square overflow-hidden">
-                    <img src={getOptimizedImage(barber.image, 400)} alt={barber.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" loading="lazy" />
+                    <img src={getOptimizedImage(barber.image, 400)} alt={barber.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400&h=400&fit=crop'; }} />
                   </div>
                   <div className="p-6">
                     <h3 className="text-xl font-bold text-white mb-1">{barber.name}</h3>
@@ -277,8 +278,52 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* Boutique / Products Section */}
+      <section id="boutique" className="py-24 bg-black">
+        <div className="max-w-7xl mx-auto px-6">
+          <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} className="text-center mb-16">
+            <h2 className="text-4xl md:text-5xl font-bold mb-4 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] bg-clip-text text-transparent">Boutique Premium</h2>
+            <p className="text-white/60 text-lg">Découvrez nos produits de soins exclusifs</p>
+          </motion.div>
+
+          {loading ? (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+              {[1, 2, 3, 4].map(i => <Skeleton key={i} className="aspect-[3/4]" />)}
+            </div>
+          ) : products.length > 0 ? (
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
+              {products.map((product, index) => (
+                <motion.div key={product.id} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: index * 0.1 }} className="group bg-[#141414] rounded-2xl overflow-hidden border border-white/5 hover:border-[#D4AF37]/30 transition-all flex flex-col">
+                  <div className="aspect-[4/5] overflow-hidden bg-white/5 p-4 flex items-center justify-center">
+                    <img src={getOptimizedImage(product.image, 400)} alt={product.name} className="max-h-full max-w-full object-contain group-hover:scale-110 transition-transform duration-500" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1599305090598-fe179d501227?w=400&h=500&fit=crop'; }} />
+                  </div>
+                  <div className="p-5 flex-1 flex flex-col">
+                    <div className="flex-1">
+                      <p className="text-[10px] text-[#D4AF37] font-black uppercase tracking-[0.2em] mb-1">{product.category || 'Premium'}</p>
+                      <h3 className="text-lg font-bold text-white mb-1 line-clamp-1">{product.name}</h3>
+                      <p className="text-white/40 text-xs mb-4 line-clamp-2">{product.description}</p>
+                    </div>
+                    <div className="flex items-center justify-between mt-auto">
+                      <span className="text-xl font-black text-white">€{product.sellPrice}</span>
+                      <button className="p-2 bg-white/5 hover:bg-[#D4AF37] text-white hover:text-black rounded-lg transition-colors">
+                        <ShoppingBag className="w-5 h-5" />
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-20 bg-white/5 rounded-3xl border border-dashed border-white/10">
+              <ShoppingBag className="w-12 h-12 text-white/10 mx-auto mb-4" />
+              <p className="text-white/40">Notre boutique en ligne arrive bientôt.</p>
+            </div>
+          )}
+        </div>
+      </section>
+
       {/* Gallery */}
-      <section id="gallery" className="py-24 bg-black">
+      <section id="gallery" className="py-24 bg-gradient-to-b from-black to-[#0a0a0a]">
         <div className="max-w-7xl mx-auto px-6">
           <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} className="text-center mb-16">
             <h2 className="text-4xl md:text-5xl font-bold mb-4 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] bg-clip-text text-transparent">Portfolio</h2>
