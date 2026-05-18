@@ -549,14 +549,22 @@ export default function AdminDashboard() {
                   <div className="flex justify-between items-center"><h2 className="text-3xl font-black uppercase">Coiffeurs</h2><button onClick={() => { setEditingBarber(null); setBarberModalOpen(true); }} className="px-6 py-3 bg-[#D4AF37] text-black rounded-2xl font-black text-sm hover:scale-105 transition-all shadow-xl shadow-[#D4AF37]/20 uppercase">Nouveau Coiffeur</button></div>
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {barbers.map(barber => (
-                      <div key={barber.id} className="bg-[#141414] border border-white/5 p-6 rounded-[2rem] flex gap-6 items-start group relative overflow-hidden hover:border-[#D4AF37]/20 transition-all">
-                        <img src={barber.image || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&h=150&fit=crop'} className="w-24 h-24 rounded-3xl object-cover group-hover:scale-105 transition-transform" onError={(e) => { (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&h=150&fit=crop'; }} />
-                        <div className="flex-1 space-y-2">
-                          <h4 className="text-xl font-bold">{barber.name}</h4>
-                          <p className="text-[#D4AF37] text-xs font-black uppercase tracking-widest">{barber.specialty}</p>
+                      <div key={barber.id} className="bg-[#141414] border border-white/5 p-5 sm:p-6 rounded-[2rem] flex flex-col sm:flex-row gap-5 sm:gap-6 items-center sm:items-start group relative overflow-hidden hover:border-[#D4AF37]/20 transition-all text-center sm:text-left">
+                        <img src={barber.image || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&h=150&fit=crop'} className="w-24 h-24 rounded-3xl object-cover group-hover:scale-105 transition-transform shrink-0" onError={(e) => { (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&h=150&fit=crop'; }} />
+                        <div className="flex-1 w-full space-y-3">
+                          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                            <div>
+                              <h4 className="text-xl font-bold">{barber.name}</h4>
+                              <p className="text-[#D4AF37] text-xs font-black uppercase tracking-widest">{barber.specialty}</p>
+                            </div>
+                            <div className="flex gap-2 justify-center sm:justify-start">
+                              <button onClick={() => { setEditingBarber(barber); setBarberModalOpen(true); }} className="p-2.5 bg-white/5 rounded-xl text-white/40 hover:text-[#D4AF37] transition-colors"><Edit className="w-4 h-4" /></button>
+                              <button onClick={() => { if (confirm('Supprimer ce coiffeur ?')) deleteBarber(barber.id); }} className="p-2.5 bg-white/5 rounded-xl text-white/40 hover:text-red-400 transition-colors"><Trash2 className="w-4 h-4" /></button>
+                            </div>
+                          </div>
                           
                           {/* Service Tags */}
-                          <div className="flex flex-wrap gap-1.5 pt-1">
+                          <div className="flex flex-wrap justify-center sm:justify-start gap-1.5 pt-1">
                             {barber.mainServiceId && (
                               <span className="px-2 py-0.5 bg-[#D4AF37]/10 text-[#D4AF37] border border-[#D4AF37]/20 rounded-lg text-[10px] font-black uppercase">
                                 {services.find(s => s.id === barber.mainServiceId)?.name || 'Service Principal'}
@@ -569,17 +577,12 @@ export default function AdminDashboard() {
                             )}
                           </div>
 
-                          <div className="flex items-center gap-3 text-xs text-white/40 pt-1">
+                          <div className="flex flex-wrap justify-center sm:justify-start items-center gap-3 text-xs text-white/40 pt-1">
                             <span className="font-bold">Commission: {barber.commission || 50}%</span>
                             <span className={`px-2 py-0.5 rounded-lg font-black uppercase text-[9px] ${
                               barber.status === 'available' ? 'bg-green-500/10 text-green-400' :
                               barber.status === 'busy' ? 'bg-red-500/10 text-red-400' : 'bg-amber-500/10 text-amber-400'
                             }`}>{barber.status === 'available' ? 'Disponible' : barber.status === 'busy' ? 'Occupé' : 'Pause'}</span>
-                          </div>
-
-                          <div className="flex gap-2 pt-2">
-                            <button onClick={() => { setEditingBarber(barber); setBarberModalOpen(true); }} className="p-2.5 bg-white/5 rounded-xl text-white/40 hover:text-[#D4AF37] transition-colors"><Edit className="w-4 h-4" /></button>
-                            <button onClick={() => { if (confirm('Supprimer ce coiffeur ?')) deleteBarber(barber.id); }} className="p-2.5 bg-white/5 rounded-xl text-white/40 hover:text-red-400 transition-colors"><Trash2 className="w-4 h-4" /></button>
                           </div>
                         </div>
                       </div>
