@@ -75,7 +75,7 @@ export interface Booking {
   barberId: string;
   date: string;
   time: string;
-  status: 'pending' | 'approved' | 'rejected' | 'completed';
+  status: 'pending' | 'approved' | 'rejected' | 'completed' | 'archived';
   createdAt: string;
   pricePaid?: number;
   tip?: number;
@@ -168,6 +168,7 @@ interface BusinessContextType {
   addAttendance: (attendance: Omit<Attendance, 'id'>) => Promise<void>;
   addSettlement: (settlement: Omit<Settlement, 'id' | 'createdAt'>) => Promise<void>;
   resetBarberBalance: (barberId: string) => Promise<void>;
+  resetAllBalances: () => Promise<void>;
   addService: (service: Omit<Service, 'id'>) => Promise<void>;
   updateService: (id: string, service: Partial<Service>) => Promise<void>;
   deleteService: (id: string) => Promise<void>;
@@ -722,11 +723,26 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   };
 
   const resetBarberBalance = async (barberId: string) => {
-    // In Firestore we can't easily bulk delete without fetching. 
-    // We'll iterate through filtered settlements and delete them.
-    const toDelete = settlements.filter(s => s.barberId === barberId);
-    for (const s of toDelete) {
-      await deleteDoc(doc(db, 'settlements', s.id));
+    try {
+      const barberBookings = bookings.filter(b => b.barberId === barberId && (b.status === 'completed' || b.status === 'approved'));
+      for (const b of barberBookings) {
+        await updateDoc(doc(db, 'bookings', b.id), { status: 'archived' });
+      }
+    } catch (error) {
+      console.error("Error resetting balance:", error);
+      throw error;
+    }
+  };
+
+  const resetAllBalances = async () => {
+    try {
+      const activeBookings = bookings.filter(b => b.status === 'completed' || b.status === 'approved');
+      for (const b of activeBookings) {
+        await updateDoc(doc(db, 'bookings', b.id), { status: 'archived' });
+      }
+    } catch (error) {
+      console.error("Error resetting all balances:", error);
+      throw error;
     }
   };
 
@@ -809,7 +825,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     addBooking, updateBookingStatus, updateBooking, deleteBooking,
     updateBusinessInfo, addToGallery, removeFromGallery,
     addProduct, updateProduct, deleteProduct, addSale,
-    addAttendance, addSettlement, resetBarberBalance, seedDatabase,
+    addAttendance, addSettlement, resetBarberBalance, resetAllBalances, seedDatabase,
     updateBarberStatus,
     getAvailableBarbers, getAvailableTimeSlots
   }), [

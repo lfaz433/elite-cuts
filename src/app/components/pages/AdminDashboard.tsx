@@ -16,6 +16,7 @@ import {
   Image as ImageIcon,
   Edit,
   Trash2,
+  RotateCcw,
   Phone,
   Star,
   ShoppingBag,
@@ -562,8 +563,21 @@ export default function AdminDashboard() {
                               <p className="text-[#D4AF37] text-xs font-black uppercase tracking-widest">{barber.specialty}</p>
                             </div>
                             <div className="flex gap-2 justify-center sm:justify-start">
-                              <button onClick={() => { setEditingBarber(barber); setBarberModalOpen(true); }} className="p-2.5 bg-white/5 rounded-xl text-white/40 hover:text-[#D4AF37] transition-colors"><Edit className="w-4 h-4" /></button>
-                              <button onClick={() => { if (confirm('Supprimer ce coiffeur ?')) deleteBarber(barber.id); }} className="p-2.5 bg-white/5 rounded-xl text-white/40 hover:text-red-400 transition-colors"><Trash2 className="w-4 h-4" /></button>
+                              <button onClick={() => { setEditingBarber(barber); setBarberModalOpen(true); }} className="p-2.5 bg-white/5 rounded-xl text-white/40 hover:text-[#D4AF37] transition-colors" title="Modifier le coiffeur"><Edit className="w-4 h-4" /></button>
+                              <button 
+                                onClick={() => { 
+                                  if (confirm(`Voulez-vous vraiment remettre à zéro le solde de ${barber.name} ? Cette action archivera ses gains actuels.`)) {
+                                    resetBarberBalance(barber.id).then(() => {
+                                      toast.success(`Le solde de ${barber.name} a été réinitialisé à 0€.`);
+                                    });
+                                  } 
+                                }} 
+                                title="Réinitialiser le Solde"
+                                className="p-2.5 bg-white/5 rounded-xl text-white/40 hover:text-amber-400 transition-colors"
+                              >
+                                <RotateCcw className="w-4 h-4" />
+                              </button>
+                              <button onClick={() => { if (confirm('Supprimer ce coiffeur ?')) deleteBarber(barber.id); }} className="p-2.5 bg-white/5 rounded-xl text-white/40 hover:text-red-400 transition-colors" title="Supprimer le coiffeur"><Trash2 className="w-4 h-4" /></button>
                             </div>
                           </div>
                           
@@ -1115,11 +1129,21 @@ export default function AdminDashboard() {
                     </div>
 
                   {/* Danger Zone */}
-                  <div className="bg-red-500/5 border border-red-500/10 p-8 rounded-[2.5rem]">
-                    <h3 className="text-red-500 font-bold mb-4 flex items-center gap-2"><X className="w-5 h-5" /> Zone de Danger</h3>
+                  {/* Danger Zone */}
+                  <div className="bg-red-500/5 border border-red-500/10 p-8 rounded-[2.5rem] space-y-6">
+                    <h3 className="text-red-500 font-bold flex items-center gap-2"><X className="w-5 h-5" /> Zone de Danger</h3>
+                    
+                    <div className="flex flex-col md:flex-row items-center justify-between gap-6 border-b border-red-500/10 pb-6">
+                       <div className="max-w-md">
+                         <p className="font-bold text-white mb-1">Réinitialiser Tous Les Soldes</p>
+                         <p className="text-white/40 text-sm">Remet à zéro (0€) le solde financier de tous les coiffeurs. Archivera l'historique des gains actuels sans supprimer les rendez-vous.</p>
+                       </div>
+                       <button onClick={() => { if (confirm('ATTENTION ! Voulez-vous vraiment réinitialiser les soldes de TOUS les coiffeurs ? Cette action est irréversible.')) { resetAllBalances().then(() => toast.success('Tous les soldes ont été remis à zéro.')); } }} className="px-8 py-4 border-2 border-amber-500/20 text-amber-500 rounded-2xl font-black uppercase text-sm hover:bg-amber-500 hover:text-white transition-all w-full sm:w-auto shrink-0">Réinitialiser les Soldes</button>
+                    </div>
+
                     <div className="flex flex-col md:flex-row items-center justify-between gap-6">
                        <p className="text-white/40 text-sm max-w-md">Utilisez ce bouton pour réinitialiser les données de test (Seed). Vos données existantes ne seront pas supprimées.</p>
-                       <button onClick={() => { if (confirm('Générer des données de test ?')) seedDatabase(); }} className="px-8 py-4 border-2 border-red-500/20 text-red-500 rounded-2xl font-black uppercase text-sm hover:bg-red-500 hover:text-white transition-all">Générer Données de Test</button>
+                       <button onClick={() => { if (confirm('Générer des données de test ?')) seedDatabase(); }} className="px-8 py-4 border-2 border-red-500/20 text-red-500 rounded-2xl font-black uppercase text-sm hover:bg-red-500 hover:text-white transition-all w-full sm:w-auto shrink-0">Générer Données de Test</button>
                     </div>
                   </div>
                 </motion.div>
