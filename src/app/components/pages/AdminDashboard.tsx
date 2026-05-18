@@ -128,6 +128,7 @@ export default function AdminDashboard() {
   const [editingService, setEditingService] = useState<Service | null>(null);
   const [productModalOpen, setProductModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [isManualBookingOpen, setIsManualBookingOpen] = useState(false);
   const [posProduct, setPosProduct] = useState<any>(null);
   const [highlightedIds, setHighlightedIds] = useState<Set<string>>(new Set());
   const [bookingToReject, setBookingToReject] = useState<string | null>(null);
