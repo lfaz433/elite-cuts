@@ -764,8 +764,15 @@ export default function AdminDashboard() {
 
               {activeTab === 'settings' && (
                 <motion.div key="settings" className="space-y-8 pb-20">
-                  <h2 className="text-3xl font-black uppercase tracking-tighter">Paramètres Généraux</h2>
-                  
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-2">
+                    <h2 className="text-3xl font-black uppercase tracking-tighter">Paramètres Généraux</h2>
+                    <button 
+                      onClick={() => toast.success('Paramètres enregistrés avec succès !')} 
+                      className="px-8 py-3 bg-[#D4AF37] text-black rounded-2xl font-black text-sm hover:scale-105 transition-all shadow-xl shadow-[#D4AF37]/20 uppercase w-full sm:w-auto"
+                    >
+                      Enregistrer les modifications
+                    </button>
+                  </div>
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                     {/* Basic Info */}
                     <div className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem] space-y-6">
