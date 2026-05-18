@@ -753,9 +753,9 @@ export default function AdminDashboard() {
                 <motion.div key="gallery" className="space-y-8">
                   <div className="flex justify-between items-center"><h2 className="text-3xl font-black uppercase">Portfolio</h2><label className="px-8 py-4 bg-[#D4AF37] text-black rounded-2xl font-black text-sm cursor-pointer shadow-xl shadow-[#D4AF37]/20 uppercase">Envoyer des Photos<input type="file" className="hidden" accept="image/*" multiple onChange={async (e) => { const files = Array.from(e.target.files || []); for (const file of files) { const url = await handleImageUpload(file); await addToGallery(url); } toast.success('Galerie mise à jour'); }} /></label></div>
                   <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
-                    {gallery.map((url, i) => (
-                      <div key={i} className="relative aspect-square rounded-[2rem] overflow-hidden group border border-white/5 shadow-2xl shadow-black/50">
-                        <img src={url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                    {gallery.map((item) => (
+                      <div key={item.id} className="relative aspect-square rounded-[2rem] overflow-hidden group border border-white/5 shadow-2xl shadow-black/50">
+                        <img src={item.url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
                         <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
                           <label className="p-3 bg-white/20 hover:bg-[#D4AF37] hover:text-black rounded-2xl cursor-pointer transition-all hover:scale-110" title="Remplacer l'image">
                             <Upload className="w-5 h-5" />
@@ -769,7 +769,7 @@ export default function AdminDashboard() {
                                 try {
                                   const newUrl = await handleImageUpload(file);
                                   await addToGallery(newUrl);
-                                  await removeFromGallery(url);
+                                  await removeFromGallery(item.id);
                                   toast.success('Image remplacée avec succès');
                                 } catch(err) {
                                   toast.error('Erreur lors du remplacement');
@@ -778,10 +778,14 @@ export default function AdminDashboard() {
                             />
                           </label>
                           <button 
-                            onClick={() => {
+                            onClick={async () => {
                               if (window.confirm('Voulez-vous vraiment supprimer cette image de votre portfolio ?')) {
-                                removeFromGallery(url);
-                                toast.success('Image supprimée');
+                                try {
+                                  await removeFromGallery(item.id);
+                                  toast.success('Image supprimée');
+                                } catch(err) {
+                                  toast.error('Erreur lors de la suppression');
+                                }
                               }
                             }} 
                             className="p-3 bg-red-500/20 text-red-500 hover:bg-red-500 hover:text-white rounded-2xl transition-all hover:scale-110"

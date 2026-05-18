@@ -158,7 +158,7 @@ interface BusinessContextType {
   barbers: Barber[];
   bookings: Booking[];
   businessInfo: BusinessInfo;
-  gallery: string[];
+  gallery: { id: string, url: string }[];
   products: Product[];
   sales: Sale[];
   attendance: Attendance[];
@@ -179,7 +179,7 @@ interface BusinessContextType {
   deleteBooking: (id: string) => Promise<void>;
   updateBusinessInfo: (info: Partial<BusinessInfo>) => Promise<void>;
   addToGallery: (url: string) => Promise<void>;
-  removeFromGallery: (url: string) => Promise<void>;
+  removeFromGallery: (id: string) => Promise<void>;
   addProduct: (product: Omit<Product, 'id'>) => Promise<void>;
   updateProduct: (id: string, updated: Partial<Product>) => Promise<void>;
   deleteProduct: (id: string) => Promise<void>;
@@ -320,7 +320,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   const [barbers, setBarbers] = useState<Barber[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [businessInfo, setBusinessInfo] = useState<BusinessInfo>(defaultBusinessInfo);
-  const [gallery, setGallery] = useState<string[]>([]);
+  const [gallery, setGallery] = useState<{ id: string, url: string }[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [sales, setSales] = useState<Sale[]>([]);
   const [attendance, setAttendance] = useState<Attendance[]>([]);
@@ -368,7 +368,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     }, () => markLoaded());
 
     const unsubGallery = onSnapshot(collection(db, 'gallery'), (snapshot) => {
-      setGallery(snapshot.docs.map(d => (d.data() as any).url));
+      setGallery(snapshot.docs.map(d => ({ id: d.id, url: (d.data() as any).url })));
       markLoaded();
     }, () => markLoaded());
 
@@ -607,13 +607,12 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     await addDoc(collection(db, 'gallery'), { url });
   };
 
-  const removeFromGallery = async (url: string) => {
+  const removeFromGallery = async (id: string) => {
     try {
-      const q = query(collection(db, 'gallery'), where('url', '==', url));
-      const snapshot = await getDocs(q);
-      await Promise.all(snapshot.docs.map(d => deleteDoc(d.ref)));
+      await deleteDoc(doc(db, 'gallery', id));
     } catch (error) {
       console.error("Error removing from gallery:", error);
+      throw error;
     }
   };
 
