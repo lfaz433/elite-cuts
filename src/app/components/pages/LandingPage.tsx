@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Scissors, Star, Calendar, Clock, MapPin, Phone, Instagram, Award, TrendingUp, ChevronLeft, ChevronRight, Menu, X, ShoppingBag } from 'lucide-react';
+import { Scissors, Star, Calendar, Clock, MapPin, Phone, Instagram, Facebook, Award, TrendingUp, ChevronLeft, ChevronRight, Menu, X, ShoppingBag } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useBusiness } from '../context/BusinessContext';
 import { useNavigate } from 'react-router';
@@ -401,15 +401,41 @@ export default function LandingPage() {
       <footer className="py-16 bg-black border-t border-[#D4AF37]/20">
         <div className="max-w-7xl mx-auto px-6">
           <div className="flex flex-col md:flex-row items-center justify-between gap-8">
-            <div className="flex items-center gap-3">
-              {logo ? <img src={getOptimizedImage(logo, 200)} alt="Logo" className="h-10 object-contain" /> : <div className="flex items-center gap-2"><Scissors className="w-8 h-8 text-[#D4AF37]" /><span className="text-2xl font-bold bg-gradient-to-r from-[#D4AF37] to-[#FFD700] bg-clip-text text-transparent">{businessInfo.name || 'Elite Cuts'}</span></div>}
+            <div className="flex flex-col gap-6 items-center md:items-start">
+              <div className="flex items-center gap-3">
+                {logo ? <img src={getOptimizedImage(logo, 200)} alt="Logo" className="h-10 object-contain" /> : <div className="flex items-center gap-2"><Scissors className="w-8 h-8 text-[#D4AF37]" /><span className="text-2xl font-bold bg-gradient-to-r from-[#D4AF37] to-[#FFD700] bg-clip-text text-transparent">{businessInfo.name || 'Elite Cuts'}</span></div>}
+              </div>
+              
+              {/* Social Icons */}
+              <div className="flex items-center gap-4">
+                {businessInfo.instagram && (
+                  <a href={businessInfo.instagram} target="_blank" rel="noopener noreferrer" className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-white/60 hover:bg-[#D4AF37] hover:text-black hover:border-[#D4AF37] transition-all">
+                    <Instagram className="w-4 h-4" />
+                  </a>
+                )}
+                {businessInfo.facebook && (
+                  <a href={businessInfo.facebook} target="_blank" rel="noopener noreferrer" className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-white/60 hover:bg-[#D4AF37] hover:text-black hover:border-[#D4AF37] transition-all">
+                    <Facebook className="w-4 h-4" />
+                  </a>
+                )}
+                {businessInfo.tiktok && (
+                  <a href={businessInfo.tiktok} target="_blank" rel="noopener noreferrer" className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-white/60 hover:bg-[#D4AF37] hover:text-black hover:border-[#D4AF37] transition-all">
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64 2.93 2.93 0 0 1 .88.13V9.4a6.84 6.84 0 0 0-1-.05A6.33 6.33 0 0 0 5 20.1a6.34 6.34 0 0 0 10.86-4.43v-7a8.16 8.16 0 0 0 4.77 1.52v-3.4a4.85 4.85 0 0 1-1-.1z"/>
+                    </svg>
+                  </a>
+                )}
+              </div>
             </div>
-            <div className="flex gap-8 text-white/40 text-sm font-medium">
-              <a href="#" className="hover:text-[#D4AF37] transition-colors">Mentions Légales</a>
-              <a href="#" className="hover:text-[#D4AF37] transition-colors">Confidentialité</a>
-              <a href="#" className="hover:text-[#D4AF37] transition-colors">CGV</a>
+
+            <div className="flex flex-col items-center md:items-end gap-6">
+              <div className="flex flex-wrap justify-center gap-6 text-white/40 text-sm font-medium">
+                <a href="#" className="hover:text-[#D4AF37] transition-colors">Mentions Légales</a>
+                <a href="#" className="hover:text-[#D4AF37] transition-colors">Confidentialité</a>
+                <a href="#" className="hover:text-[#D4AF37] transition-colors">CGV</a>
+              </div>
+              <p className="text-white/30 text-center text-sm">© 2026 {businessInfo.name || 'Elite Cuts'}. Excellence en Coiffure Masculine.</p>
             </div>
-            <p className="text-white/30 text-center">© 2026 Elite Cuts. Excellence en Coiffure Masculine.</p>
           </div>
         </div>
       </footer>
