@@ -483,7 +483,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       unreadBarber: true,
     });
 
-    // Notify Admin and Barber
+    // Notify Admin and Barber via UI and Push
     try {
       const payload = {
         title: 'Nouvelle Réservation',
@@ -493,14 +493,39 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
         type: 'NEW_RESERVATION'
       };
 
-      // Notify Admin
+      // 1. Write to Admin UI Notifications
+      await addDoc(collection(db, 'notifications'), {
+        recipientId: 'admin',
+        type: payload.type,
+        title: payload.title,
+        message: payload.body,
+        reservationId: docRef.id,
+        read: false,
+        createdAt: Date.now(),
+        expiresAt: Date.now() + (30 * 24 * 60 * 60 * 1000)
+      });
+
+      // 2. Write to Barber UI Notifications
+      if (booking.barberId) {
+        await addDoc(collection(db, 'notifications'), {
+          recipientId: booking.barberId,
+          type: payload.type,
+          title: payload.title,
+          message: payload.body,
+          reservationId: docRef.id,
+          read: false,
+          createdAt: Date.now(),
+          expiresAt: Date.now() + (30 * 24 * 60 * 60 * 1000)
+        });
+      }
+
+      // 3. Send Push via Vercel Backend
       fetch('/api/send-push', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer placeholder_token' },
         body: JSON.stringify({ ...payload, recipientId: 'admin' })
       }).catch(console.error);
 
-      // Notify Barber
       if (booking.barberId) {
         fetch('/api/send-push', {
           method: 'POST',
@@ -522,22 +547,33 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     try {
       const booking = bookings.find(b => b.id === id);
       if (booking && (status === 'approved' || status === 'rejected')) {
-        // Here we assume the client's externalId in OneSignal is their uid (or we don't have it since they don't log in?)
-        // If clients don't log in, we can't reliably push to them unless we registered their OneSignal player ID during booking.
-        // But for the sake of the demo, if they do have an ID matching their email or phone:
         const clientAlias = booking.clientEmail || booking.clientPhone;
+        
+        const payload = {
+          recipientId: clientAlias,
+          title: status === 'approved' ? 'Réservation Confirmée' : 'Réservation Rejetée',
+          body: status === 'approved' ? `Votre rdv du ${booking.date} est confirmé!` : `Désolé, votre rdv a été rejeté.`,
+          data: { url: `/?highlight=${id}` },
+          notificationId: id + status,
+          type: status === 'approved' ? 'APPROVED' : 'REJECTED'
+        };
+
+        // Write to Client UI Notifications (if they are logged in and looking at dashboard)
+        await addDoc(collection(db, 'notifications'), {
+          recipientId: clientAlias,
+          type: payload.type,
+          title: payload.title,
+          message: payload.body,
+          reservationId: id,
+          read: false,
+          createdAt: Date.now(),
+          expiresAt: Date.now() + (30 * 24 * 60 * 60 * 1000)
+        });
         
         fetch('/api/send-push', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer placeholder_token' },
-          body: JSON.stringify({
-            recipientId: clientAlias, // Or the exact UID if clients are authenticated users
-            title: status === 'approved' ? 'Réservation Confirmée' : 'Réservation Rejetée',
-            body: status === 'approved' ? `Votre rdv du ${booking.date} est confirmé!` : `Désolé, votre rdv a été rejeté.`,
-            data: { url: `/?highlight=${id}` },
-            notificationId: id + status,
-            type: status === 'approved' ? 'APPROVED' : 'REJECTED'
-          })
+          body: JSON.stringify(payload)
         }).catch(console.error);
       }
     } catch (e) {
