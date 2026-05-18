@@ -72,20 +72,24 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 };
 
 export function BarberAnalytics({ bookings, barbers, services, attendance }: Props) {
-  const [periodFilter, setPeriodFilter] = useState<'week' | 'month' | '3months' | 'all'>('month');
+  const [periodFilter, setPeriodFilter] = useState<'day' | 'week' | 'month' | 'custom'>('month');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
 
   // ── Period filter ──────────────────────────────────────────────────────────
-  const periodStart = useMemo(() => {
+  const periodRange = useMemo(() => {
     const now = new Date();
-    if (periodFilter === 'week') { const d = new Date(now); d.setDate(d.getDate() - 7); return d.toISOString().split('T')[0]; }
-    if (periodFilter === 'month') { const d = new Date(now); d.setDate(d.getDate() - 30); return d.toISOString().split('T')[0]; }
-    if (periodFilter === '3months') { const d = new Date(now); d.setDate(d.getDate() - 90); return d.toISOString().split('T')[0]; }
-    return '2000-01-01';
-  }, [periodFilter]);
+    const todayStr = now.toISOString().split('T')[0];
+    if (periodFilter === 'day') { return { start: todayStr, end: todayStr }; }
+    if (periodFilter === 'week') { const d = new Date(now); d.setDate(d.getDate() - 7); return { start: d.toISOString().split('T')[0], end: todayStr }; }
+    if (periodFilter === 'month') { const d = new Date(now); d.setDate(d.getDate() - 30); return { start: d.toISOString().split('T')[0], end: todayStr }; }
+    if (periodFilter === 'custom') { return { start: customStart || '2000-01-01', end: customEnd || '2099-12-31' }; }
+    return { start: '2000-01-01', end: '2099-12-31' };
+  }, [periodFilter, customStart, customEnd]);
 
   const filtered = useMemo(
-    () => bookings.filter(b => b.date >= periodStart && (b.status === 'completed' || b.status === 'approved')),
-    [bookings, periodStart]
+    () => bookings.filter(b => b.date >= periodRange.start && b.date <= periodRange.end && (b.status === 'completed' || b.status === 'approved')),
+    [bookings, periodRange]
   );
 
   // ── Global KPIs ─────────────────────────────────────────────────────────────
@@ -122,7 +126,7 @@ export function BarberAnalytics({ bookings, barbers, services, attendance }: Pro
       const sansRdv = bbs.filter(b => b.type === 'sans-rdv').length;
 
       // attendance count in period
-      const attendCount = attendance.filter(a => a.barberId === barber.id && a.date >= periodStart).length;
+      const attendCount = attendance.filter(a => a.barberId === barber.id && a.date >= periodRange.start && a.date <= periodRange.end).length;
 
       return {
         id: barber.id,
@@ -138,7 +142,7 @@ export function BarberAnalytics({ bookings, barbers, services, attendance }: Pro
         rate,
       };
     }).sort((a, b) => b.revenue - a.revenue),
-  [barbers, filtered, attendance, periodStart]);
+  [barbers, filtered, attendance, periodRange]);
 
   // ── Top performer ──────────────────────────────────────────────────────────
   const topBarber = barberStats[0];
@@ -184,29 +188,44 @@ export function BarberAnalytics({ bookings, barbers, services, attendance }: Pro
     });
   }, [filtered, barbers]);
 
-  const periodLabels = { week: 'Cette semaine', month: '30 derniers jours', '3months': '3 derniers mois', all: 'Tout' };
+  const periodLabels: Record<string, string> = { day: "Aujourd'hui", week: 'Cette semaine', month: '30 derniers jours', custom: 'Période personnalisée' };
 
   return (
     <div className="space-y-10">
       {/* ── Period Filter ── */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h2 className="text-3xl font-black uppercase tracking-tighter">Analytics Avancés</h2>
-          <p className="text-white/40 text-sm mt-1">Surveillance complète de l'activité du salon</p>
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 className="text-3xl font-black uppercase tracking-tighter">Analytics Avancés</h2>
+            <p className="text-white/40 text-sm mt-1">Surveillance complète de l'activité du salon</p>
+          </div>
+          <div className="flex bg-[#141414] border border-white/10 rounded-2xl p-1 gap-1">
+            {(['day', 'week', 'month', 'custom'] as const).map(p => (
+              <button
+                key={p}
+                onClick={() => setPeriodFilter(p)}
+                className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${
+                  periodFilter === p ? 'bg-[#D4AF37] text-black shadow-lg' : 'text-white/40 hover:text-white'
+                }`}
+              >
+                {p === 'day' ? 'Jour' : p === 'week' ? 'Sem.' : p === 'month' ? 'Mois' : 'Perso.'}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="flex bg-[#141414] border border-white/10 rounded-2xl p-1 gap-1">
-          {(['week', 'month', '3months', 'all'] as const).map(p => (
-            <button
-              key={p}
-              onClick={() => setPeriodFilter(p)}
-              className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${
-                periodFilter === p ? 'bg-[#D4AF37] text-black shadow-lg' : 'text-white/40 hover:text-white'
-              }`}
-            >
-              {p === 'week' ? 'Sem.' : p === 'month' ? 'Mois' : p === '3months' ? '3 Mois' : 'Tout'}
-            </button>
-          ))}
-        </div>
+        
+        {periodFilter === 'custom' && (
+          <div className="flex items-center gap-4 bg-[#141414] border border-white/10 p-4 rounded-2xl ml-auto w-full md:w-auto">
+            <div className="flex-1 md:w-40">
+              <label className="block text-white/40 text-[10px] font-black uppercase tracking-widest mb-2">Du</label>
+              <input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 outline-none focus:border-[#D4AF37] text-sm text-white [color-scheme:dark]" />
+            </div>
+            <div className="flex-1 md:w-40">
+              <label className="block text-white/40 text-[10px] font-black uppercase tracking-widest mb-2">Au</label>
+              <input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 outline-none focus:border-[#D4AF37] text-sm text-white [color-scheme:dark]" />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── Global KPI Cards ── */}
