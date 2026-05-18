@@ -57,8 +57,20 @@ const ProductModal = ({
     if (!formData.name?.trim()) return;
     const sellPrice = parseFloat(String(formData.sellPrice)) || 0;
     const buyPrice = parseFloat(String(formData.buyPrice)) || 0;
-    const promoPrice = formData.promoPrice != null ? parseFloat(String(formData.promoPrice)) : undefined;
-    onSave({ ...formData, sellPrice, buyPrice, promoPrice });
+    const payload: any = { ...formData, sellPrice, buyPrice };
+    
+    if (formData.promoPrice != null && String(formData.promoPrice).trim() !== '') {
+      payload.promoPrice = parseFloat(String(formData.promoPrice));
+    }
+    
+    // Clean up undefined values for Firebase
+    Object.keys(payload).forEach(key => {
+      if (payload[key] === undefined) {
+        delete payload[key];
+      }
+    });
+    
+    onSave(payload);
   };
 
   const stockLevel = () => {
