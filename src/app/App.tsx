@@ -78,7 +78,11 @@ export default function App() {
                     border: '1px solid rgba(212,175,55,0.3)',
                     color: 'white',
                     borderRadius: '16px',
-                    padding: '16px',
+                    padding: '16px 20px',
+                    gap: '12px',
+                    fontSize: '14px',
+                    lineHeight: '1.5',
+                    boxShadow: '0 20px 40px -15px rgba(0,0,0,0.5)',
                   },
                 }}
               />
