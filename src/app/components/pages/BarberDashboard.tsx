@@ -813,24 +813,26 @@ export default function BarberDashboard() {
                     )}
 
                     {/* Actions & Status row */}
-                    <div className="flex items-center justify-between gap-3 pt-2">
-                      <span className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border shrink-0 ${
-                        b.status === 'completed' ? 'bg-green-500/10 text-green-400 border-green-500/25' :
-                        b.status === 'pending' ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/25' :
-                        b.status === 'approved' ? 'bg-blue-500/10 text-blue-400 border-blue-500/25' : 'bg-red-500/10 text-red-400 border-red-500/25'
-                      }`}>
-                        {b.status === 'pending' ? 'En Attente' : b.status === 'approved' ? 'Approuvé' : b.status === 'completed' ? 'Terminé' : 'Rejeté'}
-                      </span>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
+                      <div className="flex items-center justify-between sm:justify-start w-full sm:w-auto">
+                        <span className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border shrink-0 ${
+                          b.status === 'completed' ? 'bg-green-500/10 text-green-400 border-green-500/25' :
+                          b.status === 'pending' ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/25' :
+                          b.status === 'approved' ? 'bg-blue-500/10 text-blue-400 border-blue-500/25' : 'bg-red-500/10 text-red-400 border-red-500/25'
+                        }`}>
+                          {b.status === 'pending' ? 'En Attente' : b.status === 'approved' ? 'Approuvé' : b.status === 'completed' ? 'Terminé' : 'Rejeté'}
+                        </span>
+                      </div>
 
                       {b.status !== 'completed' && b.status !== 'rejected' && (
-                        <div className="flex gap-2 justify-end grow">
+                        <div className="flex flex-wrap gap-2 justify-end w-full sm:w-auto">
                           {b.clientPhone && b.clientPhone !== 'N/A' && (
                             <a 
                               href={`tel:${b.clientPhone}`} 
-                              className="w-10 h-10 bg-white/5 text-white/80 rounded-xl flex items-center justify-center border border-white/10 hover:bg-white/10 transition-colors shrink-0"
+                              className="w-9 h-9 sm:w-10 sm:h-10 bg-white/5 text-white/80 rounded-xl flex items-center justify-center border border-white/10 hover:bg-white/10 transition-colors shrink-0"
                               title="Appeler le client"
                             >
-                              <Phone className="w-4 h-4" />
+                              <Phone className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                             </a>
                           )}
                           {b.status === 'pending' && (
@@ -839,7 +841,7 @@ export default function BarberDashboard() {
                                 updateBookingStatus(b.id, 'approved', 'barber'); 
                                 toast.success('Rendez-vous approuvé !'); 
                               }} 
-                              className="px-4 py-2 bg-green-500/10 text-green-400 hover:bg-green-500 hover:text-white rounded-xl text-xs font-black uppercase border border-green-500/20 transition-all"
+                              className="flex-1 sm:flex-none px-3 sm:px-4 py-2 bg-green-500/10 text-green-400 hover:bg-green-500 hover:text-white rounded-xl text-[10px] sm:text-xs font-black uppercase border border-green-500/20 transition-all text-center"
                             >
                               Approuver
                             </button>
@@ -847,7 +849,7 @@ export default function BarberDashboard() {
                           {b.status === 'approved' && (
                             <button 
                               onClick={() => setActiveBookingId(b.id)} 
-                              className="px-4 py-2 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black hover:scale-105 rounded-xl text-xs font-black uppercase transition-all shadow-md shadow-[#D4AF37]/10"
+                              className="flex-1 sm:flex-none px-3 sm:px-4 py-2 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black hover:scale-105 rounded-xl text-[10px] sm:text-xs font-black uppercase transition-all shadow-md shadow-[#D4AF37]/10 text-center"
                             >
                               Terminer
                             </button>
@@ -855,7 +857,7 @@ export default function BarberDashboard() {
                           {(b.status === 'pending' || b.status === 'approved') && (
                             <button 
                               onClick={() => setBookingToReject(b.id)} 
-                              className="px-4 py-2 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-xl text-xs font-black uppercase border border-red-500/20 transition-all"
+                              className="flex-1 sm:flex-none px-3 sm:px-4 py-2 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-xl text-[10px] sm:text-xs font-black uppercase border border-red-500/20 transition-all text-center"
                             >
                               Rejeter
                             </button>

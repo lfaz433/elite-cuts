@@ -490,9 +490,8 @@ export default function AdminDashboard() {
                         </div>
 
                         {/* Right column: Status & Actions */}
-                        <div className="flex flex-row md:flex-col xl:flex-row items-center justify-between xl:justify-end gap-3 w-full xl:w-auto pt-4 md:pt-0 border-t md:border-t-0 border-white/5">
-                          {/* Actions */}
-                          <div className="flex gap-2 w-full xl:w-auto justify-start xl:justify-end shrink-0">
+                        <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+                          <div className="flex flex-wrap gap-2 w-full sm:w-auto">
                             {booking.clientPhone && booking.clientPhone !== 'N/A' && (
                               <a 
                                 href={`tel:${booking.clientPhone}`} 
@@ -508,7 +507,7 @@ export default function AdminDashboard() {
                                   updateBookingStatus(booking.id, 'approved', 'admin');
                                   toast.success("RÉSERVATION APPROUVÉE");
                                 }} 
-                                className="px-5 py-2.5 bg-green-500/10 text-green-400 border border-green-500/20 rounded-2xl hover:bg-green-500 hover:text-white transition-all text-xs font-black uppercase tracking-wider"
+                                className="flex-1 sm:flex-none px-4 sm:px-5 py-2.5 bg-green-500/10 text-green-400 border border-green-500/20 rounded-2xl hover:bg-green-500 hover:text-white transition-all text-xs font-black uppercase tracking-wider text-center"
                               >
                                 Approuver
                               </button>
@@ -516,7 +515,7 @@ export default function AdminDashboard() {
                             {(booking.status === 'pending' || booking.status === 'approved') && (
                               <button 
                                 onClick={() => setBookingToReject(booking.id)} 
-                                className="px-5 py-2.5 bg-red-500/10 text-red-400 border border-red-500/20 rounded-2xl hover:bg-red-500 hover:text-white transition-all text-xs font-black uppercase tracking-wider"
+                                className="flex-1 sm:flex-none px-4 sm:px-5 py-2.5 bg-red-500/10 text-red-400 border border-red-500/20 rounded-2xl hover:bg-red-500 hover:text-white transition-all text-xs font-black uppercase tracking-wider text-center"
                               >
                                 Rejeter
                               </button>
