@@ -25,6 +25,8 @@ import { useBusiness } from '../context/BusinessContext';
 import { useNavigate } from 'react-router';
 import { Html5Qrcode } from 'html5-qrcode';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import NotificationCenter from '../ui/NotificationCenter';
+import NotificationPermissionModal from '../modals/NotificationPermissionModal';
 
 // Lazy load heavy components
 const ScannerModal = lazy(() => import('../modals/ScannerModal'));
@@ -281,6 +283,37 @@ export default function BarberDashboard() {
     }
   }, [activeTab, navigate]);
 
+  // Deep linking logic for highlighting and scrolling to reservations
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const highlightId = params.get('highlight');
+    if (highlightId) {
+      setActiveTab('reservations');
+      setResSubTab('today'); // Start with today or let it switch based on date, but today is safest. Actually, better check the booking date if we wanted, but 'all' isn't an option for Barber. Let's just switch to tab.
+      setHighlightedIds(prev => new Set(prev).add(highlightId));
+      
+      // Clean up URL
+      window.history.replaceState({}, '', window.location.pathname);
+      
+      // Scroll to element after render
+      setTimeout(() => {
+        const el = document.getElementById(`booking-${highlightId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 500);
+      
+      // Remove highlight after 5 seconds
+      setTimeout(() => {
+        setHighlightedIds(prev => {
+          const next = new Set(prev);
+          next.delete(highlightId);
+          return next;
+        });
+      }, 5000);
+    }
+  }, []);
+
   const [resSubTab, setResSubTab] = useState<'today' | 'upcoming' | 'history'>('today');
   const [activeBookingId, setActiveBookingId] = useState<string | null>(null);
   const [checkInModalOpen, setCheckInModalOpen] = useState(false);
@@ -480,6 +513,7 @@ export default function BarberDashboard() {
 
   return (
     <div className="min-h-screen bg-black pb-24">
+      <NotificationPermissionModal />
       <nav className="bg-[#0f0f0f] border-b border-[#D4AF37]/20 px-6 py-4 sticky top-0 z-30">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -497,6 +531,7 @@ export default function BarberDashboard() {
               </select>
             </div>
             {!isCheckedInToday && <button onClick={() => setCheckInModalOpen(true)} className="p-2 bg-[#D4AF37]/10 text-[#D4AF37] rounded-lg text-xs font-bold border border-[#D4AF37]/20">Pointage</button>}
+            <NotificationCenter />
             <button onClick={() => setSettlementModalOpen(true)} className="p-2 bg-white/5 text-white/60 rounded-lg hover:bg-white/10"><Wallet className="w-4 h-4" /></button>
             <button onClick={handleLogout} className="p-2 hover:bg-red-500/10 rounded-lg transition-colors text-white/60 hover:text-red-500">
               <LogOut className="w-4 h-4" />
@@ -707,7 +742,7 @@ export default function BarberDashboard() {
                 </div>
               ) : (
                 (resSubTab === 'today' ? todayBookings : resSubTab === 'upcoming' ? upcomingBookings : historyBookings).map(b => (
-                  <div key={b.id} className="bg-[#141414] p-6 rounded-2xl border border-[#D4AF37]/20 flex flex-col gap-4 hover:border-[#D4AF37]/45 transition-all relative overflow-hidden group">
+                  <div id={`booking-${b.id}`} key={b.id} className={`bg-[#141414] p-6 rounded-2xl border border-[#D4AF37]/20 flex flex-col gap-4 hover:border-[#D4AF37]/45 transition-all relative overflow-hidden group ${highlightedIds.has(b.id) ? 'ring-2 ring-[#D4AF37] shadow-[0_0_30px_rgba(212,175,55,0.2)] bg-[#D4AF37]/5' : ''}`}>
                     <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-[#D4AF37]/5 to-transparent rounded-full blur-xl pointer-events-none group-hover:scale-150 transition-all duration-300" />
                     
                     {/* Top Row: Client Name, Avatar, Time & Status */}

@@ -475,13 +475,42 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    await addDoc(collection(db, 'bookings'), {
+    const docRef = await addDoc(collection(db, 'bookings'), {
       ...booking,
       status: booking.status || 'pending',
       createdAt: new Date().toISOString(),
       unreadAdmin: true,
       unreadBarber: true,
     });
+
+    // Notify Admin and Barber
+    try {
+      const payload = {
+        title: 'Nouvelle Réservation',
+        body: `${booking.clientName} a réservé pour le ${booking.date} à ${booking.time}`,
+        data: { url: `/?highlight=${docRef.id}` },
+        notificationId: docRef.id,
+        type: 'NEW_RESERVATION'
+      };
+
+      // Notify Admin
+      fetch('/api/send-push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer placeholder_token' },
+        body: JSON.stringify({ ...payload, recipientId: 'admin' })
+      }).catch(console.error);
+
+      // Notify Barber
+      if (booking.barberId) {
+        fetch('/api/send-push', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer placeholder_token' },
+          body: JSON.stringify({ ...payload, recipientId: booking.barberId })
+        }).catch(console.error);
+      }
+    } catch (e) {
+      console.error('Failed to trigger push notification:', e);
+    }
   };
 
   const updateBookingStatus = async (id: string, status: Booking['status'], actor?: 'admin' | 'barber') => {
@@ -489,6 +518,31 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     if (actor === 'admin') updateData.unreadBarber = true;
     if (actor === 'barber') updateData.unreadAdmin = true;
     await updateDoc(doc(db, 'bookings', id), updateData);
+
+    try {
+      const booking = bookings.find(b => b.id === id);
+      if (booking && (status === 'approved' || status === 'rejected')) {
+        // Here we assume the client's externalId in OneSignal is their uid (or we don't have it since they don't log in?)
+        // If clients don't log in, we can't reliably push to them unless we registered their OneSignal player ID during booking.
+        // But for the sake of the demo, if they do have an ID matching their email or phone:
+        const clientAlias = booking.clientEmail || booking.clientPhone;
+        
+        fetch('/api/send-push', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer placeholder_token' },
+          body: JSON.stringify({
+            recipientId: clientAlias, // Or the exact UID if clients are authenticated users
+            title: status === 'approved' ? 'Réservation Confirmée' : 'Réservation Rejetée',
+            body: status === 'approved' ? `Votre rdv du ${booking.date} est confirmé!` : `Désolé, votre rdv a été rejeté.`,
+            data: { url: `/?highlight=${id}` },
+            notificationId: id + status,
+            type: status === 'approved' ? 'APPROVED' : 'REJECTED'
+          })
+        }).catch(console.error);
+      }
+    } catch (e) {
+      console.error('Failed to trigger push notification:', e);
+    }
   };
 
   const updateBooking = async (id: string, updated: Partial<Booking>) => {

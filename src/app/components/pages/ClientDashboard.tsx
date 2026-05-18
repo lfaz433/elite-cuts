@@ -5,6 +5,9 @@ import { useAuth } from '../context/AuthContext';
 import { useBusiness } from '../context/BusinessContext';
 import { useNavigate } from 'react-router';
 import BookingModal from '../modals/BookingModal';
+import NotificationCenter from '../ui/NotificationCenter';
+import NotificationPermissionModal from '../modals/NotificationPermissionModal';
+import { useEffect } from 'react';
 
 export default function ClientDashboard() {
   const { user, logout } = useAuth();
@@ -14,6 +17,38 @@ export default function ClientDashboard() {
   const [bookingOpen, setBookingOpen] = useState(false);
 
   const handleLogout = () => { logout(); navigate('/'); };
+
+  const [highlightedIds, setHighlightedIds] = useState<Set<string>>(new Set());
+
+  // Deep linking logic for highlighting and scrolling to reservations
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const highlightId = params.get('highlight');
+    if (highlightId) {
+      setActiveTab('bookings');
+      setHighlightedIds(prev => new Set(prev).add(highlightId));
+      
+      // Clean up URL
+      window.history.replaceState({}, '', window.location.pathname);
+      
+      // Scroll to element after render
+      setTimeout(() => {
+        const el = document.getElementById(`booking-${highlightId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 500);
+      
+      // Remove highlight after 5 seconds
+      setTimeout(() => {
+        setHighlightedIds(prev => {
+          const next = new Set(prev);
+          next.delete(highlightId);
+          return next;
+        });
+      }, 5000);
+    }
+  }, []);
 
   // Filter bookings by this client's name (since no user ID in Firestore bookings)
   // Memoize filtered lists
@@ -51,6 +86,7 @@ export default function ClientDashboard() {
 
   return (
     <div className="min-h-screen bg-black">
+      <NotificationPermissionModal />
       {/* Navbar */}
       <nav className="bg-[#0f0f0f] border-b border-[#D4AF37]/20 px-6 py-4 sticky top-0 z-30">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
@@ -65,6 +101,7 @@ export default function ClientDashboard() {
                 {user?.role === 'admin' ? 'Administrateur' : user?.role === 'barber' ? 'Coiffeur' : 'Client'}
               </p>
             </div>
+            <NotificationCenter />
             <button onClick={handleLogout} className="p-2 hover:bg-white/10 rounded-lg transition-colors text-white/60 hover:text-white">
               <LogOut className="w-5 h-5" />
             </button>
@@ -124,7 +161,7 @@ export default function ClientDashboard() {
             )}
 
             {!loading && upcoming.map(b => (
-              <motion.div key={b.id} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="bg-gradient-to-br from-[#141414] to-[#1a1a1a] rounded-2xl border border-[#D4AF37]/20 p-5">
+              <motion.div id={`booking-${b.id}`} key={b.id} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className={`bg-gradient-to-br from-[#141414] to-[#1a1a1a] rounded-2xl border p-5 ${highlightedIds.has(b.id) ? 'border-[#D4AF37] shadow-[0_0_15px_rgba(212,175,55,0.3)] bg-[#D4AF37]/5' : 'border-[#D4AF37]/20'}`}>
                 <div className="flex items-start justify-between mb-3">
                   <div>
                     <h3 className="text-lg font-bold text-white">{getServiceName(b.serviceId)}</h3>

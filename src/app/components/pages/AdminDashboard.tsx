@@ -42,6 +42,8 @@ import { db } from '../../lib/firebase';
 import { collection, query, where, getDocs, updateDoc, doc, addDoc } from 'firebase/firestore';
 import { usePagination } from '../../hooks/usePagination';
 import { PaginationBar } from '../ui/PaginationBar';
+import NotificationCenter from '../ui/NotificationCenter';
+import NotificationPermissionModal from '../modals/NotificationPermissionModal';
 
 // Lazy load components
 const PerformanceChart = lazy(() => import('../admin/AdminCharts').then(m => ({ default: m.PerformanceChart })));
@@ -115,6 +117,37 @@ export default function AdminDashboard() {
       navigate(`/admin/${activeTab}`, { replace: true });
     }
   }, [activeTab, navigate]);
+
+  // Deep linking logic for highlighting and scrolling to reservations
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const highlightId = params.get('highlight');
+    if (highlightId) {
+      setActiveTab('bookings');
+      setStatusFilter('all'); // Ensure it's visible
+      setHighlightedIds(prev => new Set(prev).add(highlightId));
+      
+      // Clean up URL
+      window.history.replaceState({}, '', window.location.pathname);
+      
+      // Scroll to element after render
+      setTimeout(() => {
+        const el = document.getElementById(`booking-${highlightId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 500);
+      
+      // Remove highlight after 5 seconds
+      setTimeout(() => {
+        setHighlightedIds(prev => {
+          const next = new Set(prev);
+          next.delete(highlightId);
+          return next;
+        });
+      }, 5000);
+    }
+  }, []);
 
   const [dateFilter, setDateFilter] = useState<'all' | 'day' | 'week' | 'month' | 'custom'>('all');
   const [customDateRange, setCustomDateRange] = useState({ start: '', end: '' });
@@ -274,12 +307,14 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-background text-white font-sans">
+      <NotificationPermissionModal />
       <nav className="bg-black/60 backdrop-blur-xl border-b border-white/5 px-6 py-4 sticky top-0 z-50">
         <div className="max-w-[1600px] mx-auto flex items-center justify-between">
           <div className="flex items-center gap-4">
             <h1 className="text-xl font-black bg-gradient-to-r from-[#D4AF37] to-[#FFD700] bg-clip-text text-transparent tracking-tighter">ELITE CUTS ADMIN</h1>
           </div>
           <div className="flex items-center gap-6">
+            <NotificationCenter />
             <button onClick={handleLogout} className="p-2.5 hover:bg-red-500/10 rounded-full transition-all text-white/40 hover:text-red-500"><LogOut className="w-5 h-5" /></button>
           </div>
         </div>
@@ -383,7 +418,7 @@ export default function AdminDashboard() {
                     ) : (
                       <>
                         {bookingsPagination.paginated.map(booking => (
-                      <div key={booking.id} className="bg-[#141414] border border-white/5 p-6 rounded-[2rem] flex flex-col xl:flex-row xl:items-center justify-between gap-6 hover:border-[#D4AF37]/30 transition-all relative overflow-hidden group">
+                      <div id={`booking-${booking.id}`} key={booking.id} className={`bg-[#141414] border border-white/5 p-6 rounded-[2rem] flex flex-col xl:flex-row xl:items-center justify-between gap-6 hover:border-[#D4AF37]/30 transition-all relative overflow-hidden group ${highlightedIds.has(booking.id) ? 'ring-2 ring-[#D4AF37] shadow-[0_0_30px_rgba(212,175,55,0.2)] bg-[#D4AF37]/5' : ''}`}>
                         {/* Background subtle glow effect */}
                         <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-[#D4AF37]/5 to-transparent rounded-full blur-2xl pointer-events-none group-hover:scale-150 transition-all duration-500" />
                         

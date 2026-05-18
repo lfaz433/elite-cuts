@@ -5,6 +5,7 @@ import PublicLayout from './components/layouts/PublicLayout';
 import LandingPage from './components/pages/LandingPage';
 import { AuthProvider, useAuth } from './components/context/AuthContext';
 import { BusinessProvider } from './components/context/BusinessContext';
+import { NotificationProvider } from './components/context/NotificationContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import { Scissors } from 'lucide-react';
 import { lazy } from 'react';
@@ -61,26 +62,28 @@ export default function App() {
     <ErrorBoundary>
       <BrowserRouter>
         <AuthProvider>
-          <BusinessProvider>
-            <div className="min-h-screen bg-black text-white">
-              <Suspense fallback={<AppLoader />}>
-                <AppRoutes />
-              </Suspense>
-            </div>
-            <Toaster
-              position="top-center"
-              richColors
-              toastOptions={{
-                style: {
-                  background: '#141414',
-                  border: '1px solid rgba(212,175,55,0.3)',
-                  color: 'white',
-                  borderRadius: '16px',
-                  padding: '16px',
-                },
-              }}
-            />
-          </BusinessProvider>
+          <NotificationProvider>
+            <BusinessProvider>
+              <div className="min-h-screen bg-black text-white">
+                <Suspense fallback={<AppLoader />}>
+                  <AppRoutes />
+                </Suspense>
+              </div>
+              <Toaster
+                position="top-center"
+                richColors
+                toastOptions={{
+                  style: {
+                    background: '#141414',
+                    border: '1px solid rgba(212,175,55,0.3)',
+                    color: 'white',
+                    borderRadius: '16px',
+                    padding: '16px',
+                  },
+                }}
+              />
+            </BusinessProvider>
+          </NotificationProvider>
         </AuthProvider>
       </BrowserRouter>
     </ErrorBoundary>
