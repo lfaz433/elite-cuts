@@ -836,23 +836,29 @@ export default function AdminDashboard() {
 
                         <div className="pt-2 space-y-4">
                           <h4 className="text-xs font-black uppercase text-[#D4AF37] tracking-wider mb-2 border-t border-white/5 pt-4">Carte Interactive (Coordonnées)</h4>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                              <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Latitude</label>
-                              <div className="flex gap-2">
-                                <div className="bg-white/5 p-3 rounded-xl border border-white/10 flex items-center justify-center w-11"><MapPin className="w-5 h-5 text-[#D4AF37]" /></div>
-                                <input type="number" step="any" defaultValue={businessInfo.latitude || 48.8566} onBlur={(e) => updateBusinessInfo({ latitude: parseFloat(e.target.value) })} className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold text-xs" placeholder="Ex: 48.8566" />
-                              </div>
-                            </div>
-                            <div>
-                              <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Longitude</label>
-                              <div className="flex gap-2">
-                                <div className="bg-white/5 p-3 rounded-xl border border-white/10 flex items-center justify-center w-11"><MapPin className="w-5 h-5 text-[#D4AF37]" /></div>
-                                <input type="number" step="any" defaultValue={businessInfo.longitude || 2.3522} onBlur={(e) => updateBusinessInfo({ longitude: parseFloat(e.target.value) })} className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold text-xs" placeholder="Ex: 2.3522" />
-                              </div>
+                          <div>
+                            <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Coordonnées Google Maps</label>
+                            <div className="flex gap-2">
+                              <div className="bg-white/5 p-3 rounded-xl border border-white/10 flex items-center justify-center w-11"><MapPin className="w-5 h-5 text-[#D4AF37]" /></div>
+                              <input 
+                                type="text" 
+                                defaultValue={`${businessInfo.latitude || 48.8566}, ${businessInfo.longitude || 2.3522}`} 
+                                onBlur={(e) => {
+                                  const parts = e.target.value.split(',');
+                                  if (parts.length === 2) {
+                                    const lat = parseFloat(parts[0].trim());
+                                    const lng = parseFloat(parts[1].trim());
+                                    if (!isNaN(lat) && !isNaN(lng)) {
+                                      updateBusinessInfo({ latitude: lat, longitude: lng });
+                                    }
+                                  }
+                                }} 
+                                className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold text-xs" 
+                                placeholder="Collez ici (Ex: 48.8566, 2.3522)" 
+                              />
                             </div>
                           </div>
-                          <p className="text-[9px] text-white/20 mt-1 italic">Entrez les coordonnées exactes pour la carte interactive premium.</p>
+                          <p className="text-[9px] text-white/20 mt-1 italic">Sur Google Maps, faites un clic droit sur votre emplacement, cliquez sur les coordonnées pour les copier, puis collez-les ici.</p>
                         </div>
                       </div>
                     </div>
