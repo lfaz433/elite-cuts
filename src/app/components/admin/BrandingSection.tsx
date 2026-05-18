@@ -1,11 +1,23 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
-import { ImageIcon, Save, Plus, X } from 'lucide-react';
+import { ImageIcon, Save, Plus, X, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 
 export const BrandingSection = ({ businessInfo, updateBusinessInfo, handleImageUpload }: any) => {
   const [formData, setFormData] = useState(businessInfo);
   const [isSaving, setIsSaving] = useState(false);
+
+  const currentStats = formData.stats || [
+    { id: 'experience', label: "Années d'expérience", value: '15+', enabled: true },
+    { id: 'clients', label: 'Clients Satisfaits', value: '10K+', enabled: true },
+    { id: 'services', label: 'Services Réalisés', value: '50K+', enabled: true },
+    { id: 'rating', label: 'Note des Clients', value: '4.9', enabled: true },
+  ];
+
+  const handleStatChange = (id: string, field: 'label' | 'value' | 'enabled', value: any) => {
+    const updatedStats = currentStats.map((s: any) => s.id === id ? { ...s, [field]: value } : s);
+    setFormData({ ...formData, stats: updatedStats });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -99,6 +111,55 @@ export const BrandingSection = ({ businessInfo, updateBusinessInfo, handleImageU
                 />
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Global Stats Editor */}
+        <div className="space-y-4 bg-[#141414] p-6 rounded-3xl border border-[#D4AF37]/10">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-bold text-lg">Statistiques (Landing Page)</h3>
+            <button
+              type="button"
+              onClick={() => setFormData({ ...formData, showStatsSection: formData.showStatsSection === false ? true : false })}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors ${formData.showStatsSection !== false ? 'bg-[#D4AF37] text-black' : 'bg-white/10 text-white/40'}`}
+            >
+              {formData.showStatsSection !== false ? 'Section Activée' : 'Section Désactivée'}
+            </button>
+          </div>
+          
+          <div className={`space-y-4 ${formData.showStatsSection === false ? 'opacity-50 pointer-events-none' : ''}`}>
+            {currentStats.map((stat: any) => (
+              <div key={stat.id} className="flex flex-col md:flex-row items-center gap-4 bg-white/5 p-4 rounded-2xl border border-white/5">
+                <button
+                  type="button"
+                  onClick={() => handleStatChange(stat.id, 'enabled', !stat.enabled)}
+                  className={`p-3 rounded-xl transition-colors ${stat.enabled ? 'bg-[#D4AF37]/20 text-[#D4AF37]' : 'bg-red-500/20 text-red-500'}`}
+                  title={stat.enabled ? 'Désactiver cette stat' : 'Activer cette stat'}
+                >
+                  {stat.enabled ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
+                </button>
+                <div className="flex-1 w-full grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Valeur</label>
+                    <input 
+                      value={stat.value} 
+                      onChange={(e) => handleStatChange(stat.id, 'value', e.target.value)}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" 
+                      placeholder="Ex: 15+"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Label</label>
+                    <input 
+                      value={stat.label} 
+                      onChange={(e) => handleStatChange(stat.id, 'label', e.target.value)}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37]" 
+                      placeholder="Ex: Années d'expérience"
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 

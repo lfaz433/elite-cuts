@@ -178,7 +178,7 @@ export default function LandingPage() {
       </section>
 
       {/* Stats */}
-      {activeStats.length > 0 && (
+      {businessInfo.showStatsSection !== false && activeStats.length > 0 && (
         <section className="py-20 bg-gradient-to-b from-black to-[#0a0a0a]">
           <div className="max-w-7xl mx-auto px-6">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-8">

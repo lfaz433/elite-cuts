@@ -145,6 +145,7 @@ export interface BusinessInfo {
   heroTitle?: string;
   heroSubtitle?: string;
   heroButtonText?: string;
+  showStatsSection?: boolean;
   stats?: {
     id: string;
     label: string;
@@ -280,6 +281,7 @@ const defaultBusinessInfo: BusinessInfo = {
     { id: 'services', label: 'Services Réalisés', value: '50K+', enabled: true },
     { id: 'rating', label: 'Note des Clients', value: '4.9', enabled: true },
   ],
+  showStatsSection: true,
 };
 
 const defaultGallery = [
