@@ -42,9 +42,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     };
 
     if (recipientId === 'admin') {
-      payload.include_external_user_ids = ['admin'];
+      payload.include_aliases = { external_id: ['admin'] };
+      payload.target_channel = 'push';
     } else {
-      payload.include_external_user_ids = [recipientId];
+      payload.include_aliases = { external_id: [recipientId] };
+      payload.target_channel = 'push';
     }
 
     const response = await fetch('https://api.onesignal.com/notifications', {
