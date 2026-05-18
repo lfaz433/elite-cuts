@@ -80,7 +80,7 @@ export default function NotificationCenter() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
             transition={{ duration: 0.2 }}
-            className="absolute right-0 mt-3 w-80 md:w-[400px] bg-[#141414]/95 backdrop-blur-xl border border-white/10 rounded-3xl shadow-2xl overflow-hidden z-50"
+            className="absolute right-[-10px] sm:right-0 mt-4 w-[calc(100vw-24px)] max-w-[380px] sm:max-w-none sm:w-[400px] bg-[#1a1a1a]/95 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-[0_20px_40px_-15px_rgba(0,0,0,0.7)] overflow-hidden z-50 origin-top-right"
           >
             <div className="p-4 border-b border-white/5 flex flex-col gap-3 bg-white/5">
               <div className="flex justify-between items-center">
