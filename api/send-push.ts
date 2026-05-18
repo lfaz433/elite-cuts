@@ -53,7 +53,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Key ${ONE_SIGNAL_REST_API_KEY}`
+        'Authorization': `Basic ${ONE_SIGNAL_REST_API_KEY}`,
+        'accept': 'application/json'
       },
       body: JSON.stringify(payload)
     });
