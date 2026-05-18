@@ -1008,10 +1008,10 @@ export default function AdminDashboard() {
             if (editingProduct) await updateProduct(editingProduct.id, data);
             else await addProduct(data as any);
             await triggerSuccess(() => setProductModalOpen(false));
-          } catch (err) {
+          } catch (err: any) {
             setIsSaving(false);
             console.error(err);
-            toast.error('Erreur lors de l\'enregistrement');
+            toast.error('Erreur: ' + (err?.message || 'Erreur inconnue'));
           }
         }} />}
         {isManualBookingOpen && <ManualBookingModal onClose={() => setIsManualBookingOpen(false)} />}
