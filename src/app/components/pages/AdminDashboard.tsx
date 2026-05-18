@@ -128,8 +128,9 @@ export default function AdminDashboard() {
   const [editingService, setEditingService] = useState<Service | null>(null);
   const [productModalOpen, setProductModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [isManualBookingOpen, setIsManualBookingOpen] = useState(false);
   const [posProduct, setPosProduct] = useState<any>(null);
+  const [highlightedIds, setHighlightedIds] = useState<Set<string>>(new Set());
+  const [bookingToReject, setBookingToReject] = useState<string | null>(null);
 
   const triggerSuccess = (callback: () => void) => {
     return new Promise<void>((resolve) => {
@@ -180,8 +181,39 @@ export default function AdminDashboard() {
 
   const filteredBookings = useMemo(() => bookings.filter(b => isDateInRange(b.date) && (barberFilter === 'all' || b.barberId === barberFilter)), [bookings, dateFilter, customDateRange, barberFilter]);
   const finalBookings = useMemo(() => {
-    return filteredBookings.filter(b => statusFilter === 'all' || b.status === statusFilter);
-  }, [filteredBookings, statusFilter]);
+    const filtered = filteredBookings.filter(b => statusFilter === 'all' || b.status === statusFilter);
+    return filtered.sort((a, b) => {
+      // 1. Pending
+      if (a.status === 'pending' && b.status !== 'pending') return -1;
+      if (a.status !== 'pending' && b.status === 'pending') return 1;
+      // 2. New (highlighted or unread)
+      const aIsNew = a.unreadAdmin || highlightedIds.has(a.id);
+      const bIsNew = b.unreadAdmin || highlightedIds.has(b.id);
+      if (aIsNew && !bIsNew) return -1;
+      if (!aIsNew && bIsNew) return 1;
+      // 3. Approved
+      if (a.status === 'approved' && b.status !== 'approved') return -1;
+      if (a.status !== 'approved' && b.status === 'approved') return 1;
+      // Default: sort by date/time descending
+      return new Date(`${b.date}T${b.time}`).getTime() - new Date(`${a.date}T${a.time}`).getTime();
+    });
+  }, [filteredBookings, statusFilter, highlightedIds]);
+
+  useEffect(() => {
+    if (activeTab === 'bookings') {
+      const unreadBookings = bookings.filter(b => b.unreadAdmin);
+      if (unreadBookings.length > 0) {
+        setHighlightedIds(prev => {
+          const newSet = new Set(prev);
+          unreadBookings.forEach(b => newSet.add(b.id));
+          return newSet;
+        });
+        unreadBookings.forEach(b => {
+          updateBooking(b.id, { unreadAdmin: false });
+        });
+      }
+    }
+  }, [activeTab, bookings, updateBooking]);
 
   // Pagination for reservations (15 per page) — must come AFTER finalBookings
   const bookingsPagination = usePagination(finalBookings, 15);
@@ -225,9 +257,10 @@ export default function AdminDashboard() {
     </div>
   );
 
+  const hasUnreadBookings = bookings.some(b => b.unreadAdmin);
   const sidebarTabs = [
     { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-    { id: 'bookings', icon: Calendar, label: 'Réservations' },
+    { id: 'bookings', icon: Calendar, label: 'Réservations', hasNotification: hasUnreadBookings },
     { id: 'reports', icon: TrendingUp, label: 'Rapports' },
     { id: 'barbers', icon: Users, label: 'Coiffeurs' },
     { id: 'services', icon: Scissors, label: 'Services' },
@@ -257,6 +290,7 @@ export default function AdminDashboard() {
             <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === tab.id ? 'bg-[#D4AF37] text-black font-bold shadow-2xl shadow-[#D4AF37]/30 scale-[1.02]' : 'text-white/40 hover:bg-white/5 hover:text-white'}`}>
               <tab.icon className="w-5 h-5" />
               <span className="text-sm">{tab.label}</span>
+              {tab.hasNotification && <div className="w-2 h-2 bg-red-500 rounded-full ml-auto animate-pulse" />}
             </button>
           ))}
         </aside>
@@ -358,7 +392,12 @@ export default function AdminDashboard() {
                             {booking.clientName ? booking.clientName[0].toUpperCase() : 'C'}
                           </div>
                           <div className="space-y-1">
-                            <h4 className="font-bold text-lg text-white leading-tight">{booking.clientName}</h4>
+                            <h4 className="font-bold text-lg text-white leading-tight flex items-center gap-2">
+                              {booking.clientName}
+                              {(booking.unreadAdmin || highlightedIds.has(booking.id)) && (
+                                <span className="px-2 py-0.5 bg-red-500 text-white text-[10px] font-black uppercase rounded-lg shadow-[0_0_10px_rgba(239,68,68,0.5)] animate-pulse">Nouveau</span>
+                              )}
+                            </h4>
                             <div className="flex flex-col gap-1 text-xs text-white/50 font-medium">
                               {booking.clientEmail && (
                                 <a href={`mailto:${booking.clientEmail}`} className="hover:text-[#D4AF37] flex items-center gap-1.5 transition-colors">
@@ -417,28 +456,36 @@ export default function AdminDashboard() {
                         {/* Right column: Status & Actions */}
                         <div className="flex flex-row md:flex-col xl:flex-row items-center justify-between xl:justify-end gap-3 w-full xl:w-auto pt-4 md:pt-0 border-t md:border-t-0 border-white/5">
                           {/* Actions */}
-                          {booking.status === 'pending' && (
-                            <div className="flex gap-2 w-full xl:w-auto justify-start xl:justify-end shrink-0">
+                          <div className="flex gap-2 w-full xl:w-auto justify-start xl:justify-end shrink-0">
+                            {booking.clientPhone && booking.clientPhone !== 'N/A' && (
+                              <a 
+                                href={`tel:${booking.clientPhone}`} 
+                                className="w-10 h-10 bg-white/5 text-white/80 rounded-2xl flex items-center justify-center border border-white/10 hover:bg-white/10 transition-colors shrink-0"
+                                title="Appeler le client"
+                              >
+                                <Phone className="w-4 h-4" />
+                              </a>
+                            )}
+                            {booking.status === 'pending' && (
                               <button 
                                 onClick={() => {
-                                  updateBookingStatus(booking.id, 'approved');
-                                  toast.success("RÉSERVATION APPROUVÉE AVEC SUCCÈS");
+                                  updateBookingStatus(booking.id, 'approved', 'admin');
+                                  toast.success("RÉSERVATION APPROUVÉE");
                                 }} 
                                 className="px-5 py-2.5 bg-green-500/10 text-green-400 border border-green-500/20 rounded-2xl hover:bg-green-500 hover:text-white transition-all text-xs font-black uppercase tracking-wider"
                               >
                                 Approuver
                               </button>
+                            )}
+                            {(booking.status === 'pending' || booking.status === 'approved') && (
                               <button 
-                                onClick={() => {
-                                  updateBookingStatus(booking.id, 'rejected');
-                                  toast.success("RÉSERVATION REJETÉE AVEC SUCCÈS");
-                                }} 
+                                onClick={() => setBookingToReject(booking.id)} 
                                 className="px-5 py-2.5 bg-red-500/10 text-red-400 border border-red-500/20 rounded-2xl hover:bg-red-500 hover:text-white transition-all text-xs font-black uppercase tracking-wider"
                               >
                                 Rejeter
                               </button>
-                            </div>
-                          )}
+                            )}
+                          </div>
                           
                           {/* Status Badge */}
                           <span className={`px-4 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest text-center border shrink-0 min-w-[100px] ${
@@ -813,6 +860,50 @@ export default function AdminDashboard() {
                   </div>
                 </motion.div>
               )}
+              
+              {/* Rejection Confirmation Modal */}
+              <AnimatePresence>
+                {bookingToReject && (
+                  <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      className="bg-[#141414] border border-red-500/30 p-8 rounded-3xl max-w-md w-full relative"
+                    >
+                      <button onClick={() => setBookingToReject(null)} className="absolute top-4 right-4 text-white/40 hover:text-white transition-colors">
+                        <X className="w-5 h-5" />
+                      </button>
+                      <h3 className="text-2xl font-black text-white mb-4 flex items-center gap-2">
+                        <AlertCircle className="w-6 h-6 text-red-500" /> Confirmer le rejet
+                      </h3>
+                      <p className="text-white/60 mb-8">
+                        Êtes-vous sûr de vouloir rejeter cette réservation ? Cette action est irréversible.
+                      </p>
+                      <div className="flex gap-4">
+                        <button
+                          onClick={() => setBookingToReject(null)}
+                          className="flex-1 py-3 px-4 bg-white/5 hover:bg-white/10 text-white rounded-xl font-bold transition-colors"
+                        >
+                          Annuler
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (bookingToReject) {
+                              updateBookingStatus(bookingToReject, 'rejected', 'admin');
+                              toast.success("RÉSERVATION REJETÉE AVEC SUCCÈS");
+                              setBookingToReject(null);
+                            }
+                          }}
+                          className="flex-1 py-3 px-4 bg-red-500 hover:bg-red-600 text-white rounded-xl font-bold transition-colors"
+                        >
+                          Oui, Rejeter
+                        </button>
+                      </div>
+                    </motion.div>
+                  </div>
+                )}
+              </AnimatePresence>
             </Suspense>
           </AnimatePresence>
         </main>

@@ -83,6 +83,8 @@ export interface Booking {
   notes?: string;
   paymentStatus?: 'paid' | 'unpaid';
   type?: 'avec-rdv' | 'sans-rdv';
+  unreadAdmin?: boolean;
+  unreadBarber?: boolean;
 }
 
 export interface Product {
@@ -172,7 +174,7 @@ interface BusinessContextType {
   updateBarber: (id: string, barber: Partial<Barber>) => Promise<void>;
   deleteBarber: (id: string) => Promise<void>;
   addBooking: (booking: Omit<Booking, 'id' | 'createdAt'> & { status?: Booking['status'] }) => Promise<void>;
-  updateBookingStatus: (id: string, status: Booking['status']) => Promise<void>;
+  updateBookingStatus: (id: string, status: Booking['status'], actor?: 'admin' | 'barber') => Promise<void>;
   updateBooking: (id: string, updated: Partial<Booking>) => Promise<void>;
   deleteBooking: (id: string) => Promise<void>;
   updateBusinessInfo: (info: Partial<BusinessInfo>) => Promise<void>;
@@ -477,11 +479,16 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       ...booking,
       status: booking.status || 'pending',
       createdAt: new Date().toISOString(),
+      unreadAdmin: true,
+      unreadBarber: true,
     });
   };
 
-  const updateBookingStatus = async (id: string, status: Booking['status']) => {
-    await updateDoc(doc(db, 'bookings', id), { status });
+  const updateBookingStatus = async (id: string, status: Booking['status'], actor?: 'admin' | 'barber') => {
+    const updateData: any = { status };
+    if (actor === 'admin') updateData.unreadBarber = true;
+    if (actor === 'barber') updateData.unreadAdmin = true;
+    await updateDoc(doc(db, 'bookings', id), updateData);
   };
 
   const updateBooking = async (id: string, updated: Partial<Booking>) => {

@@ -17,6 +17,7 @@ import {
   Mail,
   FileText,
   ShoppingBag,
+  AlertCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext';
@@ -287,6 +288,8 @@ export default function BarberDashboard() {
   const [addServiceOpen, setAddServiceOpen] = useState(false);
   const [saleModalOpen, setSaleModalOpen] = useState(false);
   const [isManualBookingOpen, setIsManualBookingOpen] = useState(false);
+  const [highlightedIds, setHighlightedIds] = useState<Set<string>>(new Set());
+  const [bookingToReject, setBookingToReject] = useState<string | null>(null);
 
   // Strictly match barber using the barberId from the authenticated profile
   const currentBarber = barbers.find(b => b.id === user?.barberId) || barbers.find(b => b.email === user?.email);
@@ -296,15 +299,47 @@ export default function BarberDashboard() {
   const myBookings = bookings.filter(b => b.barberId === currentBarber?.id);
   const todayCompleted = myBookings.filter(b => b.status === 'completed' && b.date === today);
   
-  const todayBookings = useMemo(() => {
-    return myBookings.filter(b => b.date === today && b.status !== 'rejected').sort((a, b) => a.time.localeCompare(b.time));
-  }, [myBookings, today]);
+  useEffect(() => {
+    if (activeTab === 'reservations') {
+      const unreadBookings = myBookings.filter(b => b.unreadBarber);
+      if (unreadBookings.length > 0) {
+        setHighlightedIds(prev => {
+          const newSet = new Set(prev);
+          unreadBookings.forEach(b => newSet.add(b.id));
+          return newSet;
+        });
+        unreadBookings.forEach(b => {
+          updateBooking(b.id, { unreadBarber: false });
+        });
+      }
+    }
+  }, [activeTab, myBookings, updateBooking]);
 
-  const upcomingBookings = useMemo(() => {
-    return myBookings.filter(b => b.date > today && b.status !== 'rejected').sort((a, b) => {
+  const sortBookings = (bookingsToSort: any[]) => {
+    return [...bookingsToSort].sort((a, b) => {
+      // 1. Pending
+      if (a.status === 'pending' && b.status !== 'pending') return -1;
+      if (a.status !== 'pending' && b.status === 'pending') return 1;
+      // 2. New (highlighted or unread)
+      const aIsNew = a.unreadBarber || highlightedIds.has(a.id);
+      const bIsNew = b.unreadBarber || highlightedIds.has(b.id);
+      if (aIsNew && !bIsNew) return -1;
+      if (!aIsNew && bIsNew) return 1;
+      // 3. Approved
+      if (a.status === 'approved' && b.status !== 'approved') return -1;
+      if (a.status !== 'approved' && b.status === 'approved') return 1;
+      // Default: sort by date/time
       return `${a.date}T${a.time}`.localeCompare(`${b.date}T${b.time}`);
     });
-  }, [myBookings, today]);
+  };
+
+  const todayBookings = useMemo(() => {
+    return sortBookings(myBookings.filter(b => b.date === today && b.status !== 'rejected'));
+  }, [myBookings, today, highlightedIds]);
+
+  const upcomingBookings = useMemo(() => {
+    return sortBookings(myBookings.filter(b => b.date > today && b.status !== 'rejected'));
+  }, [myBookings, today, highlightedIds]);
 
   const historyBookings = useMemo(() => {
     return myBookings.filter(b => b.date < today || b.status === 'rejected' || b.status === 'completed').sort((a, b) => {
@@ -440,6 +475,8 @@ export default function BarberDashboard() {
       </div>
     );
   }
+
+  const hasUnreadBookings = myBookings.some(b => b.unreadBarber);
 
   return (
     <div className="min-h-screen bg-black pb-24">
@@ -680,7 +717,12 @@ export default function BarberDashboard() {
                           {b.clientName ? b.clientName[0].toUpperCase() : 'C'}
                         </div>
                         <div>
-                          <h4 className="font-bold text-white text-base leading-tight">{b.clientName}</h4>
+                          <h4 className="font-bold text-white text-base leading-tight flex items-center gap-2">
+                            {b.clientName}
+                            {(b.unreadBarber || highlightedIds.has(b.id)) && (
+                              <span className="px-2 py-0.5 bg-red-500 text-white text-[10px] font-black uppercase rounded-lg shadow-[0_0_10px_rgba(239,68,68,0.5)] animate-pulse">Nouveau</span>
+                            )}
+                          </h4>
                           <p className="text-[#D4AF37] text-[10px] font-black uppercase tracking-widest mt-0.5">
                             {services.find(s => s.id === b.serviceId)?.name || 'Service Coiffure'}
                           </p>
@@ -750,27 +792,37 @@ export default function BarberDashboard() {
                           {b.clientPhone && b.clientPhone !== 'N/A' && (
                             <a 
                               href={`tel:${b.clientPhone}`} 
-                              className="px-4 py-2 bg-white/5 text-white/80 rounded-xl text-xs font-bold border border-white/10 hover:bg-white/10 transition-colors shrink-0 text-center flex items-center justify-center"
+                              className="w-10 h-10 bg-white/5 text-white/80 rounded-xl flex items-center justify-center border border-white/10 hover:bg-white/10 transition-colors shrink-0"
+                              title="Appeler le client"
                             >
-                              Appeler
+                              <Phone className="w-4 h-4" />
                             </a>
                           )}
-                          {b.status === 'pending' ? (
+                          {b.status === 'pending' && (
                             <button 
                               onClick={() => { 
-                                updateBookingStatus(b.id, 'approved'); 
+                                updateBookingStatus(b.id, 'approved', 'barber'); 
                                 toast.success('Rendez-vous approuvé !'); 
                               }} 
                               className="px-4 py-2 bg-green-500/10 text-green-400 hover:bg-green-500 hover:text-white rounded-xl text-xs font-black uppercase border border-green-500/20 transition-all"
                             >
                               Approuver
                             </button>
-                          ) : (
+                          )}
+                          {b.status === 'approved' && (
                             <button 
                               onClick={() => setActiveBookingId(b.id)} 
                               className="px-4 py-2 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black hover:scale-105 rounded-xl text-xs font-black uppercase transition-all shadow-md shadow-[#D4AF37]/10"
                             >
                               Terminer
+                            </button>
+                          )}
+                          {(b.status === 'pending' || b.status === 'approved') && (
+                            <button 
+                              onClick={() => setBookingToReject(b.id)} 
+                              className="px-4 py-2 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-xl text-xs font-black uppercase border border-red-500/20 transition-all"
+                            >
+                              Rejeter
                             </button>
                           )}
                         </div>
@@ -885,10 +937,54 @@ export default function BarberDashboard() {
 
       <div className="fixed bottom-0 left-0 right-0 bg-[#0f0f0f] border-t border-white/5 flex z-40">
         <button onClick={() => setActiveTab('dashboard')} className={`flex-1 p-3 flex flex-col items-center gap-1 ${activeTab === 'dashboard' ? 'text-[#D4AF37]' : 'text-white/20'} hover:text-[#D4AF37] transition-colors`}><BarChart3 className="w-5 h-5" /><span className="text-[10px] font-bold">Gains</span></button>
-        <button onClick={() => setActiveTab('reservations')} className={`flex-1 p-3 flex flex-col items-center gap-1 ${activeTab === 'reservations' ? 'text-[#D4AF37]' : 'text-white/20'} hover:text-[#D4AF37] transition-colors`}><Calendar className="w-5 h-5" /><span className="text-[10px] font-bold">Agenda</span></button>
+        <button onClick={() => setActiveTab('reservations')} className={`flex-1 p-3 flex flex-col items-center gap-1 relative ${activeTab === 'reservations' ? 'text-[#D4AF37]' : 'text-white/20'} hover:text-[#D4AF37] transition-colors`}><Calendar className="w-5 h-5" /><span className="text-[10px] font-bold">Agenda</span>{hasUnreadBookings && <div className="absolute top-2 right-[30%] w-2 h-2 bg-red-500 rounded-full animate-pulse" />}</button>
         <button onClick={() => setActiveTab('boutique')} className={`flex-1 p-3 flex flex-col items-center gap-1 ${activeTab === 'boutique' ? 'text-[#D4AF37]' : 'text-white/20'} hover:text-[#D4AF37] transition-colors`}><ShoppingBag className="w-5 h-5" /><span className="text-[10px] font-bold">Boutique</span></button>
         <button onClick={() => setActiveTab('horaires')} className={`flex-1 p-3 flex flex-col items-center gap-1 ${activeTab === 'horaires' ? 'text-[#D4AF37]' : 'text-white/20'} hover:text-[#D4AF37] transition-colors`}><Clock className="w-5 h-5" /><span className="text-[10px] font-bold">Horaires</span></button>
       </div>
+
+      {/* Rejection Confirmation Modal */}
+      <AnimatePresence>
+        {bookingToReject && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-[#141414] border border-red-500/30 p-8 rounded-3xl max-w-md w-full relative"
+            >
+              <button onClick={() => setBookingToReject(null)} className="absolute top-4 right-4 text-white/40 hover:text-white transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+              <h3 className="text-2xl font-black text-white mb-4 flex items-center gap-2">
+                <AlertCircle className="w-6 h-6 text-red-500" /> Confirmer le rejet
+              </h3>
+              <p className="text-white/60 mb-8">
+                Êtes-vous sûr de vouloir rejeter cette réservation ? Cette action est irréversible.
+              </p>
+              <div className="flex gap-4">
+                <button
+                  onClick={() => setBookingToReject(null)}
+                  className="flex-1 py-3 px-4 bg-white/5 hover:bg-white/10 text-white rounded-xl font-bold transition-colors"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={() => {
+                    if (bookingToReject) {
+                      updateBookingStatus(bookingToReject, 'rejected', 'barber');
+                      toast.success("RÉSERVATION REJETÉE AVEC SUCCÈS");
+                      setBookingToReject(null);
+                    }
+                  }}
+                  className="flex-1 py-3 px-4 bg-red-500 hover:bg-red-600 text-white rounded-xl font-bold transition-colors"
+                >
+                  Oui, Rejeter
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       <Suspense fallback={<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"><div className="w-8 h-8 border-4 border-[#D4AF37] border-t-transparent rounded-full animate-spin"></div></div>}>
         {checkInModalOpen && <ScannerModal onClose={() => setCheckInModalOpen(false)} currentBarber={currentBarber} handleCheckInSuccess={handleCheckInSuccess} />}
