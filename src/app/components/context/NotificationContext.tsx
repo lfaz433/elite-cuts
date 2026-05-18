@@ -113,7 +113,13 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       }
 
       // Check if granted after prompt
-      const hasPermission = typeof Notification !== 'undefined' && Notification.permission === 'granted';
+      let hasPermission = false;
+      if (OneSignal.Notifications) {
+         hasPermission = OneSignal.Notifications.permission;
+      } else if (typeof Notification !== 'undefined') {
+         hasPermission = Notification.permission === 'granted';
+      }
+      
       setPermissionStatus(hasPermission ? 'granted' : 'denied');
       return hasPermission;
     } catch (e) {
