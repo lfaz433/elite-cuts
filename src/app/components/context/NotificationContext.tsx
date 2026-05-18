@@ -132,12 +132,10 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     const recipientId = user.role === 'admin' ? 'admin' : (user.barberId || user.uid);
     if (!recipientId) return;
 
-    // We only load last 50 notifications to prevent UI lag
+    // Remove orderBy and limit from query to avoid Firebase Composite Index requirements
     const q = query(
       collection(db, 'notifications'),
-      where('recipientId', '==', recipientId),
-      orderBy('createdAt', 'desc'),
-      limit(50)
+      where('recipientId', '==', recipientId)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -145,7 +143,10 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       snapshot.forEach(doc => {
         notifs.push({ id: doc.id, ...doc.data() } as AppNotification);
       });
-      setNotifications(notifs);
+      // Sort in memory (newest first)
+      notifs.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      // Limit to 50 locally to prevent UI lag
+      setNotifications(notifs.slice(0, 50));
     });
 
     return () => unsubscribe();
