@@ -520,18 +520,28 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       }
 
       // 3. Send Push via Vercel Backend
-      fetch('/api/send-push', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer placeholder_token' },
-        body: JSON.stringify({ ...payload, recipientId: 'admin' })
-      }).catch(console.error);
+      const notifyBackend = async (recId: string) => {
+        try {
+          const res = await fetch('/api/send-push', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer placeholder_token' },
+            body: JSON.stringify({ ...payload, recipientId: recId })
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            toast.error(`Push API Error (${recId}): ` + (data.error || 'Unknown'));
+            console.error('Push Error data:', data);
+          } else {
+            console.log(`Push sent to ${recId}:`, data);
+          }
+        } catch (err: any) {
+          toast.error(`Push Network Error (${recId}): ` + err.message);
+        }
+      };
 
+      notifyBackend('admin');
       if (booking.barberId) {
-        fetch('/api/send-push', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer placeholder_token' },
-          body: JSON.stringify({ ...payload, recipientId: booking.barberId })
-        }).catch(console.error);
+        notifyBackend(booking.barberId);
       }
     } catch (e) {
       console.error('Failed to trigger push notification:', e);
