@@ -33,6 +33,8 @@ import {
   Tag,
   Upload,
   Download,
+  Share2,
+  Copy,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useBusiness } from '../context/BusinessContext';
@@ -1001,9 +1003,116 @@ export default function AdminDashboard() {
                               }} />
                            </label>
                         </div>
+                        </div>
+                      </div>
+
+                      {/* Global QR & Share */}
+                      <div className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem]">
+                        <h3 className="text-xl font-bold mb-6 flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-[#D4AF37]/10 flex items-center justify-center">
+                            <Share2 className="w-5 h-5 text-[#D4AF37]" />
+                          </div>
+                          Partage & QR Code Global
+                        </h3>
+                        
+                        <div className="flex flex-col lg:flex-row gap-8 items-start">
+                          <div className="bg-white p-6 rounded-[2rem] shadow-2xl shadow-white/5 flex-shrink-0">
+                            <QRCodeCanvas id="global-qr-code" value={window.location.origin} size={150} />
+                          </div>
+                          
+                          <div className="space-y-6 flex-1 w-full">
+                            <div>
+                              <p className="text-white/60 text-sm mb-4">
+                                Scannez ou téléchargez ce QR Code pour diriger vos clients vers la page d'accueil de votre salon, où ils pourront prendre rendez-vous.
+                              </p>
+                              <div className="flex gap-4">
+                                <button 
+                                  onClick={() => {
+                                    const canvas = document.getElementById('global-qr-code') as HTMLCanvasElement;
+                                    if (!canvas) return;
+                                    const brandedCanvas = document.createElement('canvas');
+                                    const ctx = brandedCanvas.getContext('2d');
+                                    if (!ctx) return;
+                                    
+                                    brandedCanvas.width = 300;
+                                    brandedCanvas.height = 400;
+                                    
+                                    ctx.fillStyle = '#141414';
+                                    ctx.fillRect(0, 0, 300, 400);
+                                    
+                                    ctx.strokeStyle = 'rgba(212, 175, 55, 0.2)';
+                                    ctx.lineWidth = 4;
+                                    ctx.strokeRect(10, 10, 280, 380);
+
+                                    ctx.fillStyle = '#FFFFFF';
+                                    ctx.fillRect(40, 110, 220, 220);
+                                    
+                                    ctx.drawImage(canvas, 60, 130, 180, 180);
+                                    
+                                    ctx.fillStyle = '#FFFFFF';
+                                    ctx.textAlign = 'center';
+                                    ctx.font = '900 24px Arial, sans-serif';
+                                    ctx.fillText((businessInfo.name || 'ELITE CUTS').toUpperCase(), 150, 60);
+                                    
+                                    ctx.fillStyle = '#D4AF37';
+                                    ctx.font = '700 12px Arial, sans-serif';
+                                    ctx.fillText('SCANNEZ POUR RÉSERVER', 150, 85);
+                                    
+                                    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+                                    ctx.font = '500 10px Arial, sans-serif';
+                                    ctx.fillText(`© ${businessInfo.name || 'ELITE CUTS'}`, 150, 365);
+                                    
+                                    const link = document.createElement('a');
+                                    link.download = `QR_Salon_${(businessInfo.name || 'Elite Cuts').replace(/\s+/g, '_')}.png`;
+                                    link.href = brandedCanvas.toDataURL('image/png');
+                                    link.click();
+                                  }}
+                                  className="flex items-center gap-2 px-6 py-3 bg-[#D4AF37] text-black rounded-xl font-bold text-sm transition-all shadow-lg hover:shadow-[#D4AF37]/20 hover:scale-105"
+                                >
+                                  <Download className="w-4 h-4" />
+                                  Télécharger
+                                </button>
+                              </div>
+                            </div>
+                            
+                            <div className="pt-6 border-t border-white/5">
+                              <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Lien Direct du Salon</label>
+                              <div className="flex gap-2">
+                                <input readOnly value={window.location.origin} className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none text-white/60 font-medium text-sm" />
+                                <button 
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(window.location.origin);
+                                    toast.success('Lien copié dans le presse-papier');
+                                  }} 
+                                  className="p-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-colors"
+                                  title="Copier le lien"
+                                >
+                                  <Copy className="w-5 h-5" />
+                                </button>
+                                <button 
+                                  onClick={() => {
+                                    if (navigator.share) {
+                                      navigator.share({
+                                        title: businessInfo.name || 'Elite Cuts',
+                                        text: 'Prenez rendez-vous dans notre salon premium !',
+                                        url: window.location.origin,
+                                      }).catch(console.error);
+                                    } else {
+                                      navigator.clipboard.writeText(window.location.origin);
+                                      toast.success('Lien copié ! (Partage non supporté)');
+                                    }
+                                  }} 
+                                  className="p-3 bg-[#D4AF37] text-black hover:bg-[#FFD700] rounded-xl transition-colors shadow-lg shadow-[#D4AF37]/20"
+                                  title="Partager"
+                                >
+                                  <Share2 className="w-5 h-5" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  </div>
 
                   {/* Danger Zone */}
                   <div className="bg-red-500/5 border border-red-500/10 p-8 rounded-[2.5rem]">
