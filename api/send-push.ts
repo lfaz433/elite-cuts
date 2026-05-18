@@ -22,12 +22,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    const ONE_SIGNAL_APP_ID = process.env.ONESIGNAL_APP_ID;
-    const ONE_SIGNAL_REST_API_KEY = process.env.ONESIGNAL_REST_API_KEY;
+    const ONE_SIGNAL_APP_ID = "812f9b44-12d9-4391-97b7-6f0b2798987d";
+    const ONE_SIGNAL_REST_API_KEY = process.env.ONESIGNAL_REST_API_KEY?.trim();
 
-    if (!ONE_SIGNAL_APP_ID || !ONE_SIGNAL_REST_API_KEY) {
+    if (!ONE_SIGNAL_REST_API_KEY) {
       console.error('OneSignal credentials missing');
-      return res.status(500).json({ error: 'Server misconfiguration' });
+      return res.status(500).json({ error: 'Server misconfiguration: Missing REST API KEY' });
     }
 
     let payload: any = {
