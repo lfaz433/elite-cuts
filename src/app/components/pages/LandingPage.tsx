@@ -305,7 +305,7 @@ export default function LandingPage() {
                     </div>
                     <div className="flex items-center justify-between mt-auto">
                       <span className="text-xl font-black text-white">€{product.sellPrice}</span>
-                      <button className="p-2 bg-white/5 hover:bg-[#D4AF37] text-white hover:text-black rounded-lg transition-colors">
+                      <button onClick={() => navigate('/boutique')} className="p-2 bg-white/5 hover:bg-[#D4AF37] text-white hover:text-black rounded-lg transition-colors">
                         <ShoppingBag className="w-5 h-5" />
                       </button>
                     </div>
@@ -317,6 +317,14 @@ export default function LandingPage() {
             <div className="text-center py-20 bg-white/5 rounded-3xl border border-dashed border-white/10">
               <ShoppingBag className="w-12 h-12 text-white/10 mx-auto mb-4" />
               <p className="text-white/40">Notre boutique en ligne arrive bientôt.</p>
+            </div>
+          )}
+
+          {products.length > 0 && (
+            <div className="mt-12 text-center">
+              <button onClick={() => navigate('/boutique')} className="px-8 py-4 bg-white/5 border border-white/10 text-white hover:text-black hover:bg-[#D4AF37] rounded-2xl font-black text-sm transition-all uppercase tracking-widest inline-flex items-center gap-3">
+                Voir toute la boutique <ChevronRight className="w-5 h-5" />
+              </button>
             </div>
           )}
         </div>

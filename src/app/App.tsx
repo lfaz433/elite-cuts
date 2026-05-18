@@ -13,6 +13,7 @@ import { lazy } from 'react';
 const ClientDashboard = lazy(() => import('./components/pages/ClientDashboard'));
 const AdminDashboard = lazy(() => import('./components/pages/AdminDashboard'));
 const BarberDashboard = lazy(() => import('./components/pages/BarberDashboard'));
+const BoutiquePage = lazy(() => import('./components/pages/BoutiquePage'));
 
 // --- Premium Loading Spinner ---
 function AppLoader() {
@@ -44,6 +45,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/" element={<PublicLayout />}>
         <Route index element={<LandingPage />} />
+        <Route path="boutique" element={<BoutiquePage />} />
       </Route>
       <Route path="/client/*" element={<ProtectedRoute role="client"><ClientDashboard /></ProtectedRoute>} />
       <Route path="/admin/*" element={<ProtectedRoute role="admin"><AdminDashboard /></ProtectedRoute>} />

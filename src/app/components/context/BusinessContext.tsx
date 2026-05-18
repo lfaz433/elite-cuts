@@ -38,6 +38,9 @@ export interface Barber {
   workingDays?: number[]; // 0 = Sunday, 1 = Monday, etc.
   phone?: string;
   email?: string;
+  password?: string;
+  mainServiceId?: string;
+  secondaryServiceId?: string;
   archived?: boolean;
   commission?: number; // percentage
   status?: 'available' | 'busy' | 'break' | 'offline';
@@ -77,6 +80,9 @@ export interface Booking {
   pricePaid?: number;
   tip?: number;
   paymentMethod?: 'cash' | 'card';
+  notes?: string;
+  paymentStatus?: 'paid' | 'unpaid';
+  type?: 'avec-rdv' | 'sans-rdv';
 }
 
 export interface Product {
@@ -84,11 +90,14 @@ export interface Product {
   name: string;
   buyPrice: number;
   sellPrice: number;
+  promoPrice?: number;
   image: string;
   description: string;
   stock?: number;
   category?: string;
   trackStock?: boolean;
+  barcode?: string;
+  lowStockThreshold?: number;
 }
 
 export interface Sale {
@@ -100,6 +109,10 @@ export interface Sale {
   quantity: number;
   buyPrice: number;
   sellPrice: number;
+  customPrice?: number;
+  discount?: number;
+  paymentMethod?: 'cash' | 'card';
+  notes?: string;
 }
 
 export interface BusinessInfo {
@@ -117,6 +130,11 @@ export interface BusinessInfo {
     instagram?: string;
     facebook?: string;
   };
+  instagram?: string;
+  tiktok?: string;
+  facebook?: string;
+  website?: string;
+  mapUrl?: string;
   latitude?: number;
   longitude?: number;
   // Branding / Landing Page
@@ -243,6 +261,11 @@ const defaultBusinessInfo: BusinessInfo = {
   socials: {
     instagram: 'elitecuts_officiel',
   },
+  instagram: 'https://instagram.com/elitecuts_officiel',
+  tiktok: 'https://tiktok.com/@elitecuts_officiel',
+  facebook: 'https://facebook.com/elitecuts',
+  website: 'https://elitecuts.fr',
+  mapUrl: 'https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d2624.9916256937586!2d2.3522219!3d48.856614!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2zNDjCsDUxJzIzLjgiTiAywrAyMScwOC4wIkU!5e0!3m2!1sfr!2sfr!4v1625600000000!5m2!1sfr!2sfr',
   latitude: 48.8566,
   longitude: 2.3522,
   heroImage: 'https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=1920&h=1080&fit=crop',
@@ -427,6 +450,29 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   };
 
   const addBooking = async (booking: Omit<Booking, 'id' | 'createdAt'> & { status?: Booking['status'] }) => {
+    // Conflict prevention check for scheduled appointments (avec-rdv)
+    if (booking.type !== 'sans-rdv') {
+      const [bh, bm] = booking.time.split(':').map(Number);
+      const startMin = bh * 60 + bm;
+      const targetService = services.find(s => s.id === booking.serviceId);
+      const duration = targetService ? parseInt(targetService.duration) : 30;
+      const endMin = startMin + duration;
+
+      const hasConflict = bookings.some(b => {
+        if (b.barberId !== booking.barberId || b.date !== booking.date || b.status === 'rejected' || b.type === 'sans-rdv') return false;
+        const [h, m] = b.time.split(':').map(Number);
+        const bStart = h * 60 + m;
+        const bService = services.find(s => s.id === b.serviceId);
+        const bDuration = bService ? parseInt(bService.duration) : 30;
+        const bEnd = bStart + bDuration;
+        return (startMin < bEnd && endMin > bStart);
+      });
+
+      if (hasConflict) {
+        throw new Error("ConflictError: Ce créneau est déjà réservé pour ce coiffeur.");
+      }
+    }
+
     await addDoc(collection(db, 'bookings'), {
       ...booking,
       status: booking.status || 'pending',
@@ -577,25 +623,47 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   };
 
   const getAvailableBarbers = (date: string, time: string, serviceId?: string) => {
+    const dayOfWeek = new Date(date).getDay(); // 0 = Sunday, 1 = Monday, etc.
+
     return barbers.filter(barber => {
       if (barber.archived || barber.status === 'offline' || barber.status === 'break') return false;
 
-      const isBooked = bookings.some(b => {
-        if (b.barberId !== barber.id || b.date !== date || b.status === 'rejected') return false;
-        
-        // Calculate overlap with buffer
-        const bookingTime = new Date(`${date}T${b.time}`).getTime();
-        const service = services.find(s => s.id === b.serviceId);
-        const durationMin = service ? parseInt(service.duration) : 30;
-        const bookingEndTime = bookingTime + (durationMin + 10) * 60000; // +10min buffer
-        
-        const requestedTime = new Date(`${date}T${time}`).getTime();
-        const requestedDuration = serviceId ? (parseInt(services.find(s => s.id === serviceId)?.duration || '30')) : 30;
-        const requestedEndTime = requestedTime + (requestedDuration + 10) * 60000;
+      // 1. Working Days Check
+      const activeDays = barber.workingDays || [1, 2, 3, 4, 5, 6];
+      if (!activeDays.includes(dayOfWeek)) return false;
 
-        return (requestedTime < bookingEndTime && requestedEndTime > bookingTime);
+      // 2. Working Hours (Shift) Check
+      const [sh, sm] = (barber.shiftStart || '09:00').split(':').map(Number);
+      const [eh, em] = (barber.shiftEnd || '18:00').split(':').map(Number);
+      const shiftStartMin = sh * 60 + sm;
+      const shiftEndMin = eh * 60 + em;
+
+      const [rh, rm] = time.split(':').map(Number);
+      const slotStartMin = rh * 60 + rm;
+      const targetService = serviceId ? services.find(s => s.id === serviceId) : null;
+      const duration = targetService ? parseInt(targetService.duration) : 30;
+      const slotEndMin = slotStartMin + duration;
+
+      if (slotStartMin < shiftStartMin || slotEndMin > shiftEndMin) return false;
+
+      // 3. Multi-Service Selection Enforcer (main & secondary service check)
+      if (serviceId && barber.mainServiceId) {
+        if (barber.mainServiceId !== serviceId && barber.secondaryServiceId !== serviceId) {
+          return false;
+        }
+      }
+
+      // 4. Overlap & Conflict Reservation Checking
+      const isBooked = bookings.some(b => {
+        if (b.barberId !== barber.id || b.date !== date || b.status === 'rejected' || b.type === 'sans-rdv') return false;
+        const [bh, bm] = b.time.split(':').map(Number);
+        const bStart = bh * 60 + bm;
+        const bService = services.find(s => s.id === b.serviceId);
+        const bDuration = bService ? parseInt(bService.duration) : 30;
+        const bEnd = bStart + bDuration;
+        return (slotStartMin < bEnd && slotEndMin > bStart);
       });
-      
+
       return !isBooked;
     });
   };

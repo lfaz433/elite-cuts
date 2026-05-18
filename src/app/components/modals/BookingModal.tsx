@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { X, Calendar, User, Phone, Mail, CheckCircle2, ChevronRight, ChevronLeft } from 'lucide-react';
 import { useBusiness } from '../context/BusinessContext';
 import { toast } from 'sonner';
@@ -14,6 +14,61 @@ export default function BookingModal({ onClose }: { onClose: () => void }) {
   const [clientInfo, setClientInfo] = useState({ name: '', email: '', phone: '' });
   const [isSuccess, setIsSuccess] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const calendarDays = useMemo(() => {
+    const days = [];
+    const today = new Date();
+    for (let i = 0; i < 14; i++) {
+      const d = new Date(today);
+      d.setDate(today.getDate() + i);
+      const dateStr = d.toISOString().split('T')[0];
+      
+      let isAvailable = false;
+      try {
+        const slots = getAvailableTimeSlots(dateStr, selectedBarberId, selectedServiceId);
+        isAvailable = slots.length > 0;
+      } catch {
+        isAvailable = false;
+      }
+      
+      days.push({
+        dateStr,
+        dayName: d.toLocaleDateString('fr-FR', { weekday: 'short' }),
+        dayNum: d.getDate(),
+        monthName: d.toLocaleDateString('fr-FR', { month: 'short' }),
+        isAvailable,
+      });
+    }
+    return days;
+  }, [selectedBarberId, selectedServiceId, bookings]);
+
+  useEffect(() => {
+    if (step === 3 && selectedServiceId) {
+      const todayStr = new Date().toISOString().split('T')[0];
+      let checkDate = selectedDate < todayStr ? todayStr : selectedDate;
+      let foundDate = checkDate;
+      let hasSlots = false;
+
+      for (let i = 0; i < 30; i++) {
+        try {
+          const slots = getAvailableTimeSlots(foundDate, selectedBarberId, selectedServiceId);
+          if (slots.length > 0) {
+            hasSlots = true;
+            break;
+          }
+        } catch {
+          // ignore
+        }
+        const nextDay = new Date(foundDate);
+        nextDay.setDate(nextDay.getDate() + 1);
+        foundDate = nextDay.toISOString().split('T')[0];
+      }
+
+      if (hasSlots && foundDate !== selectedDate) {
+        setSelectedDate(foundDate);
+      }
+    }
+  }, [step, selectedBarberId, selectedServiceId]);
 
   const selectedService = services.find(s => s.id === selectedServiceId);
   const selectedBarberName = selectedBarberId === 'any'
@@ -219,33 +274,123 @@ export default function BookingModal({ onClose }: { onClose: () => void }) {
           {/* Step 3: Date & Time */}
           {step === 3 && (
             <div>
-              <div style={{ marginBottom: 20 }}>
-                <label style={{ display: 'block', color: 'rgba(255,255,255,0.7)', fontWeight: 600, marginBottom: 10 }}>Date</label>
-                <input
-                  type="date"
-                  value={selectedDate}
-                  min={new Date().toISOString().split('T')[0]}
-                  onChange={e => { setSelectedDate(e.target.value); setSelectedTime(''); }}
-                  style={{ width: '100%', padding: '12px 16px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(212,175,55,0.3)', borderRadius: 10, color: 'white', fontSize: 15, boxSizing: 'border-box' }}
-                />
+              <div style={{ marginBottom: 24 }}>
+                <label style={{ display: 'block', color: 'rgba(255,255,255,0.7)', fontWeight: 700, fontSize: 15, marginBottom: 12 }}>
+                  Sélectionnez une Date
+                </label>
+                
+                {/* Horizontal scrolling premium strip */}
+                <div style={{ 
+                  display: 'flex', 
+                  gap: 12, 
+                  overflowX: 'auto', 
+                  paddingBottom: 12, 
+                  scrollbarWidth: 'none',
+                  msOverflowStyle: 'none',
+                  WebkitOverflowScrolling: 'touch'
+                }}>
+                  {calendarDays.map((day) => {
+                    const isSelected = day.dateStr === selectedDate;
+                    return (
+                      <button
+                        key={day.dateStr}
+                        type="button"
+                        disabled={!day.isAvailable}
+                        onClick={() => {
+                          setSelectedDate(day.dateStr);
+                          setSelectedTime('');
+                        }}
+                        style={{
+                          flexShrink: 0,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          width: 68,
+                          height: 84,
+                          borderRadius: 16,
+                          border: isSelected 
+                            ? '2px solid #D4AF37' 
+                            : day.isAvailable 
+                              ? '1px solid rgba(255,255,255,0.1)' 
+                              : '1px solid rgba(255,255,255,0.02)',
+                          background: isSelected 
+                            ? 'rgba(212,175,55,0.15)' 
+                            : day.isAvailable 
+                              ? 'rgba(255,255,255,0.03)' 
+                              : 'rgba(255,255,255,0.01)',
+                          color: isSelected 
+                            ? '#D4AF37' 
+                            : day.isAvailable 
+                              ? 'white' 
+                              : 'rgba(255,255,255,0.2)',
+                          opacity: day.isAvailable ? 1 : 0.35,
+                          cursor: day.isAvailable ? 'pointer' : 'not-allowed',
+                          transform: isSelected ? 'scale(1.04)' : 'scale(1)',
+                          transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                          boxShadow: isSelected ? '0 10px 15px -3px rgba(212,175,55,0.1)' : 'none',
+                        }}
+                      >
+                        <span style={{ 
+                          fontSize: 10, 
+                          fontWeight: 700, 
+                          textTransform: 'uppercase', 
+                          letterSpacing: '0.05em',
+                          color: isSelected ? '#D4AF37' : 'rgba(255,255,255,0.4)',
+                          marginBottom: 4
+                        }}>
+                          {day.dayName}
+                        </span>
+                        <span style={{ 
+                          fontSize: 20, 
+                          fontWeight: 900,
+                          lineHeight: 1
+                        }}>
+                          {day.dayNum}
+                        </span>
+                        <span style={{ 
+                          fontSize: 9, 
+                          fontWeight: 700, 
+                          textTransform: 'uppercase',
+                          color: isSelected ? '#D4AF37' : 'rgba(255,255,255,0.3)',
+                          marginTop: 4
+                        }}>
+                          {day.monthName}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
+
               <div>
-                <label style={{ display: 'block', color: 'rgba(255,255,255,0.7)', fontWeight: 600, marginBottom: 10 }}>Créneau horaire</label>
+                <label style={{ display: 'block', color: 'rgba(255,255,255,0.7)', fontWeight: 700, fontSize: 15, marginBottom: 12 }}>
+                  Créneau Horaire
+                </label>
                 {availableTimeSlots.length === 0 ? (
-                  <p style={{ color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '24px 0', fontStyle: 'italic' }}>Aucun créneau disponible ce jour. Essayez une autre date.</p>
+                  <p style={{ color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '32px 0', fontStyle: 'italic', fontSize: 14 }}>
+                    Aucun créneau disponible ce jour.
+                  </p>
                 ) : (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
                     {availableTimeSlots.map(time => (
                       <button
                         key={time}
                         type="button"
                         onClick={() => setSelectedTime(time)}
                         style={{
-                          padding: '10px 4px', borderRadius: 10, textAlign: 'center', fontSize: 14,
+                          padding: '12px 6px',
+                          borderRadius: 12,
+                          textAlign: 'center',
+                          fontSize: 14,
                           border: `2px solid ${selectedTime === time ? '#D4AF37' : 'rgba(255,255,255,0.08)'}`,
-                          background: selectedTime === time ? 'rgba(212,175,55,0.15)' : 'rgba(255,255,255,0.03)',
+                          background: selectedTime === time ? 'rgba(212,175,55,0.2)' : 'rgba(255,255,255,0.03)',
                           color: selectedTime === time ? '#D4AF37' : 'white',
-                          cursor: 'pointer', fontWeight: selectedTime === time ? 700 : 400,
+                          cursor: 'pointer',
+                          fontWeight: selectedTime === time ? 800 : 400,
+                          transform: selectedTime === time ? 'scale(1.05)' : 'scale(1)',
+                          transition: 'all 0.2s ease',
+                          boxShadow: selectedTime === time ? '0 10px 15px -3px rgba(212,175,55,0.1)' : 'none',
                         }}
                       >
                         {time}

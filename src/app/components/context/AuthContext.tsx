@@ -66,7 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const cachedProfile = localStorage.getItem(`user_profile_${firebaseUser.uid}`);
           if (cachedProfile) {
             setUser(JSON.parse(cachedProfile));
-            // Don't set isLoading(false) here, wait for fresh check to confirm role
+            setIsLoading(false); // Instantly dismiss loading screen so user is not blocked
           }
 
           // 3. Fresh Fetch
@@ -86,13 +86,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
             // If not found or if the direct match was imprecise, scan all barbers to avoid Firestore spacing bugs
             if (!isBarber || !barberDoc?.data().email || barberDoc.data().email.trim().toLowerCase() !== email) {
-               const allBarbers = await getDocs(collection(db, 'barbers'));
-               barberDoc = allBarbers.docs.find(d => {
-                 const bEmail = d.data().email?.trim().toLowerCase();
-                 return bEmail && bEmail === email;
-               }) || null;
-               isBarber = !!barberDoc;
-            }
+               const allBarbers = await getDocs(collection(db, 'barbers')).catch(() => null);
+               if (allBarbers) {
+                 barberDoc = allBarbers.docs.find(d => {
+                   const bEmail = d.data().email?.trim().toLowerCase();
+                   return bEmail && bEmail === email;
+                 }) || null;
+                 isBarber = !!barberDoc;
+               }
+             }
 
             const barberData = barberDoc?.data();
             const barberId = barberDoc?.id;

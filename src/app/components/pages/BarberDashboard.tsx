@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense } from 'react';
+import { useState, useEffect, useMemo, useCallback, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   DollarSign,
@@ -14,6 +14,8 @@ import {
   CheckCircle,
   X,
   Phone,
+  Mail,
+  FileText,
   ShoppingBag,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -22,11 +24,11 @@ import { useBusiness } from '../context/BusinessContext';
 import { useNavigate } from 'react-router';
 import { Html5Qrcode } from 'html5-qrcode';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { useMemo, useCallback, lazy, Suspense } from 'react';
 
 // Lazy load heavy components
 const ScannerModal = lazy(() => import('../modals/ScannerModal'));
 const SettlementModal = lazy(() => import('../modals/SettlementModal'));
+const ManualBookingModal = lazy(() => import('../modals/ManualBookingModal'));
 const SaleModal = lazy(() => import('../modals/SaleModal').then(m => ({ default: m.SaleModal })));
 
 // --- Sub-components ---
@@ -262,31 +264,53 @@ export default function BarberDashboard() {
   const { bookings, addBooking, services, barbers, updateBarber, updateBooking, updateBookingStatus, products, addSale, addAttendance, attendance, businessInfo, addSettlement, settlements, updateBarberStatus } = useBusiness();
   const navigate = useNavigate();
   
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState(() => {
+    const path = window.location.pathname;
+    const subpath = path.split('/barber/')[1];
+    const allowed = ['dashboard', 'reservations', 'boutique', 'horaires'];
+    return (subpath && allowed.includes(subpath)) ? subpath : 'dashboard';
+  });
+
+  // Update URL subpath when activeTab changes
+  useEffect(() => {
+    if (activeTab === 'dashboard') {
+      navigate('/barber', { replace: true });
+    } else {
+      navigate(`/barber/${activeTab}`, { replace: true });
+    }
+  }, [activeTab, navigate]);
+
+  const [resSubTab, setResSubTab] = useState<'today' | 'upcoming' | 'history'>('today');
   const [activeBookingId, setActiveBookingId] = useState<string | null>(null);
   const [checkInModalOpen, setCheckInModalOpen] = useState(false);
   const [settlementModalOpen, setSettlementModalOpen] = useState(false);
   const [addServiceOpen, setAddServiceOpen] = useState(false);
   const [saleModalOpen, setSaleModalOpen] = useState(false);
+  const [isManualBookingOpen, setIsManualBookingOpen] = useState(false);
 
   // Strictly match barber using the barberId from the authenticated profile
   const currentBarber = barbers.find(b => b.id === user?.barberId) || barbers.find(b => b.email === user?.email);
 
   const today = new Date().toISOString().split('T')[0];
-  
-  if (!currentBarber && user?.role === 'barber') {
-    return (
-      <div className="min-h-screen bg-black flex flex-col items-center justify-center p-6 text-center">
-        <Scissors className="w-12 h-12 text-[#D4AF37] mb-4 animate-bounce" />
-        <h2 className="text-xl font-bold text-white mb-2">Profil non lié</h2>
-        <p className="text-white/60 text-sm max-w-xs">Votre compte n'est pas encore lié à un profil de coiffeur. Veuillez contacter l'administrateur.</p>
-        <button onClick={logout} className="mt-6 px-6 py-2 bg-white/10 text-white rounded-lg">Déconnexion</button>
-      </div>
-    );
-  }
 
   const myBookings = bookings.filter(b => b.barberId === currentBarber?.id);
   const todayCompleted = myBookings.filter(b => b.status === 'completed' && b.date === today);
+  
+  const todayBookings = useMemo(() => {
+    return myBookings.filter(b => b.date === today && b.status !== 'rejected').sort((a, b) => a.time.localeCompare(b.time));
+  }, [myBookings, today]);
+
+  const upcomingBookings = useMemo(() => {
+    return myBookings.filter(b => b.date > today && b.status !== 'rejected').sort((a, b) => {
+      return `${a.date}T${a.time}`.localeCompare(`${b.date}T${b.time}`);
+    });
+  }, [myBookings, today]);
+
+  const historyBookings = useMemo(() => {
+    return myBookings.filter(b => b.date < today || b.status === 'rejected' || b.status === 'completed').sort((a, b) => {
+      return `${b.date}T${b.time}`.localeCompare(`${a.date}T${a.time}`);
+    });
+  }, [myBookings, today]);
   
   const commissionRate = currentBarber?.commission || 50;
   
@@ -405,6 +429,17 @@ export default function BarberDashboard() {
   };
 
   if (!user) return null;
+
+  if (!currentBarber && user?.role === 'barber') {
+    return (
+      <div className="min-h-screen bg-black flex flex-col items-center justify-center p-6 text-center">
+        <Scissors className="w-12 h-12 text-[#D4AF37] mb-4 animate-bounce" />
+        <h2 className="text-xl font-bold text-white mb-2">Profil non lié</h2>
+        <p className="text-white/60 text-sm max-w-xs">Votre compte n'est pas encore lié à un profil de coiffeur. Veuillez contacter l'administrateur.</p>
+        <button onClick={logout} className="mt-6 px-6 py-2 bg-white/10 text-white rounded-lg">Déconnexion</button>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-black pb-24">
@@ -590,41 +625,161 @@ export default function BarberDashboard() {
         )}
 
         {activeTab === 'reservations' && (
-          <div className="space-y-4">
-            <h3 className="text-xl font-bold text-white mb-4">Agenda du jour</h3>
-            {myBookings.length === 0 ? (
-              <p className="text-white/40 text-center py-8">Aucune réservation aujourd'hui.</p>
-            ) : (
-              myBookings.filter(b => b.status !== 'rejected').map(b => (
-                <div key={b.id} className="bg-[#141414] p-4 rounded-xl border border-[#D4AF37]/20">
-                  <div className="flex justify-between mb-3">
-                    <div>
-                      <p className="text-white font-bold">{b.clientName}</p>
-                      <p className="text-white/40 text-xs">{services.find(s => s.id === b.serviceId)?.name}</p>
+          <div className="space-y-6">
+            <div className="flex justify-between items-center flex-wrap gap-4">
+              <h2 className="text-2xl font-bold text-white uppercase tracking-wider">Agenda Coiffeur</h2>
+              <button
+                onClick={() => setIsManualBookingOpen(true)}
+                className="px-5 py-2.5 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black rounded-xl font-black text-xs hover:scale-105 transition-all shadow-lg shadow-[#D4AF37]/20 uppercase flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" /> Ajouter un Rendez-vous
+              </button>
+            </div>
+            
+            {/* Agenda Sub-Tabs */}
+            <div className="flex bg-[#141414] p-1 rounded-2xl border border-white/5 gap-1">
+              {[
+                { id: 'today', label: "Aujourd'hui", count: todayBookings.length },
+                { id: 'upcoming', label: "À venir", count: upcomingBookings.length },
+                { id: 'history', label: "Historique", count: historyBookings.length }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setResSubTab(tab.id as any)}
+                  className={`flex-1 py-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
+                    resSubTab === tab.id
+                      ? 'bg-[#D4AF37] text-black shadow-lg shadow-[#D4AF37]/15'
+                      : 'text-white/40 hover:text-white hover:bg-white/5'
+                  }`}
+                >
+                  {tab.label}
+                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-black ${
+                    resSubTab === tab.id ? 'bg-black/25 text-black' : 'bg-white/10 text-white/50'
+                  }`}>
+                    {tab.count}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            {/* List */}
+            <div className="space-y-4">
+              {((resSubTab === 'today' ? todayBookings : resSubTab === 'upcoming' ? upcomingBookings : historyBookings).length === 0) ? (
+                <div className="text-center py-16 bg-[#141414] rounded-2xl border border-white/5 text-white/20 italic text-sm">
+                  Aucun rendez-vous dans cette catégorie.
+                </div>
+              ) : (
+                (resSubTab === 'today' ? todayBookings : resSubTab === 'upcoming' ? upcomingBookings : historyBookings).map(b => (
+                  <div key={b.id} className="bg-[#141414] p-6 rounded-2xl border border-[#D4AF37]/20 flex flex-col gap-4 hover:border-[#D4AF37]/45 transition-all relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-[#D4AF37]/5 to-transparent rounded-full blur-xl pointer-events-none group-hover:scale-150 transition-all duration-300" />
+                    
+                    {/* Top Row: Client Name, Avatar, Time & Status */}
+                    <div className="flex justify-between items-start gap-4">
+                      <div className="flex gap-3 items-center">
+                        <div className="w-10 h-10 bg-gradient-to-br from-[#D4AF37] to-[#FFD700] rounded-xl flex items-center justify-center font-bold text-black text-base shrink-0 animate-pulse">
+                          {b.clientName ? b.clientName[0].toUpperCase() : 'C'}
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-white text-base leading-tight">{b.clientName}</h4>
+                          <p className="text-[#D4AF37] text-[10px] font-black uppercase tracking-widest mt-0.5">
+                            {services.find(s => s.id === b.serviceId)?.name || 'Service Coiffure'}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-white font-bold text-sm flex items-center gap-1 uppercase">
+                          <Clock className="w-3.5 h-3.5 text-[#D4AF37]" /> {b.time}
+                        </p>
+                        <p className="text-[10px] text-white/40 font-semibold uppercase mt-0.5">{b.date}</p>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-[#D4AF37] font-bold">{b.time}</p>
-                      <span className={`text-[10px] px-2 py-1 rounded-full ${
-                        b.status === 'completed' ? 'bg-green-500/20 text-green-400' :
-                        b.status === 'pending' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-blue-500/20 text-blue-400'
+
+                    {/* Details Panel: Contacts, Price & Barber */}
+                    <div className="grid grid-cols-2 gap-4 py-3 border-y border-white/5 text-xs">
+                      <div className="space-y-1">
+                        <p className="text-[10px] text-white/35 font-bold uppercase tracking-wider">Contact Client</p>
+                        {b.clientEmail && (
+                          <a href={`mailto:${b.clientEmail}`} className="text-white/60 hover:text-[#D4AF37] truncate font-medium lowercase block transition-colors">
+                            {b.clientEmail}
+                          </a>
+                        )}
+                        {b.clientPhone && (
+                          <a href={`tel:${b.clientPhone}`} className="text-white/60 hover:text-[#D4AF37] font-semibold block transition-colors">
+                            {b.clientPhone}
+                          </a>
+                        )}
+                      </div>
+                      <div className="space-y-1 text-right">
+                        <p className="text-[10px] text-white/35 font-bold uppercase tracking-wider">Détails Service</p>
+                        <p className="text-white/70 font-semibold">
+                          {services.find(s => s.id === b.serviceId)?.price || '€20'} • {services.find(s => s.id === b.serviceId)?.duration || '30 min'}
+                        </p>
+                        <div className="flex items-center justify-end gap-1.5 flex-wrap mt-1">
+                          {b.paymentStatus === 'paid' ? (
+                            <span className="px-2 py-0.5 rounded-lg bg-green-500/10 text-green-400 border border-green-500/20 text-[9px] font-black uppercase">Payé</span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 text-[9px] font-black uppercase">Non Payé</span>
+                          )}
+                          {b.type === 'sans-rdv' && (
+                            <span className="px-2 py-0.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[9px] font-black uppercase">Walk-in</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Notes section */}
+                    {b.notes && (
+                      <div className="px-3 py-2 bg-white/[0.02] border border-white/5 rounded-xl flex items-start gap-2">
+                        <FileText className="w-3.5 h-3.5 text-[#D4AF37] mt-0.5 shrink-0" />
+                        <p className="text-white/50 text-xs italic">{b.notes}</p>
+                      </div>
+                    )}
+
+                    {/* Actions & Status row */}
+                    <div className="flex items-center justify-between gap-3 pt-2">
+                      <span className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border shrink-0 ${
+                        b.status === 'completed' ? 'bg-green-500/10 text-green-400 border-green-500/25' :
+                        b.status === 'pending' ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/25' :
+                        b.status === 'approved' ? 'bg-blue-500/10 text-blue-400 border-blue-500/25' : 'bg-red-500/10 text-red-400 border-red-500/25'
                       }`}>
-                        {b.status.toUpperCase()}
+                        {b.status === 'pending' ? 'En Attente' : b.status === 'approved' ? 'Approuvé' : b.status === 'completed' ? 'Terminé' : 'Rejeté'}
                       </span>
-                    </div>
-                  </div>
-                  {b.status !== 'completed' && (
-                    <div className="flex gap-2">
-                      <a href={`tel:${b.clientPhone}`} className="flex-1 bg-white/5 text-white py-2 rounded-lg text-center text-xs font-bold border border-white/10 hover:bg-white/10">Appeler</a>
-                      {b.status === 'pending' ? (
-                        <button onClick={() => { updateBookingStatus(b.id, 'approved'); toast.success('Rendez-vous approuvé !'); }} className="flex-1 bg-green-500/20 text-green-400 py-2 rounded-lg text-xs font-bold border border-green-500/20 hover:bg-green-500/30">Approuver</button>
-                      ) : (
-                        <button onClick={() => setActiveBookingId(b.id)} className="flex-1 bg-[#D4AF37] text-black py-2 rounded-lg text-xs font-bold hover:bg-[#FFD700]">Terminer</button>
+
+                      {b.status !== 'completed' && b.status !== 'rejected' && (
+                        <div className="flex gap-2 justify-end grow">
+                          {b.clientPhone && b.clientPhone !== 'N/A' && (
+                            <a 
+                              href={`tel:${b.clientPhone}`} 
+                              className="px-4 py-2 bg-white/5 text-white/80 rounded-xl text-xs font-bold border border-white/10 hover:bg-white/10 transition-colors shrink-0 text-center flex items-center justify-center"
+                            >
+                              Appeler
+                            </a>
+                          )}
+                          {b.status === 'pending' ? (
+                            <button 
+                              onClick={() => { 
+                                updateBookingStatus(b.id, 'approved'); 
+                                toast.success('Rendez-vous approuvé !'); 
+                              }} 
+                              className="px-4 py-2 bg-green-500/10 text-green-400 hover:bg-green-500 hover:text-white rounded-xl text-xs font-black uppercase border border-green-500/20 transition-all"
+                            >
+                              Approuver
+                            </button>
+                          ) : (
+                            <button 
+                              onClick={() => setActiveBookingId(b.id)} 
+                              className="px-4 py-2 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black hover:scale-105 rounded-xl text-xs font-black uppercase transition-all shadow-md shadow-[#D4AF37]/10"
+                            >
+                              Terminer
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
-                  )}
-                </div>
-              ))
-            )}
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         )}
 
@@ -741,6 +896,7 @@ export default function BarberDashboard() {
         {activeBookingId && <AddServiceModal bookingId={activeBookingId} onClose={() => setActiveBookingId(null)} bookings={bookings} services={services} updateBooking={updateBooking} />}
         {addServiceOpen && <WalkInModal onClose={() => setAddServiceOpen(false)} services={services} currentBarber={currentBarber} commissionRate={commissionRate} addBooking={addBooking} />}
         {saleModalOpen && <SaleModal onClose={() => setSaleModalOpen(false)} products={products} currentBarber={currentBarber} addSale={addSale} />}
+        {isManualBookingOpen && <ManualBookingModal onClose={() => setIsManualBookingOpen(false)} preSelectedBarberId={currentBarber?.id} />}
       </Suspense>
     </div>
   );
