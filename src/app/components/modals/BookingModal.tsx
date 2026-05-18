@@ -360,6 +360,57 @@ export default function BookingModal({ onClose }: { onClose: () => void }) {
                       </button>
                     );
                   })}
+
+                  {/* Custom Date Picker Button */}
+                  {(() => {
+                    const isCustomDateSelected = !calendarDays.some(d => d.dateStr === selectedDate);
+                    return (
+                      <div style={{ position: 'relative', flexShrink: 0 }}>
+                        <label
+                          style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: 68,
+                            height: 84,
+                            borderRadius: 16,
+                            border: isCustomDateSelected ? '2px solid #D4AF37' : '1px dashed rgba(212,175,55,0.4)',
+                            background: isCustomDateSelected ? 'rgba(212,175,55,0.15)' : 'rgba(212,175,55,0.05)',
+                            color: '#D4AF37',
+                            cursor: 'pointer',
+                            transform: isCustomDateSelected ? 'scale(1.04)' : 'scale(1)',
+                            transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                            boxShadow: isCustomDateSelected ? '0 10px 15px -3px rgba(212,175,55,0.1)' : 'none',
+                          }}
+                        >
+                          <Calendar style={{ width: 24, height: 24, marginBottom: 8 }} />
+                          <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', textAlign: 'center', lineHeight: 1.2 }}>
+                            {isCustomDateSelected ? new Date(selectedDate).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' }) : 'Autre Date'}
+                          </span>
+                          <input 
+                            type="date" 
+                            min={new Date().toISOString().split('T')[0]}
+                            value={selectedDate}
+                            onChange={(e) => {
+                              if (e.target.value) {
+                                setSelectedDate(e.target.value);
+                                setSelectedTime('');
+                              }
+                            }}
+                            style={{
+                              position: 'absolute',
+                              inset: 0,
+                              opacity: 0,
+                              cursor: 'pointer',
+                              width: '100%',
+                              height: '100%',
+                            }}
+                          />
+                        </label>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
 
