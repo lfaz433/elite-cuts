@@ -32,6 +32,7 @@ import {
   AlertCircle,
   Tag,
   Upload,
+  Download,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useBusiness } from '../context/BusinessContext';
@@ -732,8 +733,61 @@ export default function AdminDashboard() {
                       {barbers.map(barber => (
                         <div key={barber.id} className="bg-[#141414] border border-white/5 p-10 rounded-[2.5rem] text-center flex flex-col items-center group">
                           <p className="font-black text-lg mb-6 uppercase tracking-tight">{barber.name}</p>
-                          <div className="bg-white p-6 rounded-[2rem] mb-6 shadow-2xl shadow-white/5 group-hover:scale-105 transition-transform"><QRCodeCanvas value={JSON.stringify({ barberId: barber.id, type: 'check-in' })} size={180} /></div>
-                          <p className="text-[10px] text-white/30 uppercase font-black tracking-[0.2em]">Scanner pour pointer</p>
+                          <div className="bg-white p-6 rounded-[2rem] mb-6 shadow-2xl shadow-white/5 group-hover:scale-105 transition-transform"><QRCodeCanvas id={`qr-${barber.id}`} value={JSON.stringify({ barberId: barber.id, type: 'check-in' })} size={180} /></div>
+                          <p className="text-[10px] text-white/30 uppercase font-black tracking-[0.2em] mb-6">Scanner pour pointer</p>
+                          <button 
+                            onClick={() => {
+                              const canvas = document.getElementById(`qr-${barber.id}`) as HTMLCanvasElement;
+                              if (!canvas) return;
+                              const brandedCanvas = document.createElement('canvas');
+                              const ctx = brandedCanvas.getContext('2d');
+                              if (!ctx) return;
+                              
+                              brandedCanvas.width = 300;
+                              brandedCanvas.height = 400;
+                              
+                              // Background
+                              ctx.fillStyle = '#141414';
+                              ctx.fillRect(0, 0, 300, 400);
+                              
+                              // Outer Gold Border
+                              ctx.strokeStyle = 'rgba(212, 175, 55, 0.2)';
+                              ctx.lineWidth = 4;
+                              ctx.strokeRect(10, 10, 280, 380);
+
+                              // White box for QR code
+                              ctx.fillStyle = '#FFFFFF';
+                              ctx.fillRect(40, 110, 220, 220);
+                              
+                              // Draw QR Code inside the white box
+                              ctx.drawImage(canvas, 60, 130, 180, 180);
+                              
+                              // Barber Name
+                              ctx.fillStyle = '#FFFFFF';
+                              ctx.textAlign = 'center';
+                              ctx.font = '900 24px Arial, sans-serif';
+                              ctx.fillText(barber.name.toUpperCase(), 150, 60);
+                              
+                              // Subtitle
+                              ctx.fillStyle = '#D4AF37';
+                              ctx.font = '700 12px Arial, sans-serif';
+                              ctx.fillText('SCANNER POUR POINTER', 150, 85);
+                              
+                              // Footer
+                              ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+                              ctx.font = '500 10px Arial, sans-serif';
+                              ctx.fillText(`© ${businessInfo.name || 'ELITE CUTS'}`, 150, 365);
+                              
+                              const link = document.createElement('a');
+                              link.download = `QR_Pointage_${barber.name.replace(/\s+/g, '_')}.png`;
+                              link.href = brandedCanvas.toDataURL('image/png');
+                              link.click();
+                            }}
+                            className="flex items-center gap-2 px-6 py-3 bg-white/5 hover:bg-[#D4AF37] text-white hover:text-black border border-white/10 hover:border-[#D4AF37] rounded-xl font-bold text-sm transition-all shadow-lg hover:shadow-[#D4AF37]/20"
+                          >
+                            <Download className="w-4 h-4" />
+                            Télécharger
+                          </button>
                         </div>
                       ))}
                     </div>
