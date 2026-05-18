@@ -834,13 +834,25 @@ export default function AdminDashboard() {
                           </div>
                         </div>
 
-                        <div className="pt-2">
-                          <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Intégration Google Maps (Iframe URL)</label>
-                          <div className="flex gap-2">
-                             <div className="bg-white/5 p-3 rounded-xl border border-white/10 flex items-center justify-center w-11"><MapPin className="w-5 h-5 text-red-500" /></div>
-                             <input defaultValue={businessInfo.mapUrl} onBlur={(e) => updateBusinessInfo({ mapUrl: e.target.value })} className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold text-xs" placeholder="URL d'intégration Iframe Google Maps" />
+                        <div className="pt-2 space-y-4">
+                          <h4 className="text-xs font-black uppercase text-[#D4AF37] tracking-wider mb-2 border-t border-white/5 pt-4">Carte Interactive (Coordonnées)</h4>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Latitude</label>
+                              <div className="flex gap-2">
+                                <div className="bg-white/5 p-3 rounded-xl border border-white/10 flex items-center justify-center w-11"><MapPin className="w-5 h-5 text-[#D4AF37]" /></div>
+                                <input type="number" step="any" defaultValue={businessInfo.latitude || 48.8566} onBlur={(e) => updateBusinessInfo({ latitude: parseFloat(e.target.value) })} className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold text-xs" placeholder="Ex: 48.8566" />
+                              </div>
+                            </div>
+                            <div>
+                              <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Longitude</label>
+                              <div className="flex gap-2">
+                                <div className="bg-white/5 p-3 rounded-xl border border-white/10 flex items-center justify-center w-11"><MapPin className="w-5 h-5 text-[#D4AF37]" /></div>
+                                <input type="number" step="any" defaultValue={businessInfo.longitude || 2.3522} onBlur={(e) => updateBusinessInfo({ longitude: parseFloat(e.target.value) })} className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold text-xs" placeholder="Ex: 2.3522" />
+                              </div>
+                            </div>
                           </div>
-                          <p className="text-[9px] text-white/20 mt-1 italic">Entrez l'attribut `src` de l'iframe généré par Google Maps Share.</p>
+                          <p className="text-[9px] text-white/20 mt-1 italic">Entrez les coordonnées exactes pour la carte interactive premium.</p>
                         </div>
                       </div>
                     </div>

@@ -6,6 +6,7 @@ import { useBusiness } from '../context/BusinessContext';
 import { useNavigate } from 'react-router';
 import LoginModal from '../modals/LoginModal';
 import BookingModal from '../modals/BookingModal';
+import MapComponent from '../ui/MapComponent';
 
 const STAT_ICONS: Record<string, any> = {
   experience: Award,
@@ -385,15 +386,12 @@ export default function LandingPage() {
                 ))}
               </div>
             </motion.div>
-            <motion.div initial={{ opacity: 0, x: 20 }} whileInView={{ opacity: 1, x: 0 }} viewport={{ once: true }} className="relative rounded-3xl overflow-hidden border border-[#D4AF37]/20 h-[450px] shadow-2xl shadow-[#D4AF37]/5">
-              <div className="w-full h-full bg-gradient-to-br from-[#141414] to-[#1a1a1a] flex items-center justify-center">
-                <div className="text-center">
-                  <div className="w-20 h-20 bg-[#D4AF37]/10 rounded-full flex items-center justify-center mx-auto mb-6 border border-[#D4AF37]/20">
-                    <MapPin className="w-10 h-10 text-[#D4AF37]" />
-                  </div>
-                  <p className="text-white/40 font-medium">Carte Interactive Elite Cuts</p>
-                </div>
-              </div>
+            <motion.div initial={{ opacity: 0, x: 20 }} whileInView={{ opacity: 1, x: 0 }} viewport={{ once: true }} className="relative h-[450px]">
+              <MapComponent 
+                latitude={businessInfo.latitude || 48.8566} 
+                longitude={businessInfo.longitude || 2.3522} 
+                address={businessInfo.address || 'Paris, France'}
+              />
             </motion.div>
           </div>
         </div>
