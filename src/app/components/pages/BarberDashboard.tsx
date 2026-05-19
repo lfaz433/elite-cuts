@@ -708,6 +708,7 @@ export default function BarberDashboard() {
                   barbers={[currentBarber]} 
                   services={services} 
                   attendance={attendance.filter(a => a.barberId === currentBarber.id)} 
+                  isBarberView={true}
                 />
               )}
             </Suspense>

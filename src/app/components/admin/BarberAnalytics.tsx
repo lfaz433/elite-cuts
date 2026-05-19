@@ -31,6 +31,7 @@ interface Props {
   barbers: Barber[];
   services: Service[];
   attendance: Attendance[];
+  isBarberView?: boolean;
 }
 
 const GOLD_COLORS = ['#D4AF37', '#FFD700', '#B8960C', '#F5E050', '#C8A415', '#EAC730', '#A0830A'];
@@ -71,7 +72,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   return null;
 };
 
-export function BarberAnalytics({ bookings, barbers, services, attendance }: Props) {
+export function BarberAnalytics({ bookings, barbers, services, attendance, isBarberView }: Props) {
   const [periodFilter, setPeriodFilter] = useState<'day' | 'week' | 'month' | 'custom'>('month');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
@@ -94,7 +95,14 @@ export function BarberAnalytics({ bookings, barbers, services, attendance }: Pro
 
   // ── Global KPIs ─────────────────────────────────────────────────────────────
   const kpis = useMemo(() => {
-    const revenue = filtered.reduce((s, b) => s + (b.pricePaid || 0), 0);
+    const calculateValue = (b: Booking) => {
+      if (!isBarberView) return b.pricePaid || 0;
+      const barber = barbers.find(bb => bb.id === b.barberId);
+      const commissionRate = barber?.commission ?? 50;
+      return (b.pricePaid || 0) * (commissionRate / 100);
+    };
+
+    const revenue = filtered.reduce((s, b) => s + calculateValue(b), 0);
     const tips    = filtered.reduce((s, b) => s + (b.tip || 0), 0);
     const avecRdv = filtered.filter(b => b.type !== 'sans-rdv').length;
     const sansRdv = filtered.filter(b => b.type === 'sans-rdv').length;
@@ -108,20 +116,20 @@ export function BarberAnalytics({ bookings, barbers, services, attendance }: Pro
     const monthAgoStart = (() => { const d = new Date(); d.setDate(d.getDate() - 60); return d.toISOString().split('T')[0]; })();
     const monthAgoEnd   = (() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().split('T')[0]; })();
     const prevMonthBookings = bookings.filter(b => b.date >= monthAgoStart && b.date <= monthAgoEnd && (b.status === 'completed' || b.status === 'approved'));
-    const prevRev = prevMonthBookings.reduce((s, b) => s + (b.pricePaid || 0), 0);
+    const prevRev = prevMonthBookings.reduce((s, b) => s + calculateValue(b), 0);
     const revTrend = prevRev > 0 ? ((revenue - prevRev) / prevRev) * 100 : 0;
 
     const cashBookings = filtered.filter(b => b.paymentMethod === 'cash');
     const cardBookings = filtered.filter(b => b.paymentMethod === 'card');
-    const cashTotal = cashBookings.reduce((s, b) => s + (b.pricePaid || 0), 0);
-    const cardTotal = cardBookings.reduce((s, b) => s + (b.pricePaid || 0), 0);
+    const cashTotal = cashBookings.reduce((s, b) => s + calculateValue(b), 0);
+    const cardTotal = cardBookings.reduce((s, b) => s + calculateValue(b), 0);
 
     return { 
       revenue, tips, total: revenue + tips, avecRdv, sansRdv, count: filtered.length, avgDuration, revTrend,
       cashTotal, cashCount: cashBookings.length,
       cardTotal, cardCount: cardBookings.length
     };
-  }, [filtered, bookings, services]);
+  }, [filtered, bookings, services, isBarberView, barbers]);
 
   // ── Per-barber analytics ────────────────────────────────────────────────────
   const barberStats = useMemo(() =>
