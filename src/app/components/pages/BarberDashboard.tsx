@@ -947,6 +947,37 @@ export default function BarberDashboard() {
         {activeTab === 'horaires' && (
           <div className="space-y-6">
             <h3 className="text-xl font-bold text-white mb-4">Mes Horaires</h3>
+
+            {/* Status Toggle */}
+            <div className="bg-[#141414] p-6 rounded-xl border border-white/10 space-y-2">
+              <label className="block text-white font-bold mb-1">Statut Actuel</label>
+              <p className="text-white/40 text-xs mb-4">Modifiez votre disponibilité en temps réel (visible par les clients).</p>
+              
+              <div className="flex bg-white/5 p-1 rounded-xl w-full">
+                {[
+                  { id: 'available', label: 'Actif', color: 'bg-green-500 text-white shadow-[0_0_15px_rgba(34,197,94,0.3)]', icon: CheckCircle },
+                  { id: 'break', label: 'En Pause', color: 'bg-amber-500 text-white shadow-[0_0_15px_rgba(245,158,11,0.3)]', icon: Clock },
+                  { id: 'offline', label: 'Inactif', color: 'bg-red-500 text-white shadow-[0_0_15px_rgba(239,68,68,0.3)]', icon: X }
+                ].map(status => {
+                  const isActive = (currentBarber?.status || 'available') === status.id;
+                  return (
+                    <button
+                      key={status.id}
+                      onClick={() => {
+                        updateBarberStatus(currentBarber.id, status.id as any);
+                        toast.success(`Statut mis à jour: ${status.label}`);
+                      }}
+                      className={`flex-1 flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-3 rounded-lg text-xs sm:text-sm font-bold transition-all ${
+                        isActive ? status.color : 'text-white/40 hover:bg-white/10 hover:text-white'
+                      }`}
+                    >
+                      <status.icon className="w-4 h-4" /> {status.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             <div className="bg-[#141414] p-6 rounded-xl border border-white/10 space-y-6">
               
               <div>
