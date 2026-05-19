@@ -33,6 +33,7 @@ const SettlementModal = lazy(() => import('../modals/SettlementModal'));
 const ManualBookingModal = lazy(() => import('../modals/ManualBookingModal'));
 const SaleModal = lazy(() => import('../modals/SaleModal').then(m => ({ default: m.SaleModal })));
 const POSSaleModal = lazy(() => import('../modals/POSSaleModal').then(m => ({ default: m.POSSaleModal })));
+const BarberAnalytics = lazy(() => import('../admin/BarberAnalytics').then(m => ({ default: m.BarberAnalytics })));
 
 // --- Sub-components ---
 
@@ -697,6 +698,22 @@ export default function BarberDashboard() {
           </div>
         )}
 
+        {activeTab === 'rapports' && (
+          <div className="space-y-6">
+            <h2 className="text-2xl font-bold text-white mb-6 uppercase tracking-wider">Mes Rapports & Analyses</h2>
+            <Suspense fallback={<div className="h-40 flex items-center justify-center text-white/40">Chargement des rapports...</div>}>
+              {currentBarber && (
+                <BarberAnalytics 
+                  bookings={bookings.filter(b => b.barberId === currentBarber.id)} 
+                  barbers={[currentBarber]} 
+                  services={services} 
+                  attendance={attendance.filter(a => a.barberId === currentBarber.id)} 
+                />
+              )}
+            </Suspense>
+          </div>
+        )}
+
         {activeTab === 'reservations' && (
           <div className="space-y-6">
             <div className="flex justify-between items-center flex-wrap gap-4">
@@ -1050,11 +1067,12 @@ export default function BarberDashboard() {
         )}
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 bg-[#0f0f0f] border-t border-white/5 flex z-40">
-        <button onClick={() => setActiveTab('dashboard')} className={`flex-1 p-3 flex flex-col items-center gap-1 ${activeTab === 'dashboard' ? 'text-[#D4AF37]' : 'text-white/20'} hover:text-[#D4AF37] transition-colors`}><BarChart3 className="w-5 h-5" /><span className="text-[10px] font-bold">Gains</span></button>
-        <button onClick={() => setActiveTab('reservations')} className={`flex-1 p-3 flex flex-col items-center gap-1 relative ${activeTab === 'reservations' ? 'text-[#D4AF37]' : 'text-white/20'} hover:text-[#D4AF37] transition-colors`}><Calendar className="w-5 h-5" /><span className="text-[10px] font-bold">Agenda</span>{hasUnreadBookings && <div className="absolute top-2 right-[30%] w-2 h-2 bg-red-500 rounded-full animate-pulse" />}</button>
-        <button onClick={() => setActiveTab('boutique')} className={`flex-1 p-3 flex flex-col items-center gap-1 ${activeTab === 'boutique' ? 'text-[#D4AF37]' : 'text-white/20'} hover:text-[#D4AF37] transition-colors`}><ShoppingBag className="w-5 h-5" /><span className="text-[10px] font-bold">Boutique</span></button>
-        <button onClick={() => setActiveTab('horaires')} className={`flex-1 p-3 flex flex-col items-center gap-1 ${activeTab === 'horaires' ? 'text-[#D4AF37]' : 'text-white/20'} hover:text-[#D4AF37] transition-colors`}><Clock className="w-5 h-5" /><span className="text-[10px] font-bold">Horaires</span></button>
+      <div className="fixed bottom-0 left-0 right-0 bg-[#0f0f0f] border-t border-white/5 flex z-40 overflow-x-auto pb-safe">
+        <button onClick={() => setActiveTab('dashboard')} className={`min-w-[70px] flex-1 p-3 flex flex-col items-center gap-1 ${activeTab === 'dashboard' ? 'text-[#D4AF37]' : 'text-white/20'} hover:text-[#D4AF37] transition-colors`}><BarChart3 className="w-5 h-5" /><span className="text-[10px] font-bold">Gains</span></button>
+        <button onClick={() => setActiveTab('rapports')} className={`min-w-[70px] flex-1 p-3 flex flex-col items-center gap-1 ${activeTab === 'rapports' ? 'text-[#D4AF37]' : 'text-white/20'} hover:text-[#D4AF37] transition-colors`}><TrendingUp className="w-5 h-5" /><span className="text-[10px] font-bold">Rapports</span></button>
+        <button onClick={() => setActiveTab('reservations')} className={`min-w-[70px] flex-1 p-3 flex flex-col items-center gap-1 relative ${activeTab === 'reservations' ? 'text-[#D4AF37]' : 'text-white/20'} hover:text-[#D4AF37] transition-colors`}><Calendar className="w-5 h-5" /><span className="text-[10px] font-bold">Agenda</span>{hasUnreadBookings && <div className="absolute top-2 right-[30%] w-2 h-2 bg-red-500 rounded-full animate-pulse" />}</button>
+        <button onClick={() => setActiveTab('boutique')} className={`min-w-[70px] flex-1 p-3 flex flex-col items-center gap-1 ${activeTab === 'boutique' ? 'text-[#D4AF37]' : 'text-white/20'} hover:text-[#D4AF37] transition-colors`}><ShoppingBag className="w-5 h-5" /><span className="text-[10px] font-bold">Boutique</span></button>
+        <button onClick={() => setActiveTab('horaires')} className={`min-w-[70px] flex-1 p-3 flex flex-col items-center gap-1 ${activeTab === 'horaires' ? 'text-[#D4AF37]' : 'text-white/20'} hover:text-[#D4AF37] transition-colors`}><Clock className="w-5 h-5" /><span className="text-[10px] font-bold">Horaires</span></button>
       </div>
 
       {/* Rejection Confirmation Modal */}
