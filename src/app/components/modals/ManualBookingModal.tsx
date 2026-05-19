@@ -48,7 +48,7 @@ export default function ManualBookingModal({ onClose, preSelectedBarberId }: Man
       return;
     }
 
-    if (formData.type === 'avec-rdv' && !formData.time) {
+    if (!formData.time) {
       toast.error("Aucun créneau horaire sélectionné ou disponible.");
       return;
     }
@@ -65,7 +65,7 @@ export default function ManualBookingModal({ onClose, preSelectedBarberId }: Man
         serviceId: formData.serviceId,
         barberId: formData.barberId,
         date: formData.date,
-        time: formData.type === 'sans-rdv' ? new Date().toTimeString().split(' ')[0].substring(0, 5) : formData.time,
+        time: formData.time,
         status: 'approved' as const, // Manually added bookings are auto-approved
         notes: formData.notes,
         type: formData.type,
@@ -108,31 +108,7 @@ export default function ManualBookingModal({ onClose, preSelectedBarberId }: Man
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Appointment Type Toggle */}
-            <div className="grid grid-cols-2 gap-4">
-              <button
-                type="button"
-                onClick={() => setFormData(prev => ({ ...prev, type: 'avec-rdv' }))}
-                className={`py-3 rounded-xl border text-sm font-black transition-all ${
-                  formData.type === 'avec-rdv'
-                    ? 'bg-[#D4AF37] text-black border-[#D4AF37]'
-                    : 'bg-white/5 border-white/10 text-white hover:bg-white/10'
-                }`}
-              >
-                Avec Rendez-vous
-              </button>
-              <button
-                type="button"
-                onClick={() => setFormData(prev => ({ ...prev, type: 'sans-rdv' }))}
-                className={`py-3 rounded-xl border text-sm font-black transition-all ${
-                  formData.type === 'sans-rdv'
-                    ? 'bg-[#D4AF37] text-black border-[#D4AF37]'
-                    : 'bg-white/5 border-white/10 text-white hover:bg-white/10'
-                }`}
-              >
-                Sans RDV (Walk-in)
-              </button>
-            </div>
+
 
             {/* Client Info Grid */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -211,9 +187,8 @@ export default function ManualBookingModal({ onClose, preSelectedBarberId }: Man
               </div>
             </div>
 
-            {/* Scheduling (Only for standard appointment) */}
-            {formData.type === 'avec-rdv' && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-white/[0.02] border border-white/5 p-4 rounded-2xl">
+            {/* Scheduling */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-white/[0.02] border border-white/5 p-4 rounded-2xl">
                 <div>
                   <label className="block text-white/60 text-xs mb-1.5 font-bold uppercase tracking-wider">Date</label>
                   <input
@@ -248,8 +223,7 @@ export default function ManualBookingModal({ onClose, preSelectedBarberId }: Man
                     )}
                   </select>
                 </div>
-              </div>
-            )}
+            </div>
 
             {/* Financial Details */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-white/5 pt-4">
