@@ -27,12 +27,12 @@ import { Html5Qrcode } from 'html5-qrcode';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import NotificationCenter from '../ui/NotificationCenter';
 import NotificationPermissionModal from '../modals/NotificationPermissionModal';
-
 // Lazy load heavy components
 const ScannerModal = lazy(() => import('../modals/ScannerModal'));
 const SettlementModal = lazy(() => import('../modals/SettlementModal'));
 const ManualBookingModal = lazy(() => import('../modals/ManualBookingModal'));
 const SaleModal = lazy(() => import('../modals/SaleModal').then(m => ({ default: m.SaleModal })));
+const POSSaleModal = lazy(() => import('../modals/POSSaleModal').then(m => ({ default: m.POSSaleModal })));
 
 // --- Sub-components ---
 
@@ -320,6 +320,7 @@ export default function BarberDashboard() {
   const [settlementModalOpen, setSettlementModalOpen] = useState(false);
   const [addServiceOpen, setAddServiceOpen] = useState(false);
   const [saleModalOpen, setSaleModalOpen] = useState(false);
+  const [posProduct, setPosProduct] = useState<any>(null);
   const [isManualBookingOpen, setIsManualBookingOpen] = useState(false);
   const [highlightedIds, setHighlightedIds] = useState<Set<string>>(new Set());
   const [bookingToReject, setBookingToReject] = useState<string | null>(null);
@@ -873,28 +874,74 @@ export default function BarberDashboard() {
         )}
 
         {activeTab === 'boutique' && (
-          <div className="space-y-6">
-            <h3 className="text-xl font-bold text-white mb-4">Vente de Produits</h3>
-            <div className="grid grid-cols-2 gap-4">
-              {products.map(product => (
-                <div key={product.id} className="bg-[#141414] rounded-xl border border-white/10 overflow-hidden hover:border-[#D4AF37]/50 transition-all">
-                  <div className="h-24 bg-white/5 flex items-center justify-center p-2">
-                    <img src={product.image} className="max-h-full object-contain" onError={(e) => { (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1599305090598-fe179d501227?w=150&h=150&fit=crop'; }} />
-                  </div>
-                  <div className="p-3">
-                    <p className="text-white text-sm font-bold truncate">{product.name}</p>
-                    <p className="text-white/40 text-[10px] mb-2">{product.category || 'Général'}</p>
-                    <div className="flex justify-between items-center">
-                      <p className="text-[#D4AF37] font-bold">€{product.sellPrice}</p>
-                      <button onClick={() => setSaleModalOpen(true)} className="w-8 h-8 flex items-center justify-center bg-white/5 rounded-lg text-white hover:bg-[#D4AF37] hover:text-black transition-colors">
-                        <Plus className="w-4 h-4" />
-                      </button>
+          <motion.div key="boutique" className="space-y-8">
+            <h2 className="text-3xl font-black uppercase">Vente de Produits</h2>
+
+            {/* Low stock banner */}
+            {products.filter(p => p.trackStock !== false && (p.stock ?? 0) <= (p.lowStockThreshold ?? 3)).length > 0 && (
+              <div className="bg-amber-500/5 border border-amber-500/20 p-4 rounded-2xl flex items-center gap-3">
+                <AlertCircle className="w-5 h-5 text-amber-400 shrink-0" />
+                <p className="text-amber-400 text-sm font-bold">
+                  {products.filter(p => p.trackStock !== false && (p.stock ?? 0) <= (p.lowStockThreshold ?? 3)).length} produit(s) en stock faible ou épuisé
+                </p>
+              </div>
+            )}
+
+            {/* Products grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4">
+              {products.map(product => {
+                const isOut = (product.stock ?? 1) === 0;
+                const isLow = !isOut && (product.stock ?? 99) <= (product.lowStockThreshold ?? 3);
+                return (
+                  <div
+                    key={product.id}
+                    className={`relative bg-[#141414] border rounded-2xl overflow-hidden group transition-all ${
+                      isOut ? 'border-red-500/20 opacity-70' : isLow ? 'border-amber-500/20' : 'border-white/5 hover:border-[#D4AF37]/30'
+                    }`}
+                  >
+                    <div className="relative aspect-square bg-white/[0.03]">
+                      <img
+                        src={product.image || 'https://images.unsplash.com/photo-1599305090598-fe179d501227?w=300&h=300&fit=crop'}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                        onError={e => { (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1599305090598-fe179d501227?w=300&h=300&fit=crop'; }}
+                      />
+                      {isOut && (
+                        <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+                          <span className="px-2 py-1 bg-red-500/90 text-white text-[9px] font-black uppercase rounded-lg">Épuisé</span>
+                        </div>
+                      )}
+                      {isLow && !isOut && (
+                        <span className="absolute top-2 left-2 px-2 py-1 bg-amber-500/90 text-white text-[9px] font-black uppercase rounded-lg">{product.stock} restant{(product.stock ?? 0) > 1 ? 's' : ''}</span>
+                      )}
+                      {product.promoPrice && (
+                        <span className="absolute top-2 right-2 px-2 py-1 bg-[#D4AF37] text-black text-[9px] font-black uppercase rounded-lg">PROMO</span>
+                      )}
+                    </div>
+                    <div className="p-3 space-y-1">
+                      {product.category && <p className="text-[9px] text-white/30 font-black uppercase tracking-wider">{product.category}</p>}
+                      <p className="text-white font-bold text-sm truncate">{product.name}</p>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="text-[#D4AF37] font-black text-sm">€{(product.promoPrice ?? product.sellPrice).toFixed(2)}</span>
+                          {product.promoPrice && <span className="text-white/25 line-through text-xs ml-1">€{product.sellPrice.toFixed(2)}</span>}
+                        </div>
+                        <span className="text-white/25 text-[10px]">Stock: {product.stock ?? '∞'}</span>
+                      </div>
+                      <div className="flex gap-1.5 pt-1">
+                        <button
+                          onClick={() => setPosProduct(product)}
+                          disabled={isOut}
+                          className="flex-1 py-2 bg-[#D4AF37]/10 text-[#D4AF37] hover:bg-[#D4AF37] hover:text-black border border-[#D4AF37]/20 rounded-xl text-[10px] font-black transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          Vendre
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
-          </div>
+          </motion.div>
         )}
 
         {activeTab === 'horaires' && (
@@ -1029,6 +1076,15 @@ export default function BarberDashboard() {
         {activeBookingId && <AddServiceModal bookingId={activeBookingId} onClose={() => setActiveBookingId(null)} bookings={bookings} services={services} updateBooking={updateBooking} />}
         {addServiceOpen && <WalkInModal onClose={() => setAddServiceOpen(false)} services={services} currentBarber={currentBarber} commissionRate={commissionRate} addBooking={addBooking} />}
         {saleModalOpen && <SaleModal onClose={() => setSaleModalOpen(false)} products={products} currentBarber={currentBarber} addSale={addSale} />}
+        {posProduct && (
+          <POSSaleModal
+            product={posProduct}
+            onClose={() => setPosProduct(null)}
+            onSaleComplete={() => {
+              setPosProduct(null);
+            }}
+          />
+        )}
         {isManualBookingOpen && <ManualBookingModal onClose={() => setIsManualBookingOpen(false)} preSelectedBarberId={currentBarber?.id} />}
       </Suspense>
     </div>

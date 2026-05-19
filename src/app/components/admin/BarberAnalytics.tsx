@@ -111,7 +111,16 @@ export function BarberAnalytics({ bookings, barbers, services, attendance }: Pro
     const prevRev = prevMonthBookings.reduce((s, b) => s + (b.pricePaid || 0), 0);
     const revTrend = prevRev > 0 ? ((revenue - prevRev) / prevRev) * 100 : 0;
 
-    return { revenue, tips, total: revenue + tips, avecRdv, sansRdv, count: filtered.length, avgDuration, revTrend };
+    const cashBookings = filtered.filter(b => b.paymentMethod === 'cash');
+    const cardBookings = filtered.filter(b => b.paymentMethod === 'card');
+    const cashTotal = cashBookings.reduce((s, b) => s + (b.pricePaid || 0), 0);
+    const cardTotal = cardBookings.reduce((s, b) => s + (b.pricePaid || 0), 0);
+
+    return { 
+      revenue, tips, total: revenue + tips, avecRdv, sansRdv, count: filtered.length, avgDuration, revTrend,
+      cashTotal, cashCount: cashBookings.length,
+      cardTotal, cardCount: cardBookings.length
+    };
   }, [filtered, bookings, services]);
 
   // ── Per-barber analytics ────────────────────────────────────────────────────
@@ -232,8 +241,8 @@ export function BarberAnalytics({ bookings, barbers, services, attendance }: Pro
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Chiffre d'Affaires" value={`€${kpis.revenue.toFixed(0)}`} sub={`+€${kpis.tips.toFixed(0)} pourboires`} icon={DollarSign} color="text-green-400" bg="bg-green-500/10" trend={kpis.revTrend} />
         <StatCard label="Services Réalisés" value={kpis.count} sub={`${kpis.avecRdv} RDV · ${kpis.sansRdv} Walk-in`} icon={Scissors} color="text-[#D4AF37]" bg="bg-[#D4AF37]/10" />
-        <StatCard label="Total Pourboires" value={`€${kpis.tips.toFixed(0)}`} sub="Collectés par les coiffeurs" icon={Wallet} color="text-amber-400" bg="bg-amber-500/10" />
-        <StatCard label="Durée Moy. Service" value={`${Math.round(kpis.avgDuration)} min`} sub="Temps moyen par prestation" icon={Clock} color="text-blue-400" bg="bg-blue-500/10" />
+        <StatCard label="Total Espèces" value={`€${kpis.cashTotal.toFixed(0)}`} sub={`${kpis.cashCount} paiements en caisse`} icon={Wallet} color="text-amber-400" bg="bg-amber-500/10" />
+        <StatCard label="Total Carte" value={`€${kpis.cardTotal.toFixed(0)}`} sub={`${kpis.cardCount} paiements par TPE`} icon={CreditCard} color="text-blue-400" bg="bg-blue-500/10" />
       </div>
 
       {/* ── Champion & Top Service ── */}
