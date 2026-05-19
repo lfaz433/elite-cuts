@@ -245,27 +245,18 @@ export function BarberAnalytics({ bookings, barbers, services, attendance }: Pro
         <StatCard label="Total Carte" value={`€${kpis.cardTotal.toFixed(0)}`} sub={`${kpis.cardCount} paiements par TPE`} icon={CreditCard} color="text-blue-400" bg="bg-blue-500/10" />
       </div>
 
-      {/* ── Champion & Top Service ── */}
+      {/* ── Top Service & Pourboires ── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {topBarber && (
-          <div className="bg-gradient-to-br from-[#D4AF37]/10 to-[#D4AF37]/5 border border-[#D4AF37]/25 p-6 rounded-3xl flex items-center gap-5">
-            <div className="relative shrink-0">
-              <img
-                src={topBarber.image || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&h=100&fit=crop'}
-                className="w-16 h-16 rounded-2xl object-cover border-2 border-[#D4AF37]/50"
-                onError={(e) => { (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&h=100&fit=crop'; }}
-              />
-              <div className="absolute -top-2 -right-2 w-7 h-7 bg-[#D4AF37] rounded-full flex items-center justify-center">
-                <Trophy className="w-4 h-4 text-black" />
-              </div>
-            </div>
-            <div>
-              <p className="text-[10px] text-[#D4AF37] font-black uppercase tracking-widest mb-1">🏆 Meilleur Performeur</p>
-              <p className="text-xl font-black text-white">{topBarber.name}</p>
-              <p className="text-sm text-white/50">€{topBarber.revenue.toFixed(0)} · {topBarber.count} services</p>
-            </div>
+        <div className="bg-gradient-to-br from-[#141414] to-black border border-white/5 p-6 rounded-3xl flex items-center gap-5">
+          <div className="w-16 h-16 bg-amber-500/10 rounded-2xl flex items-center justify-center shrink-0">
+            <Wallet className="w-8 h-8 text-amber-500" />
           </div>
-        )}
+          <div>
+            <p className="text-[10px] text-white/40 font-black uppercase tracking-widest mb-1">Total Pourboires</p>
+            <p className="text-2xl font-black text-amber-400">€{kpis.tips.toFixed(2)}</p>
+            <p className="text-sm text-white/50">Collectés sur la période</p>
+          </div>
+        </div>
         {topService && (
           <div className="bg-[#141414] border border-white/5 p-6 rounded-3xl flex items-center gap-5">
             <div className="w-16 h-16 bg-[#D4AF37]/10 rounded-2xl flex items-center justify-center shrink-0">
@@ -297,58 +288,69 @@ export function BarberAnalytics({ bookings, barbers, services, attendance }: Pro
         </ResponsiveContainer>
       </div>
 
-      {/* ── Per-Barber Stats Table ── */}
+      {/* ── Historique des Services ── */}
       <div className="bg-[#141414] border border-white/5 rounded-3xl overflow-hidden">
         <div className="px-6 py-5 border-b border-white/5 flex items-center gap-3">
-          <Users className="w-5 h-5 text-[#D4AF37]" />
-          <h3 className="text-lg font-bold">Performance par Coiffeur</h3>
+          <Calendar className="w-5 h-5 text-[#D4AF37]" />
+          <h3 className="text-lg font-bold">Historique des Services</h3>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
               <tr className="bg-white/[0.02] text-white/30 text-[10px] uppercase tracking-widest border-b border-white/5">
+                <th className="px-6 py-4">Date / Heure</th>
                 <th className="px-6 py-4">Coiffeur</th>
-                <th className="px-6 py-4">Services</th>
-                <th className="px-6 py-4">Avec RDV</th>
-                <th className="px-6 py-4">Walk-in</th>
-                <th className="px-6 py-4">Revenus Bruts</th>
-                <th className="px-6 py-4">Part Coiffeur</th>
-                <th className="px-6 py-4">Pourboires</th>
-                <th className="px-6 py-4">Présences</th>
+                <th className="px-6 py-4">Client</th>
+                <th className="px-6 py-4">Service</th>
+                <th className="px-6 py-4">Prix</th>
+                <th className="px-6 py-4">Pourboire</th>
+                <th className="px-6 py-4">Paiement</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/[0.04]">
-              {barberStats.map((b, i) => (
-                <tr key={b.id} className="hover:bg-white/[0.02] transition-colors">
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      {i === 0 && <Trophy className="w-4 h-4 text-[#D4AF37] shrink-0" />}
-                      <img
-                        src={b.image || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=60&h=60&fit=crop'}
-                        className="w-8 h-8 rounded-xl object-cover"
-                        onError={(e) => { (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=60&h=60&fit=crop'; }}
-                      />
-                      <span className="font-bold text-sm text-white">{b.name}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 font-black text-white">{b.count}</td>
-                  <td className="px-6 py-4">
-                    <span className="px-2 py-1 bg-blue-500/10 text-blue-400 rounded-lg text-[10px] font-black">{b.avecRdv}</span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="px-2 py-1 bg-amber-500/10 text-amber-400 rounded-lg text-[10px] font-black">{b.sansRdv}</span>
-                  </td>
-                  <td className="px-6 py-4 font-bold text-[#D4AF37]">€{b.revenue.toFixed(2)}</td>
-                  <td className="px-6 py-4 font-bold text-green-400">€{b.barberShare.toFixed(2)}</td>
-                  <td className="px-6 py-4 font-bold text-amber-400">€{b.tips.toFixed(2)}</td>
-                  <td className="px-6 py-4">
-                    <span className="text-white/60 font-bold">{b.attendCount}j</span>
-                  </td>
-                </tr>
-              ))}
-              {barberStats.length === 0 && (
+              {[...filtered]
+                .sort((a, b) => `${b.date}T${b.time}`.localeCompare(`${a.date}T${a.time}`))
+                .slice(0, 100)
+                .map((b) => {
+                  const barber = barbers.find(bb => bb.id === b.barberId);
+                  const service = services.find(s => s.id === b.serviceId);
+                  const clientName = b.clientName || 'Walk-in';
+                  
+                  return (
+                    <tr key={b.id} className="hover:bg-white/[0.02] transition-colors">
+                      <td className="px-6 py-4">
+                        <p className="text-white font-bold text-sm">{b.date}</p>
+                        <p className="text-white/40 text-xs">{b.time}</p>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2">
+                          <img
+                            src={barber?.image || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=60&h=60&fit=crop'}
+                            className="w-6 h-6 rounded-full object-cover"
+                            onError={(e) => { (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=60&h=60&fit=crop'; }}
+                          />
+                          <span className="text-white/80 text-sm font-medium">{barber?.name || 'Inconnu'}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-white font-medium">{clientName}</td>
+                      <td className="px-6 py-4 text-sm text-white/80">{service?.name || 'Service Personnalisé'}</td>
+                      <td className="px-6 py-4 font-bold text-[#D4AF37]">€{(b.pricePaid || 0).toFixed(2)}</td>
+                      <td className="px-6 py-4 font-bold text-amber-400">€{(b.tip || 0).toFixed(2)}</td>
+                      <td className="px-6 py-4">
+                        {b.paymentMethod === 'cash' ? (
+                          <span className="px-2 py-1 bg-green-500/10 text-green-400 rounded-lg text-[10px] font-black uppercase">Espèce</span>
+                        ) : b.paymentMethod === 'card' ? (
+                          <span className="px-2 py-1 bg-blue-500/10 text-blue-400 rounded-lg text-[10px] font-black uppercase">Carte</span>
+                        ) : (
+                          <span className="px-2 py-1 bg-white/10 text-white/40 rounded-lg text-[10px] font-black uppercase">Inconnu</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center text-white/20 italic">Aucune donnée pour cette période.</td>
+                  <td colSpan={7} className="px-6 py-12 text-center text-white/20 italic">Aucune donnée pour cette période.</td>
                 </tr>
               )}
             </tbody>
