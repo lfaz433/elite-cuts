@@ -7,4 +7,5 @@ build/
 .DS_Store
 functions/.env
 functions/lib/
-
+gcloud init/
+scratch/
