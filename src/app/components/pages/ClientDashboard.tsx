@@ -50,11 +50,16 @@ export default function ClientDashboard() {
     }
   }, []);
 
-  // Filter bookings by this client's name (since no user ID in Firestore bookings)
+  // Filter bookings securely by clientId if present, otherwise fallback to clientName matching for legacy reservations
   // Memoize filtered lists
   const myBookings = useMemo(() => 
-    bookings.filter(b => b.clientName?.toLowerCase() === user?.name?.toLowerCase()),
-    [bookings, user?.name]
+    bookings.filter(b => {
+      if (b.clientId && user?.uid) {
+        return b.clientId === user.uid;
+      }
+      return b.clientName?.toLowerCase() === user?.name?.toLowerCase();
+    }),
+    [bookings, user?.name, user?.uid]
   );
 
   const upcoming = useMemo(() => 

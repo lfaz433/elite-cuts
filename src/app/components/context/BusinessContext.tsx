@@ -16,6 +16,7 @@ import {
 } from 'firebase/firestore';
 import { toast } from 'sonner';
 import { useCallback } from 'react';
+import { useTenant } from './TenantContext';
 
 export interface Service {
   id: string;
@@ -154,6 +155,18 @@ export interface BusinessInfo {
   }[];
 }
 
+export interface Expense {
+  id: string;
+  tenantId: string;
+  title: string;
+  amount: number;
+  description?: string;
+  category: 'facture' | 'materiel' | 'salaire' | 'achat' | 'autre';
+  createdAt: number;
+  createdBy: string; // admin user uid
+  createdByName: string; // admin user name
+}
+
 interface BusinessContextType {
   services: Service[];
   barbers: Barber[];
@@ -164,6 +177,7 @@ interface BusinessContextType {
   sales: Sale[];
   attendance: Attendance[];
   settlements: Settlement[];
+  expenses: Expense[];
   loading: boolean;
   addAttendance: (attendance: Omit<Attendance, 'id'>) => Promise<void>;
   addSettlement: (settlement: Omit<Settlement, 'id' | 'createdAt'>) => Promise<void>;
@@ -186,6 +200,9 @@ interface BusinessContextType {
   updateProduct: (id: string, updated: Partial<Product>) => Promise<void>;
   deleteProduct: (id: string) => Promise<void>;
   addSale: (sale: Omit<Sale, 'id' | 'date' | 'time'>) => Promise<void>;
+  addExpense: (expense: Omit<Expense, 'id' | 'tenantId' | 'createdAt'>) => Promise<void>;
+  totalExpenses: number;
+  caisseBalance: number;
   seedDatabase: () => Promise<void>;
   updateBarberStatus: (id: string, status: Barber['status']) => Promise<void>;
   getAvailableBarbers: (date: string, time: string) => Barber[];
@@ -319,6 +336,7 @@ const defaultProducts: Product[] = [
 const BusinessContext = createContext<BusinessContextType | undefined>(undefined);
 
 export function BusinessProvider({ children }: { children: ReactNode }) {
+  const { tenantId } = useTenant();
   const [services, setServices] = useState<Service[]>([]);
   const [barbers, setBarbers] = useState<Barber[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -328,11 +346,14 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   const [sales, setSales] = useState<Sale[]>([]);
   const [attendance, setAttendance] = useState<Attendance[]>([]);
   const [settlements, setSettlements] = useState<Settlement[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!tenantId) return;
+
     let loaded = 0;
-    const total = 9;
+    const total = 10;
     const essential = ['services', 'barbers', 'businessInfo'];
     const loadedEssential = new Set<string>();
 
@@ -350,12 +371,12 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     const timeout = setTimeout(() => setLoading(false), 3000);
 
     // Real-time Listeners (Immediate)
-    const unsubServices = onSnapshot(collection(db, 'services'), (snapshot) => {
+    const unsubServices = onSnapshot(query(collection(db, 'services'), where('tenantId', '==', tenantId)), (snapshot) => {
       setServices(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Service)));
       markLoaded('services');
     }, () => markLoaded('services'));
 
-    const unsubBarbers = onSnapshot(collection(db, 'barbers'), (snapshot) => {
+    const unsubBarbers = onSnapshot(query(collection(db, 'barbers'), where('tenantId', '==', tenantId)), (snapshot) => {
       setBarbers(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Barber)));
       markLoaded('barbers');
     }, () => markLoaded('barbers'));
@@ -365,7 +386,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       markLoaded('businessInfo');
     }, () => markLoaded('businessInfo'));
 
-    const unsubBookings = onSnapshot(query(collection(db, 'bookings')), (snapshot) => {
+    const unsubBookings = onSnapshot(query(collection(db, 'bookings'), where('tenantId', '==', tenantId)), (snapshot) => {
       setBookings(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Booking)));
       markLoaded();
     }, () => markLoaded());
@@ -380,7 +401,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       markLoaded();
     }, () => markLoaded());
 
-    const unsubSales = onSnapshot(query(collection(db, 'sales')), (snapshot) => {
+    const unsubSales = onSnapshot(query(collection(db, 'sales'), where('tenantId', '==', tenantId)), (snapshot) => {
       setSales(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Sale)));
       markLoaded();
     }, () => markLoaded());
@@ -395,12 +416,17 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       markLoaded();
     }, () => markLoaded());
 
+    const unsubExpenses = onSnapshot(query(collection(db, 'expenses'), where('tenantId', '==', tenantId)), (snapshot) => {
+      setExpenses(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Expense)));
+      markLoaded();
+    }, () => markLoaded());
+
     return () => {
       clearTimeout(timeout);
       unsubServices(); unsubBarbers(); unsubBookings(); unsubInfo();
-      unsubGallery(); unsubProducts(); unsubSales(); unsubAttendance(); unsubSettlements();
+      unsubGallery(); unsubProducts(); unsubSales(); unsubAttendance(); unsubSettlements(); unsubExpenses();
     };
-  }, []);
+  }, [tenantId]);
 
   const [isSeeding, setIsSeeding] = useState(false);
 
@@ -414,7 +440,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   }, [loading, services.length, barbers.length, isSeeding]);
 
   const addService = async (service: Omit<Service, 'id'>) => {
-    await addDoc(collection(db, 'services'), service);
+    await addDoc(collection(db, 'services'), { ...service, tenantId });
   };
 
   const updateService = async (id: string, updated: Partial<Service>) => {
@@ -429,7 +455,8 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     const cleanedBarber = {
       ...barber,
       email: barber.email?.trim().toLowerCase() || '',
-      archived: false
+      archived: false,
+      tenantId
     };
     // Add a 35s timeout to allow slow connections to complete successfully
     await Promise.race([
@@ -484,6 +511,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       createdAt: new Date().toISOString(),
       unreadAdmin: true,
       unreadBarber: true,
+      tenantId
     });
 
     // Notify Admin and Barber via UI and Push
@@ -505,7 +533,8 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
         reservationId: docRef.id,
         read: false,
         createdAt: Date.now(),
-        expiresAt: Date.now() + (30 * 24 * 60 * 60 * 1000)
+        expiresAt: Date.now() + (30 * 24 * 60 * 60 * 1000),
+        tenantId
       });
 
       // 2. Write to Barber UI Notifications
@@ -518,17 +547,26 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
           reservationId: docRef.id,
           read: false,
           createdAt: Date.now(),
-          expiresAt: Date.now() + (30 * 24 * 60 * 60 * 1000)
+          expiresAt: Date.now() + (30 * 24 * 60 * 60 * 1000),
+          tenantId
         });
       }
 
       // 3. Send Push via Vercel Backend
       const notifyBackend = async (recId: string) => {
         try {
+          const url = recId === 'admin'
+            ? `/admin/bookings?highlight=${docRef.id}`
+            : `/barber/reservations?highlight=${docRef.id}`;
+
           const res = await fetch('/api/send-push', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer placeholder_token' },
-            body: JSON.stringify({ ...payload, recipientId: recId })
+            body: JSON.stringify({ 
+              ...payload, 
+              recipientId: recId,
+              data: { ...payload.data, url }
+            })
           });
           const data = await res.json();
           if (!res.ok) {
@@ -560,13 +598,13 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     try {
       const booking = bookings.find(b => b.id === id);
       if (booking && (status === 'approved' || status === 'rejected')) {
-        const clientAlias = booking.clientEmail || booking.clientPhone;
+        const clientAlias = booking.clientId || booking.clientEmail || booking.clientPhone;
         
         const payload = {
           recipientId: clientAlias,
           title: status === 'approved' ? 'Réservation Confirmée' : 'Réservation Rejetée',
           body: status === 'approved' ? `Votre rdv du ${booking.date} est confirmé!` : `Désolé, votre rdv a été rejeté.`,
-          data: { url: `/?highlight=${id}` },
+          data: { url: `/client?highlight=${id}` },
           notificationId: id + status,
           type: status === 'approved' ? 'APPROVED' : 'REJECTED'
         };
@@ -580,7 +618,8 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
           reservationId: id,
           read: false,
           createdAt: Date.now(),
-          expiresAt: Date.now() + (30 * 24 * 60 * 60 * 1000)
+          expiresAt: Date.now() + (30 * 24 * 60 * 60 * 1000),
+          tenantId
         });
         
         fetch('/api/send-push', {
@@ -635,7 +674,20 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     await addDoc(collection(db, 'sales'), {
       ...sale,
       date: new Date().toISOString().split('T')[0],
-      time: new Date().toTimeString().split(' ')[0].substring(0, 5)
+      time: new Date().toTimeString().split(' ')[0].substring(0, 5),
+      tenantId
+    });
+  };
+
+  const addExpense = async (expense: Omit<Expense, 'id' | 'tenantId' | 'createdAt'>) => {
+    if (!tenantId) {
+      toast.error("Erreur: Tenant non identifié.");
+      return;
+    }
+    await addDoc(collection(db, 'expenses'), {
+      ...expense,
+      tenantId,
+      createdAt: Date.now()
     });
   };
 
@@ -651,19 +703,20 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   };
 
   const seedDatabase = async () => {
+    if (!tenantId) return;
     try {
       const seedingPromises = [];
 
       if (services.length === 0) {
         for (const s of defaultServices) {
           const { id: _id, ...data } = s;
-          seedingPromises.push(addDoc(collection(db, 'services'), data));
+          seedingPromises.push(addDoc(collection(db, 'services'), { ...data, tenantId }));
         }
       }
       if (barbers.length === 0) {
         for (const b of defaultBarbers) {
           const { id: _id, ...data } = b;
-          seedingPromises.push(addDoc(collection(db, 'barbers'), { ...data, archived: false }));
+          seedingPromises.push(addDoc(collection(db, 'barbers'), { ...data, archived: false, tenantId }));
         }
       }
       
@@ -671,7 +724,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       if (products.length === 0) {
         for (const p of defaultProducts) {
           const { id: _id, ...data } = p;
-          seedingPromises.push(addDoc(collection(db, 'products'), data));
+          seedingPromises.push(addDoc(collection(db, 'products'), { ...data, tenantId }));
         }
       }
       
@@ -701,7 +754,8 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
             date: d.toISOString().split('T')[0],
             time: '14:00',
             status: status,
-            createdAt: new Date().toISOString()
+            createdAt: new Date().toISOString(),
+            tenantId
           };
           if (status === 'completed') {
             b.pricePaid = parseInt((service.price || '').replace(/[^0-9]/g, '')) || 15;
@@ -714,7 +768,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       }
 
       // Seed business info
-      await setDoc(doc(db, 'business', 'info'), defaultBusinessInfo, { merge: true });
+      await setDoc(doc(db, 'business', 'info'), { ...defaultBusinessInfo, tenantId }, { merge: true });
       
       toast.success("Données initialisées !");
     } catch (error: any) {
@@ -817,20 +871,43 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  const totalExpenses = useMemo(() => {
+    return expenses.reduce((sum, e) => sum + e.amount, 0);
+  }, [expenses]);
+
+  const completedBookings = useMemo(() => {
+    return bookings.filter(b => b.status === 'completed' || b.status === 'approved');
+  }, [bookings]);
+
+  const totalSales = useMemo(() => {
+    const serviceRev = completedBookings.reduce((sum, b) => sum + (b.pricePaid || 0), 0);
+    const productRev = sales.reduce((sum, s) => sum + (s.sellPrice * s.quantity), 0);
+    return serviceRev + productRev;
+  }, [completedBookings, sales]);
+
+  const totalTips = useMemo(() => {
+    return completedBookings.reduce((sum, b) => sum + (b.tip || 0), 0);
+  }, [completedBookings]);
+
+  const caisseBalance = useMemo(() => {
+    return totalSales + totalTips - totalExpenses;
+  }, [totalSales, totalTips, totalExpenses]);
+
   const value = useMemo(() => ({
     services, barbers, bookings, businessInfo, gallery, products, sales,
-    attendance, settlements, loading,
+    attendance, settlements, expenses, loading,
     addService, updateService, deleteService,
     addBarber, updateBarber, deleteBarber,
     addBooking, updateBookingStatus, updateBooking, deleteBooking,
     updateBusinessInfo, addToGallery, removeFromGallery,
-    addProduct, updateProduct, deleteProduct, addSale,
+    addProduct, updateProduct, deleteProduct, addSale, addExpense,
+    totalExpenses, caisseBalance,
     addAttendance, addSettlement, resetBarberBalance, resetAllBalances, seedDatabase,
     updateBarberStatus,
     getAvailableBarbers, getAvailableTimeSlots
   }), [
     services, barbers, bookings, businessInfo, gallery, products, sales,
-    attendance, settlements, loading
+    attendance, settlements, expenses, loading, totalExpenses, caisseBalance
   ]);
 
   return (

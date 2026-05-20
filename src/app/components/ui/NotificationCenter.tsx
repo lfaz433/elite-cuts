@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Bell, Check, Trash2, X, Calendar as CalendarIcon } from 'lucide-react';
 import { useNotifications, AppNotification } from '../context/NotificationContext';
+import { useAuth } from '../context/AuthContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router';
 
 export default function NotificationCenter() {
   const { notifications, unreadCount, markAsRead, markAllAsRead, permissionStatus, requestPermission } = useNotifications();
+  const { user } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
@@ -27,9 +29,16 @@ export default function NotificationCenter() {
     
     setIsOpen(false);
 
-    // Deep Linking: navigate to bookings and append the reservationId
-    // The Dashboard component should listen to URL params to highlight the booking
-    navigate(`/admin/bookings?highlight=${notif.reservationId}`);
+    // Deep Linking: navigate to the correct page based on the user's role
+    if (user) {
+      if (user.role === 'admin') {
+        navigate(`/admin/bookings?highlight=${notif.reservationId}`);
+      } else if (user.role === 'barber') {
+        navigate(`/barber/reservations?highlight=${notif.reservationId}`);
+      } else if (user.role === 'client') {
+        navigate(`/client?highlight=${notif.reservationId}`);
+      }
+    }
   };
 
   const getIcon = (type: string) => {

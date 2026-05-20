@@ -52,6 +52,12 @@ export default function LandingPage() {
 
   // Scroll-aware sticky button
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('login') === 'true') {
+      setLoginOpen(true);
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+
     const handleScroll = () => {
       const heroHeight = heroRef.current?.offsetHeight || window.innerHeight;
       setShowStickyBtn(window.scrollY > heroHeight * 0.8);

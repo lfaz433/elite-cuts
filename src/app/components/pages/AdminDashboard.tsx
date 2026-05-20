@@ -59,6 +59,7 @@ const ProductModal = lazy(() => import('../admin/ProductModal'));
 const ManualBookingModal = lazy(() => import('../modals/ManualBookingModal'));
 const BarberAnalytics = lazy(() => import('../admin/BarberAnalytics').then(m => ({ default: m.BarberAnalytics })));
 const POSSaleModal = lazy(() => import('../modals/POSSaleModal').then(m => ({ default: m.POSSaleModal })));
+const AddServiceModal = lazy(() => import('../modals/AddServiceModal'));
 import { createBarberAccount } from '../../lib/adminAuth';
 
 // New optimized sections
@@ -67,6 +68,7 @@ const AttendanceHistory = lazy(() => import('../admin/AttendanceHistory').then(m
 const SalesReport = lazy(() => import('../admin/SalesReport').then(m => ({ default: m.SalesReport })));
 const ProductManagement = lazy(() => import('../admin/ProductManagement').then(m => ({ default: m.ProductManagement })));
 const FinanceReport = lazy(() => import('../admin/FinanceReport').then(m => ({ default: m.FinanceReport })));
+const ExpenseModal = lazy(() => import('../modals/ExpenseModal'));
 
 const compressImage = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -103,14 +105,15 @@ export default function AdminDashboard() {
     addBarber, updateBarber, deleteBarber, addToGallery, removeFromGallery,
     updateBooking, deleteBooking, products, sales, addProduct, updateProduct,
     deleteProduct, addSale, attendance, settlements, addSettlement,
-    resetBarberBalance, seedDatabase, gallery 
+    resetBarberBalance, seedDatabase, gallery,
+    expenses, caisseBalance, totalExpenses
   } = useBusiness();
   
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState(() => {
     const path = window.location.pathname;
     const subpath = path.split('/admin/')[1];
-    const allowed = ['dashboard', 'bookings', 'reports', 'barbers', 'services', 'boutique', 'gallery', 'attendance', 'branding', 'settings'];
+    const allowed = ['dashboard', 'bookings', 'reports', 'barbers', 'services', 'boutique', 'gallery', 'attendance', 'branding', 'settings', 'depenses'];
     return (subpath && allowed.includes(subpath)) ? subpath : 'dashboard';
   });
 
@@ -170,6 +173,8 @@ export default function AdminDashboard() {
   const [posProduct, setPosProduct] = useState<any>(null);
   const [highlightedIds, setHighlightedIds] = useState<Set<string>>(new Set());
   const [bookingToReject, setBookingToReject] = useState<string | null>(null);
+  const [activeBookingId, setActiveBookingId] = useState<string | null>(null);
+  const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
 
   const triggerSuccess = (callback: () => void) => {
     return new Promise<void>((resolve) => {
@@ -222,17 +227,16 @@ export default function AdminDashboard() {
   const finalBookings = useMemo(() => {
     const filtered = filteredBookings.filter(b => statusFilter === 'all' || b.status === statusFilter);
     return filtered.sort((a, b) => {
-      // 1. Pending
-      if (a.status === 'pending' && b.status !== 'pending') return -1;
-      if (a.status !== 'pending' && b.status === 'pending') return 1;
+      // 1. Active (pending or approved)
+      const aIsActive = a.status === 'pending' || a.status === 'approved';
+      const bIsActive = b.status === 'pending' || b.status === 'approved';
+      if (aIsActive && !bIsActive) return -1;
+      if (!aIsActive && bIsActive) return 1;
       // 2. New (highlighted or unread)
       const aIsNew = a.unreadAdmin || highlightedIds.has(a.id);
       const bIsNew = b.unreadAdmin || highlightedIds.has(b.id);
       if (aIsNew && !bIsNew) return -1;
       if (!aIsNew && bIsNew) return 1;
-      // 3. Approved
-      if (a.status === 'approved' && b.status !== 'approved') return -1;
-      if (a.status !== 'approved' && b.status === 'approved') return 1;
       // Default: sort by date/time descending
       return new Date(`${b.date}T${b.time}`).getTime() - new Date(`${a.date}T${a.time}`).getTime();
     });
@@ -304,6 +308,7 @@ export default function AdminDashboard() {
     { id: 'barbers', icon: Users, label: 'Coiffeurs' },
     { id: 'services', icon: Scissors, label: 'Services' },
     { id: 'boutique', icon: ShoppingBag, label: 'Boutique' },
+    { id: 'depenses', icon: Wallet, label: 'Dépenses' },
     { id: 'gallery', icon: ImageIcon, label: 'Portfolio' },
     { id: 'attendance', icon: Clock, label: 'Pointage' },
     { id: 'branding', icon: ImageIcon, label: 'Design' },
@@ -319,6 +324,11 @@ export default function AdminDashboard() {
             <h1 className="text-xl font-black bg-gradient-to-r from-[#D4AF37] to-[#FFD700] bg-clip-text text-transparent tracking-tighter">ELITE CUTS ADMIN</h1>
           </div>
           <div className="flex items-center gap-6">
+            {user?.role === 'superadmin' && (
+              <a href="/superadmin" className="px-4 py-2 bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-yellow-500 hover:text-black transition-colors flex items-center gap-2">
+                <span className="text-base">⚡</span> Super Admin
+              </a>
+            )}
             <NotificationCenter />
             <button onClick={handleLogout} className="p-2.5 hover:bg-red-500/10 rounded-full transition-all text-white/40 hover:text-red-500"><LogOut className="w-5 h-5" /></button>
           </div>
@@ -515,6 +525,14 @@ export default function AdminDashboard() {
                                 className="flex-1 sm:flex-none px-4 sm:px-5 py-2.5 bg-green-500/10 text-green-400 border border-green-500/20 rounded-2xl hover:bg-green-500 hover:text-white transition-all text-xs font-black uppercase tracking-wider text-center"
                               >
                                 Approuver
+                              </button>
+                            )}
+                            {booking.status === 'approved' && (
+                              <button 
+                                onClick={() => setActiveBookingId(booking.id)} 
+                                className="flex-1 sm:flex-none px-4 sm:px-5 py-2.5 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black hover:scale-105 rounded-2xl text-xs font-black uppercase transition-all shadow-md shadow-[#D4AF37]/10 text-center"
+                              >
+                                Terminer
                               </button>
                             )}
                             {(booking.status === 'pending' || booking.status === 'approved') && (
@@ -738,6 +756,135 @@ export default function AdminDashboard() {
               {activeTab === 'reports' && (
                 <motion.div key="reports" className="space-y-8">
                   <BarberAnalytics bookings={bookings} barbers={barbers} services={services} attendance={attendance} />
+                </motion.div>
+              )}
+
+              {activeTab === 'depenses' && (
+                <motion.div key="depenses" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                      <h2 className="text-3xl font-black uppercase tracking-tight">Gestion des Dépenses</h2>
+                      <p className="text-white/40 text-sm mt-1">Suivez les retraits de caisse et les dépenses opérationnelles de votre salon.</p>
+                    </div>
+                    <button
+                      onClick={() => setIsExpenseModalOpen(true)}
+                      className="px-6 py-4 bg-gradient-to-r from-red-600 to-rose-500 hover:from-red-500 hover:to-rose-400 text-white rounded-2xl font-black text-sm uppercase tracking-wider shadow-lg shadow-red-500/20 active:scale-[0.98] transition-all flex items-center gap-2"
+                    >
+                      <Wallet className="w-4 h-4" /> Retirer de la caisse
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem] hover:border-[#D4AF37]/20 transition-all group relative overflow-hidden">
+                      <div className="p-4 rounded-3xl bg-[#D4AF37]/10 w-fit mb-6 group-hover:scale-110 transition-transform text-[#D4AF37]">
+                        <DollarSign className="w-7 h-7" />
+                      </div>
+                      <p className="text-white/30 text-xs font-bold uppercase tracking-widest">Total Revenus</p>
+                      <p className="text-4xl font-black mt-2 text-[#D4AF37]">
+                        €{(caisseBalance + totalExpenses).toFixed(2)}
+                      </p>
+                      <p className="text-white/40 text-[10px] mt-1">Ventes boutique + Prestations + Pourboires</p>
+                      <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-[#D4AF37]/[0.02] to-transparent rounded-full -mr-16 -mt-16" />
+                    </div>
+
+                    <div className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem] hover:border-red-500/20 transition-all group relative overflow-hidden">
+                      <div className="p-4 rounded-3xl bg-red-500/10 w-fit mb-6 group-hover:scale-110 transition-transform text-red-400">
+                        <Wallet className="w-7 h-7" />
+                      </div>
+                      <p className="text-white/30 text-xs font-bold uppercase tracking-widest">Total Dépenses</p>
+                      <p className="text-4xl font-black mt-2 text-red-500">
+                        €{totalExpenses.toFixed(2)}
+                      </p>
+                      <p className="text-white/40 text-[10px] mt-1">Retraits de caisse et achats</p>
+                      <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-red-500/[0.02] to-transparent rounded-full -mr-16 -mt-16" />
+                    </div>
+
+                    <div className={`bg-[#141414] border border-white/5 p-8 rounded-[2.5rem] transition-all group relative overflow-hidden ${caisseBalance >= 0 ? 'hover:border-green-500/20' : 'hover:border-red-500/20'}`}>
+                      <div className={`p-4 rounded-3xl w-fit mb-6 group-hover:scale-110 transition-transform ${caisseBalance >= 0 ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+                        <TrendingUp className="w-7 h-7" />
+                      </div>
+                      <p className="text-white/30 text-xs font-bold uppercase tracking-widest">Solde Caisse</p>
+                      <p className={`text-4xl font-black mt-2 ${caisseBalance >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                        €{caisseBalance.toFixed(2)}
+                      </p>
+                      <p className="text-white/40 text-[10px] mt-1">Revenus nets disponibles</p>
+                      <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-white/[0.02] to-transparent rounded-full -mr-16 -mt-16" />
+                    </div>
+                  </div>
+
+                  <div className="bg-[#141414] border border-white/5 rounded-[2.5rem] overflow-hidden">
+                    <h3 className="px-8 py-6 text-lg font-black uppercase border-b border-white/5">Historique des Dépenses</h3>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left">
+                        <thead>
+                          <tr className="bg-white/5 text-white/40 text-[10px] uppercase font-black tracking-widest border-b border-white/10">
+                            <th className="px-8 py-4">Date</th>
+                            <th className="px-8 py-4">Titre</th>
+                            <th className="px-8 py-4">Catégorie</th>
+                            <th className="px-8 py-4">Description</th>
+                            <th className="px-8 py-4">Montant</th>
+                            <th className="px-8 py-4">Créé par</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5">
+                          {expenses.length === 0 ? (
+                            <tr>
+                              <td colSpan={6} className="px-8 py-12 text-center text-white/40 text-sm">
+                                Aucune dépense enregistrée
+                              </td>
+                            </tr>
+                          ) : (
+                            [...expenses]
+                              .sort((a, b) => b.createdAt - a.createdAt)
+                              .map((expense) => {
+                                const categoryLabels: Record<string, string> = {
+                                  facture: 'Facture',
+                                  materiel: 'Matériel',
+                                  salaire: 'Salaire',
+                                  achat: 'Achat',
+                                  autre: 'Autre'
+                                };
+                                const categoryColors: Record<string, string> = {
+                                  facture: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+                                  materiel: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
+                                  salaire: 'bg-green-500/10 text-green-400 border-green-500/20',
+                                  achat: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
+                                  autre: 'bg-white/10 text-white/60 border-white/20'
+                                };
+
+                                return (
+                                  <tr key={expense.id} className="hover:bg-white/[0.01] transition-colors">
+                                    <td className="px-8 py-4 text-white/60 text-xs">
+                                      {new Date(expense.createdAt).toLocaleString('fr-FR', {
+                                        dateStyle: 'short',
+                                        timeStyle: 'short'
+                                      })}
+                                    </td>
+                                    <td className="px-8 py-4 font-bold text-sm text-white">
+                                      {expense.title}
+                                    </td>
+                                    <td className="px-8 py-4">
+                                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase border ${categoryColors[expense.category] || categoryColors.autre}`}>
+                                        {categoryLabels[expense.category] || expense.category}
+                                      </span>
+                                    </td>
+                                    <td className="px-8 py-4 text-white/40 text-xs max-w-xs truncate" title={expense.description}>
+                                      {expense.description || '—'}
+                                    </td>
+                                    <td className="px-8 py-4 font-black text-red-500 text-sm">
+                                      -€{expense.amount.toFixed(2)}
+                                    </td>
+                                    <td className="px-8 py-4 text-white/60 text-xs">
+                                      {expense.createdByName || 'Administrateur'}
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </motion.div>
               )}
 
@@ -1302,6 +1449,8 @@ export default function AdminDashboard() {
           }
         }} />}
         {isManualBookingOpen && <ManualBookingModal onClose={() => setIsManualBookingOpen(false)} />}
+        {isExpenseModalOpen && <ExpenseModal onClose={() => setIsExpenseModalOpen(false)} />}
+        {activeBookingId && <AddServiceModal bookingId={activeBookingId} onClose={() => setActiveBookingId(null)} />}
         {posProduct && (
           <POSSaleModal
             product={posProduct}

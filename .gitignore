@@ -3,4 +3,8 @@ dist/
 build/
 .env
 .env.local
+.env.production
 .DS_Store
+functions/.env
+functions/lib/
+

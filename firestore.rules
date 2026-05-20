@@ -1,0 +1,85 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper: checks if user is logged in and belongs to the specified tenant
+    function isMemberOfTenant(tenantId) {
+      return request.auth != null && (
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId == tenantId ||
+        request.auth.token.tenantId == tenantId
+      );
+    }
+
+    function isSuperAdmin() {
+      return request.auth != null && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "superadmin";
+    }
+
+    // 1. Tenants Collection (Public reads for domain resolution, admin write controls)
+    match /tenants/{tenantDocId} {
+      allow read: if true;
+      allow create: if isSuperAdmin() || (request.auth != null && request.auth.uid == request.resource.data.ownerUid);
+      allow update, delete: if isSuperAdmin() || (request.auth != null && request.auth.uid == resource.data.ownerUid);
+    }
+
+    // 2. Scoped Business Operations Collections
+    match /bookings/{bookingId} {
+      allow read, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
+    }
+
+    match /barbers/{barberId} {
+      allow read, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
+    }
+
+    match /services/{serviceId} {
+      allow read, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
+    }
+
+    match /sales/{saleId} {
+      allow read, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
+    }
+
+    match /expenses/{expenseId} {
+      allow read, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
+    }
+
+    // 3. User Profiles Collection (Owner-only access)
+    match /users/{userId} {
+      allow read, write: if isSuperAdmin() || (request.auth != null && request.auth.uid == userId);
+    }
+
+    // 4. Notifications Collection (Tenant members OR specific recipient fallback)
+    match /notifications/{notificationId} {
+      allow read, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId) || 
+                                    (request.auth != null && request.auth.uid == resource.data.recipientId);
+      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId) || 
+                                    (request.auth != null && request.auth.uid == request.resource.data.recipientId);
+    }
+
+    match /manual_payments/{paymentId} {
+      allow read, write: if isSuperAdmin();
+    }
+
+    // 5. Unmigrated / Legacy Collections (Locked to prevent data leaks until migrated)
+    match /gallery/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /attendance/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /settlements/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /business/{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -8,6 +8,7 @@ import {
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../../lib/firebase';
+import { useTenant } from './TenantContext';
 
 // Forced correct key for bootstrap
 const CORRECT_API_KEY = "AIzaSyB455BHQ7ZIAcO0jwXYbYuzlcvXKt2Qpx4";
@@ -19,6 +20,7 @@ interface User {
   email: string;
   role: 'client' | 'admin' | 'barber';
   barberId?: string;
+  tenantId: string;
 }
 
 interface AuthContextType {
@@ -35,6 +37,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const { tenantId } = useTenant();
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -49,12 +52,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                                   (email.startsWith('admin-') && email.endsWith('@test.com'));
 
           if (isHardcodedAdmin) {
+            try {
+              const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+              if (userDoc.exists() && userDoc.data().role === 'superadmin') {
+                const superProfile: User = {
+                  id: firebaseUser.uid,
+                  uid: firebaseUser.uid,
+                  email: email,
+                  name: userDoc.data().name || 'Super Admin',
+                  role: 'superadmin',
+                  tenantId: userDoc.data().tenantId || tenantId
+                };
+                setUser(superProfile);
+                localStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(superProfile));
+                setIsLoading(false);
+                return;
+              }
+            } catch (err) {
+              console.error("Error fetching superadmin status for hardcoded admin:", err);
+            }
+
             const adminProfile: User = {
               id: firebaseUser.uid,
               uid: firebaseUser.uid,
               email: email,
               name: 'Administrateur',
-              role: 'admin'
+              role: 'admin',
+              tenantId: tenantId
             };
             setUser(adminProfile);
             localStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(adminProfile));
@@ -108,7 +132,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               email: email,
               name: userData.name || barberData?.name || firebaseUser.displayName || (isAdmin ? 'Administrateur' : 'Utilisateur'),
               role: resolvedRole as 'admin' | 'barber' | 'client',
-              barberId: barberId
+              barberId: barberId,
+              tenantId: userData.tenantId || tenantId
             };
 
             setUser(fullProfile);
@@ -130,7 +155,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               uid: firebaseUser.uid,
               email: firebaseUser.email || '',
               name: firebaseUser.displayName || 'Utilisateur',
-              role: 'client'
+              role: 'client',
+              tenantId: tenantId
             });
           }
         }
@@ -163,7 +189,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email,
       name,
       role: 'client', // Default role for new signups
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      tenantId: tenantId
     };
     
     await setDoc(doc(db, 'users', firebaseUser.uid), profile);

@@ -6,6 +6,7 @@ import {
   limit, updateDoc, doc, writeBatch 
 } from 'firebase/firestore';
 import OneSignal from 'react-onesignal';
+import { useTenant } from './TenantContext';
 
 export type AppNotification = {
   id: string;
@@ -35,6 +36,7 @@ const ONESIGNAL_APP_ID = "812f9b44-12d9-4391-97b7-6f0b2798987d";
 
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
+  const { tenantId } = useTenant();
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [permissionStatus, setPermissionStatus] = useState<string>('default');
   const [isInitialized, setIsInitialized] = useState(false);
@@ -42,6 +44,10 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   // Initialize OneSignal
   useEffect(() => {
     const initOneSignal = async () => {
+      if (typeof window === 'undefined') return;
+      if ((window as any).__onesignal_initialized) return;
+      (window as any).__onesignal_initialized = true;
+
       try {
         await OneSignal.init({
           appId: ONESIGNAL_APP_ID,
@@ -61,14 +67,14 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
       } catch (error) {
         console.error("Error initializing OneSignal:", error);
+        (window as any).__onesignal_initialized = false; // allow retry
       }
     };
     
-    // Only init if we haven't already
-    if (typeof window !== 'undefined' && !isInitialized) {
+    if (typeof window !== 'undefined') {
       initOneSignal();
     }
-  }, [isInitialized]);
+  }, []);
 
   // Login user to OneSignal when Auth changes
   useEffect(() => {
@@ -84,40 +90,45 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     }
   }, [user, isInitialized]);
 
-  // Check initial permission status on load
+  // Check initial permission status on load (even before OneSignal finishes initializing)
   useEffect(() => {
-    if (isInitialized) {
-      const optedIn = OneSignal.User.PushSubscription.optedIn;
-      if (optedIn) {
-        setPermissionStatus('granted');
-      } else {
-        // Handle iOS Safari where Notification might be undefined
-        const currentPermission = typeof Notification !== 'undefined' ? Notification.permission : 'default';
-        setPermissionStatus(currentPermission);
+    const checkPermissionStatus = () => {
+      if (isInitialized) {
+        const optedIn = OneSignal.User.PushSubscription.optedIn;
+        if (optedIn) {
+          setPermissionStatus('granted');
+          return;
+        }
       }
-    }
+      // Handle iOS Safari where Notification might be undefined
+      const currentPermission = typeof Notification !== 'undefined' ? Notification.permission : 'default';
+      setPermissionStatus(currentPermission);
+    };
+
+    checkPermissionStatus();
   }, [isInitialized]);
 
   const requestPermission = async () => {
-    if (!isInitialized) return false;
-    
     try {
-      // For iOS Safari, native permission request is most reliable
+      let hasPermission = false;
+
+      // 1. Try standard browser Notification request if available
       if (typeof window !== 'undefined' && window.Notification && window.Notification.permission === 'default') {
-         await window.Notification.requestPermission();
+         const status = await window.Notification.requestPermission();
+         hasPermission = status === 'granted';
+      } else if (typeof window !== 'undefined' && window.Notification) {
+         hasPermission = window.Notification.permission === 'granted';
       }
       
-      // Fallback/Sync with OneSignal API (v16)
-      if (OneSignal.Notifications && OneSignal.Notifications.requestPermission) {
-         await OneSignal.Notifications.requestPermission();
-      }
-
-      // Check if granted after prompt
-      let hasPermission = false;
-      if (OneSignal.Notifications) {
-         hasPermission = OneSignal.Notifications.permission;
-      } else if (typeof Notification !== 'undefined') {
-         hasPermission = Notification.permission === 'granted';
+      // 2. If OneSignal is initialized, request permission and sync with OneSignal
+      if (isInitialized) {
+        if (OneSignal.Notifications && OneSignal.Notifications.requestPermission) {
+           await OneSignal.Notifications.requestPermission();
+        }
+        
+        if (OneSignal.Notifications) {
+           hasPermission = OneSignal.Notifications.permission;
+        }
       }
       
       setPermissionStatus(hasPermission ? 'granted' : 'denied');
@@ -130,6 +141,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   // Sync internal UI notifications from Firestore
   useEffect(() => {
+    if (!tenantId) return;
     if (!user) {
       setNotifications([]);
       return;
@@ -138,25 +150,58 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     const recipientId = user.role === 'admin' ? 'admin' : (user.barberId || user.uid);
     if (!recipientId) return;
 
-    // Remove orderBy and limit from query to avoid Firebase Composite Index requirements
-    const q = query(
+    // Merge and deduplicate notifications from both snapshots
+    const mergeAndSet = (byUid: AppNotification[], byEmail: AppNotification[]) => {
+      const seen = new Set<string>();
+      const merged: AppNotification[] = [];
+      for (const n of [...byUid, ...byEmail]) {
+        if (!seen.has(n.id)) {
+          seen.add(n.id);
+          merged.push(n);
+        }
+      }
+      // Fix 1: filter expired notifications
+      const valid = merged.filter(n => !n.expiresAt || n.expiresAt > Date.now());
+      // Sort in memory (newest first)
+      valid.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      // Limit to 50 locally to prevent UI lag
+      setNotifications(valid.slice(0, 50));
+    };
+
+    let byUidNotifs: AppNotification[] = [];
+    let byEmailNotifs: AppNotification[] = [];
+
+    // Primary query: match by uid / 'admin' / barberId
+    const qByUid = query(
       collection(db, 'notifications'),
-      where('recipientId', '==', recipientId)
+      where('recipientId', '==', recipientId),
+      where('tenantId', '==', tenantId)
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const notifs: AppNotification[] = [];
-      snapshot.forEach(doc => {
-        notifs.push({ id: doc.id, ...doc.data() } as AppNotification);
-      });
-      // Sort in memory (newest first)
-      notifs.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-      // Limit to 50 locally to prevent UI lag
-      setNotifications(notifs.slice(0, 50));
+    const unsubUid = onSnapshot(qByUid, (snapshot) => {
+      byUidNotifs = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as AppNotification));
+      mergeAndSet(byUidNotifs, byEmailNotifs);
     });
 
-    return () => unsubscribe();
-  }, [user]);
+    // Fix 2: Secondary query for client users — match by email to catch guest-booking notifications
+    let unsubEmail: (() => void) | null = null;
+    if (user.role === 'client' && user.email) {
+      const qByEmail = query(
+        collection(db, 'notifications'),
+        where('recipientId', '==', user.email),
+        where('tenantId', '==', tenantId)
+      );
+      unsubEmail = onSnapshot(qByEmail, (snapshot) => {
+        byEmailNotifs = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as AppNotification));
+        mergeAndSet(byUidNotifs, byEmailNotifs);
+      });
+    }
+
+    return () => {
+      unsubUid();
+      if (unsubEmail) unsubEmail();
+    };
+  }, [user, tenantId]);
 
   const unreadCount = notifications.filter(n => !n.read).length;
 

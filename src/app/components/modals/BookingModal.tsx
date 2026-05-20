@@ -1,10 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
 import { X, Calendar, User, Phone, Mail, CheckCircle2, ChevronRight, ChevronLeft } from 'lucide-react';
 import { useBusiness } from '../context/BusinessContext';
+import { useAuth } from '../context/AuthContext';
 import { toast } from 'sonner';
 
 export default function BookingModal({ onClose }: { onClose: () => void }) {
   const { services, barbers, bookings, addBooking, getAvailableTimeSlots, getAvailableBarbers } = useBusiness();
+  const { user } = useAuth();
 
   const [step, setStep] = useState(1);
   const [selectedServiceId, setSelectedServiceId] = useState('');
@@ -14,6 +16,16 @@ export default function BookingModal({ onClose }: { onClose: () => void }) {
   const [clientInfo, setClientInfo] = useState({ name: '', email: '', phone: '' });
   const [isSuccess, setIsSuccess] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      setClientInfo(prev => ({
+        ...prev,
+        name: prev.name || user.name || '',
+        email: prev.email || user.email || '',
+      }));
+    }
+  }, [user]);
 
   const calendarDays = useMemo(() => {
     const days = [];
@@ -118,6 +130,7 @@ export default function BookingModal({ onClose }: { onClose: () => void }) {
         barberId: finalBarberId,
         date: selectedDate,
         time: selectedTime,
+        clientId: user?.uid || null,
       };
 
       // Wrap in a promise race to prevent infinite hanging if Firebase connection drops
