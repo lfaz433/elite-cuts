@@ -39,6 +39,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useBusiness } from '../context/BusinessContext';
+import { useTenant } from '../context/TenantContext';
 import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { QRCodeCanvas } from 'qrcode.react';
@@ -99,6 +100,7 @@ const compressImage = (file: File): Promise<string> => {
 
 export default function AdminDashboard() {
   const { user, logout } = useAuth();
+  const tenant = useTenant();
   const { 
     services, barbers, bookings, businessInfo, updateBookingStatus,
     addService, updateService, deleteService, updateBusinessInfo,
@@ -317,6 +319,16 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-background text-white font-sans">
+      {tenant?.isDemo && (
+        <div style={{ background: 'rgba(212,175,55,0.15)', borderBottom: '1px solid rgba(212,175,55,0.3)' }}
+          className="w-full px-4 py-2 flex items-center justify-between text-sm">
+          <span className="text-yellow-400 font-medium">🎮 Mode Démo — données fictives, réinitialisées toutes les 24h</span>
+          <a href="https://barbeboard.pro/register"
+            className="text-yellow-400 font-bold hover:text-yellow-300 underline text-xs">
+            Créer votre salon gratuit →
+          </a>
+        </div>
+      )}
       <NotificationPermissionModal />
       <nav className="bg-black/60 backdrop-blur-xl border-b border-white/5 px-6 py-4 sticky top-0 z-50">
         <div className="max-w-[1600px] mx-auto flex items-center justify-between">

@@ -15,6 +15,7 @@ export interface TenantData {
   };
   settings: { maxBarbersLimit: number; allowOnlineBooking: boolean };
   onboardingComplete?: boolean;
+  isDemo?: boolean;
 }
 
 interface TenantContextType extends TenantData {
@@ -40,6 +41,9 @@ function extractSubdomain(hostname: string): string {
     hostname === 'www.barbeboard.pro'
   ) {
     return 'elite-cuts-default';
+  }
+  if (hostname === 'demo.barbeboard.pro') {
+    return 'demo';
   }
   if (hostname.endsWith('.barbeboard.pro')) {
     return hostname.split('.')[0];
@@ -126,6 +130,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
             },
             settings: data.settings,
             onboardingComplete: data.onboardingComplete || false,
+            isDemo: data.isDemo || false,
           });
         } else {
           setError('Barbershop not found');
@@ -164,6 +169,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
               },
               settings: data.settings,
               onboardingComplete: data.onboardingComplete || false,
+              isDemo: data.isDemo || false,
             });
           }
         }

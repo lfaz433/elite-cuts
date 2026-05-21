@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { Calendar, Clock, User, Star, LogOut, History, CreditCard, Scissors } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useBusiness } from '../context/BusinessContext';
+import { useTenant } from '../context/TenantContext';
 import { useNavigate } from 'react-router';
 import BookingModal from '../modals/BookingModal';
 import NotificationCenter from '../ui/NotificationCenter';
@@ -11,6 +12,7 @@ import { useEffect } from 'react';
 
 export default function ClientDashboard() {
   const { user, logout } = useAuth();
+  const tenant = useTenant();
   const { bookings, services, barbers, loading } = useBusiness();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('bookings');
@@ -92,6 +94,16 @@ export default function ClientDashboard() {
   return (
     <div className="min-h-screen bg-black">
       <NotificationPermissionModal />
+      {tenant?.isDemo && (
+        <div style={{ background: 'rgba(212,175,55,0.15)', borderBottom: '1px solid rgba(212,175,55,0.3)' }}
+          className="w-full px-4 py-2 flex items-center justify-between text-sm">
+          <span className="text-yellow-400 font-medium">🎮 Mode Démo — données fictives, réinitialisées toutes les 24h</span>
+          <a href="https://barbeboard.pro/register"
+            className="text-yellow-400 font-bold hover:text-yellow-300 underline text-xs">
+            Créer votre salon gratuit →
+          </a>
+        </div>
+      )}
       {/* Navbar */}
       <nav className="bg-[#0f0f0f] border-b border-[#D4AF37]/20 px-6 py-4 sticky top-0 z-30">
         <div className="max-w-7xl mx-auto flex items-center justify-between">

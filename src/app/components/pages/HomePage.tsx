@@ -528,7 +528,7 @@ export default function HomePage() {
               <button onClick={() => navigate('/register')} className="px-8 py-4 bg-[#D4AF37] text-black font-bold rounded-xl transition-all hover:bg-[#FFD700] hover:scale-105 active:scale-95 shadow-xl shadow-[#D4AF37]/20 text-center flex items-center justify-center gap-2">
                 {t.hero.cta1}
               </button>
-              <button onClick={() => document.getElementById('fonctionnalites')?.scrollIntoView({ behavior: 'smooth' })} className="px-8 py-4 bg-white/5 border border-white/10 text-white font-bold rounded-xl transition-all hover:bg-white/10 text-center">
+              <button onClick={() => window.location.href = 'https://demo.barbeboard.pro'} className="px-8 py-4 bg-white/5 border border-white/10 text-white font-bold rounded-xl transition-all hover:bg-white/10 text-center">
                 {t.hero.cta2}
               </button>
             </div>

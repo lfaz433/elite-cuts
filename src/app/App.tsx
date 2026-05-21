@@ -81,6 +81,11 @@ function HomeRouter() {
 
   const hostname = window.location.hostname;
   
+  // demo.barbeboard.pro → always show LandingPage (the booking portal)
+  if (hostname === 'demo.barbeboard.pro') {
+    return <LandingPage />;
+  }
+
   // Show HomePage on: localhost, vercel preview URLs, and main domain
   const isMainDomain = 
     hostname === 'localhost' ||
