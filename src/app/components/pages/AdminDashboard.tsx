@@ -269,7 +269,7 @@ export default function AdminDashboard() {
   const totalRevenue = useMemo(() => {
     const serviceRev = approvedBookings.reduce((sum, b) => sum + (b.pricePaid || 0), 0);
     const productRev = (sales || []).reduce((sum, s) => {
-      const price = s.customPrice != null ? s.customPrice : (s.sellPrice || 0);
+      const price = s.amount != null ? s.amount : (s.customPrice != null ? s.customPrice : (s.sellPrice || 0));
       const qty = s.quantity || 1;
       const disc = s.discount || 0;
       return sum + (price * qty * (1 - disc / 100));
@@ -393,22 +393,29 @@ export default function AdminDashboard() {
                         } catch { /* ignore */ }
                       }
                       if (s.date && s.date === _today) return true;
-                      if (s.completedAt) {
+                      return false;
+                    };
+                    
+                    const _isBookingToday = (b: any): boolean => {
+                      if (b.completedAt) {
                         try {
-                          const d = new Date(s.completedAt);
+                          const d = new Date(b.completedAt);
                           const str = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
                           if (str === _today) return true;
                         } catch { /* ignore */ }
+                      } else if (b.date && b.date === _today) {
+                        return true;
                       }
                       return false;
                     };
+
                     const revenusAujourdhuiBookings = approvedBookings
-                      .filter(_isSaleToday)
+                      .filter(_isBookingToday)
                       .reduce((sum: number, b: any) => sum + Number(b.pricePaid || 0), 0);
                     const revenusAujourdhuiSales = (sales || [])
                       .filter(_isSaleToday)
                       .reduce((sum: number, s: any) => {
-                         const price = s.customPrice != null ? s.customPrice : (s.sellPrice || 0);
+                         const price = s.amount != null ? s.amount : (s.customPrice != null ? s.customPrice : (s.sellPrice || 0));
                          const qty = s.quantity || 1;
                          const disc = s.discount || 0;
                          return sum + Number(price * qty * (1 - disc / 100));
@@ -416,7 +423,7 @@ export default function AdminDashboard() {
                     const revenusAujourdhui = revenusAujourdhuiBookings + revenusAujourdhuiSales;
 
                     const pourboiresTodayBookings = approvedBookings
-                      .filter(_isSaleToday)
+                      .filter(_isBookingToday)
                       .reduce((sum: number, b: any) => sum + Number(b.tip || 0), 0);
                     const pourboiresTodaySales = (sales || [])
                       .filter(_isSaleToday)
