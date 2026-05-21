@@ -407,12 +407,19 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       markLoaded();
     }, () => markLoaded());
 
-    const unsubGallery = onSnapshot(collection(db, 'gallery'), (snapshot) => {
-      setGallery(snapshot.docs.map(d => ({ id: d.id, url: (d.data() as any).url })));
+    const unsubGallery = onSnapshot(query(collection(db, 'gallery'), where('tenantId', '==', tenantId)), (snapshot) => {
+      setGallery(snapshot.docs.map(d => {
+        const data = d.data() as any;
+        // Support both 'url' and 'imageUrl' field names (seeded docs may use either)
+        const resolvedUrl = typeof data.url === 'string' ? data.url
+          : typeof data.imageUrl === 'string' ? data.imageUrl
+          : '';
+        return { id: d.id, url: resolvedUrl };
+      }));
       markLoaded();
     }, () => markLoaded());
 
-    const unsubProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
+    const unsubProducts = onSnapshot(query(collection(db, 'products'), where('tenantId', '==', tenantId)), (snapshot) => {
       setProducts(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Product)));
       markLoaded();
     }, () => markLoaded());

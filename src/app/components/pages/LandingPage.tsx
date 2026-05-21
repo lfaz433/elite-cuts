@@ -20,8 +20,8 @@ const Skeleton = ({ className }: { className: string }) => (
   <div className={`animate-pulse bg-white/5 rounded-2xl ${className}`} />
 );
 
-const getOptimizedImage = (url: string, width: number = 800) => {
-  if (!url) return '';
+const getOptimizedImage = (url: any, width: number = 800) => {
+  if (!url || typeof url !== 'string') return '';
   if (url.startsWith('data:')) return url; // Don't optimize base64
   const separator = url.includes('?') ? '&' : '?';
   return `${url}${separator}auto=format&w=${width}&q=75`;
@@ -353,7 +353,11 @@ export default function LandingPage() {
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
               {gallery.map((image: any, index) => (
                 <motion.div key={image.id || index} initial={{ opacity: 0, scale: 0.9 }} whileInView={{ opacity: 1, scale: 1 }} viewport={{ once: true }} transition={{ delay: index * 0.1 }} className="group relative aspect-square rounded-2xl overflow-hidden border border-[#D4AF37]/20 hover:border-[#D4AF37]/50 transition-all">
-                  <img src={getOptimizedImage(image.url || image, 600)} alt={`Gallery ${index + 1}`} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" loading="lazy" />
+                  {typeof image.url === 'string' && image.url ? (
+                    <img src={getOptimizedImage(image.url, 600)} alt={`Gallery ${index + 1}`} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" loading="lazy" />
+                  ) : (
+                    <div className="w-full h-full bg-white/5" />
+                  )}
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/0 to-black/0 opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-6">
                     <span className="text-white font-bold">Inspiration Elite</span>
                   </div>

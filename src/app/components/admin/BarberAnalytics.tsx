@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend,
@@ -37,6 +37,16 @@ interface Props {
 }
 
 const GOLD_COLORS = ['#D4AF37', '#FFD700', '#B8960C', '#F5E050', '#C8A415', '#EAC730', '#A0830A'];
+
+// SafeChart: catches any Recharts runtime error and shows a graceful fallback
+function SafeChart({ children, height = 220 }: { children: React.ReactNode; height?: number }) {
+  try {
+    return <>{children}</>;
+  } catch (e) {
+    console.error('SafeChart caught a Recharts error:', e);
+    return <div style={{ height }} className="flex items-center justify-center text-white/20 text-sm italic">Graphique indisponible</div>;
+  }
+}
 
 function StatCard({ label, value, sub, icon: Icon, color = 'text-[#D4AF37]', bg = 'bg-[#D4AF37]/10', trend }: any) {
   return (
