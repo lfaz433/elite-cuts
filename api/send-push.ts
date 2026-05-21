@@ -30,33 +30,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(500).json({ error: 'Server misconfiguration: Missing REST API KEY' });
     }
 
-    let payload: any = {
-      app_id: ONE_SIGNAL_APP_ID,
-      headings: { en: title, fr: title },
-      contents: { en: body, fr: body },
-      data: {
-        ...data,
-        type: type || 'NEW_RESERVATION',
-        notificationId: notificationId || Date.now().toString()
-      }
-    };
-
-    if (recipientId === 'admin') {
-      payload.include_aliases = { external_id: ['admin'] };
-      payload.target_channel = 'push';
-    } else {
-      payload.include_aliases = { external_id: [recipientId] };
-      payload.target_channel = 'push';
-    }
+    const redirectUrl = data?.url || '/';
 
     const response = await fetch('https://onesignal.com/api/v1/notifications', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
         'Authorization': `Basic ${ONE_SIGNAL_REST_API_KEY}`,
-        'accept': 'application/json'
+        'Content-Type': 'application/json',
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify({
+        app_id: ONE_SIGNAL_APP_ID,
+        include_external_user_ids: [recipientId],
+        contents: { en: body, fr: body },
+        headings: { en: title, fr: title },
+        url: redirectUrl,
+      }),
     });
 
     const result = await response.json();

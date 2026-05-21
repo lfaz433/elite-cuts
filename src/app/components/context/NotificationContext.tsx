@@ -56,6 +56,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
           notifyButton: {
             enable: false, // We'll use our custom modal instead of the floating bell
           },
+          serviceWorkerParam: { scope: "/" },
         });
         
         setIsInitialized(true);
