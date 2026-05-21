@@ -88,11 +88,11 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
 
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Scissors style={{ width: 22, height: 22, color: '#D4AF37' }} />
-            <span style={{ fontSize: 18, fontWeight: 700, background: 'linear-gradient(to right, #D4AF37, #FFD700)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-              {businessInfo.name || 'Elite Cuts'}
-            </span>
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'var(--primary-color)' }}>
+              <Scissors className="w-3.5 h-3.5 text-black" />
+            </div>
+            <span className="text-lg font-bold text-white">Barbe<span style={{ color: 'var(--primary-color)' }}>board</span></span>
           </div>
           <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.05)', border: 'none', borderRadius: 8, padding: 8, cursor: 'pointer', color: 'rgba(255,255,255,0.5)', display: 'flex' }}>
             <X style={{ width: 18, height: 18 }} />
@@ -103,7 +103,7 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
           {isLogin ? 'Connexion' : 'Inscription'}
         </h2>
         <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 14, marginBottom: 24 }}>
-          {isLogin ? 'Accédez à votre espace' : 'Rejoignez le salon Elite Cuts'}
+          {isLogin ? 'Accédez à votre espace' : 'Rejoignez le salon Barbeboard'}
         </p>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>

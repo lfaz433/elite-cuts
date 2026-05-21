@@ -448,7 +448,7 @@ export default function BarberDashboard() {
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
             <h1 className="text-xl font-bold bg-gradient-to-r from-[#D4AF37] to-[#FFD700] bg-clip-text text-transparent">
-              Elite Cuts
+              Barbeboard
             </h1>
           </div>
           <div className="flex items-center gap-4">

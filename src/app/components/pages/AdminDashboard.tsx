@@ -321,7 +321,7 @@ export default function AdminDashboard() {
       <nav className="bg-black/60 backdrop-blur-xl border-b border-white/5 px-6 py-4 sticky top-0 z-50">
         <div className="max-w-[1600px] mx-auto flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <h1 className="text-xl font-black bg-gradient-to-r from-[#D4AF37] to-[#FFD700] bg-clip-text text-transparent tracking-tighter">ELITE CUTS ADMIN</h1>
+            <h1 className="text-xl font-black bg-gradient-to-r from-[#D4AF37] to-[#FFD700] bg-clip-text text-transparent tracking-tighter">BARBEBOARD ADMIN</h1>
           </div>
           <div className="flex items-center gap-6">
             {user?.role === 'superadmin' && (
@@ -939,7 +939,7 @@ export default function AdminDashboard() {
                               // Footer
                               ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
                               ctx.font = '500 10px Arial, sans-serif';
-                              ctx.fillText(`© ${businessInfo.name || 'ELITE CUTS'}`, 150, 365);
+                              ctx.fillText(`© ${businessInfo.name || 'BARBEBOARD'}`, 150, 365);
                               
                               const link = document.createElement('a');
                               link.download = `QR_Pointage_${barber.name.replace(/\s+/g, '_')}.png`;
@@ -1213,7 +1213,7 @@ export default function AdminDashboard() {
                                     ctx.fillStyle = '#FFFFFF';
                                     ctx.textAlign = 'center';
                                     ctx.font = '900 24px Arial, sans-serif';
-                                    ctx.fillText((businessInfo.name || 'ELITE CUTS').toUpperCase(), 150, 60);
+                                    ctx.fillText((businessInfo.name || 'BARBEBOARD').toUpperCase(), 150, 60);
                                     
                                     ctx.fillStyle = '#D4AF37';
                                     ctx.font = '700 12px Arial, sans-serif';
@@ -1221,10 +1221,10 @@ export default function AdminDashboard() {
                                     
                                     ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
                                     ctx.font = '500 10px Arial, sans-serif';
-                                    ctx.fillText(`© ${businessInfo.name || 'ELITE CUTS'}`, 150, 365);
+                                    ctx.fillText(`© ${businessInfo.name || 'BARBEBOARD'}`, 150, 365);
                                     
                                     const link = document.createElement('a');
-                                    link.download = `QR_Salon_${(businessInfo.name || 'Elite Cuts').replace(/\s+/g, '_')}.png`;
+                                    link.download = `QR_Salon_${(businessInfo.name || 'Barbeboard').replace(/\s+/g, '_')}.png`;
                                     link.href = brandedCanvas.toDataURL('image/png');
                                     link.click();
                                   }}
@@ -1254,7 +1254,7 @@ export default function AdminDashboard() {
                                   onClick={() => {
                                     if (navigator.share) {
                                       navigator.share({
-                                        title: businessInfo.name || 'Elite Cuts',
+                                        title: businessInfo.name || 'Barbeboard',
                                         text: 'Prenez rendez-vous dans notre salon premium !',
                                         url: window.location.origin,
                                       }).catch(console.error);

@@ -77,7 +77,7 @@ export default function LandingPage() {
             ) : (
               <div className="flex items-center gap-2">
                 <Scissors className="w-8 h-8 text-[#D4AF37]" />
-                <span className="text-2xl font-bold bg-gradient-to-r from-[#D4AF37] to-[#FFD700] bg-clip-text text-transparent">{businessInfo.name || 'Elite Cuts'}</span>
+                <span className="text-2xl font-bold bg-gradient-to-r from-[#D4AF37] to-[#FFD700] bg-clip-text text-transparent">{businessInfo.name || 'Barbeboard'}</span>
               </div>
             )}
           </motion.div>
@@ -433,7 +433,7 @@ export default function LandingPage() {
           <div className="flex flex-col md:flex-row items-center justify-between gap-8">
             <div className="flex flex-col gap-6 items-center md:items-start">
               <div className="flex items-center gap-3">
-                {logo ? <img src={getOptimizedImage(logo, 200)} alt="Logo" className="h-10 object-contain" /> : <div className="flex items-center gap-2"><Scissors className="w-8 h-8 text-[#D4AF37]" /><span className="text-2xl font-bold bg-gradient-to-r from-[#D4AF37] to-[#FFD700] bg-clip-text text-transparent">{businessInfo.name || 'Elite Cuts'}</span></div>}
+                {logo ? <img src={getOptimizedImage(logo, 200)} alt="Logo" className="h-10 object-contain" /> : <div className="flex items-center gap-2"><Scissors className="w-8 h-8 text-[#D4AF37]" /><span className="text-2xl font-bold bg-gradient-to-r from-[#D4AF37] to-[#FFD700] bg-clip-text text-transparent">{businessInfo.name || 'Barbeboard'}</span></div>}
               </div>
             </div>
 
@@ -443,7 +443,7 @@ export default function LandingPage() {
                 <a href="#" className="hover:text-[#D4AF37] transition-colors">Confidentialité</a>
                 <a href="#" className="hover:text-[#D4AF37] transition-colors">CGV</a>
               </div>
-              <p className="text-white/30 text-center text-sm">© 2026 {businessInfo.name || 'Elite Cuts'}. Excellence en Coiffure Masculine.</p>
+              <p className="text-white/30 text-center text-sm">© 2026 {businessInfo.name || 'Barbeboard'}. Excellence en Coiffure Masculine.</p>
             </div>
           </div>
         </div>

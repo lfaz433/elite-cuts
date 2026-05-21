@@ -28,7 +28,7 @@ export default class ErrorBoundary extends Component<Props, State> {
             </div>
             <div className="flex items-center justify-center gap-2 mb-4">
               <Scissors className="w-6 h-6 text-[#D4AF37]" />
-              <span className="text-xl font-bold bg-gradient-to-r from-[#D4AF37] to-[#FFD700] bg-clip-text text-transparent">Elite Cuts</span>
+              <span className="text-xl font-bold bg-gradient-to-r from-[#D4AF37] to-[#FFD700] bg-clip-text text-transparent">Barbeboard</span>
             </div>
             <h1 className="text-2xl font-bold text-white mb-3">Une erreur est survenue</h1>
             <p className="text-white/50 text-sm mb-8 font-mono bg-white/5 p-3 rounded-lg border border-white/10">
