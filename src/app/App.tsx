@@ -23,6 +23,7 @@ const BoutiquePage = lazy(() => import('./components/pages/BoutiquePage'));
 const Register = lazy(() => import('./components/pages/Register'));
 const Onboarding = lazy(() => import('./components/pages/Onboarding'));
 const Billing = lazy(() => import('./components/pages/Billing'));
+const DocsPage = lazy(() => import('./components/pages/DocsPage'));
 
 // --- Premium Loading Spinner ---
 function AppLoader() {
@@ -79,18 +80,19 @@ function HomeRouter() {
   }
 
   const hostname = window.location.hostname;
-  let extractedSubdomain = 'elite-cuts-default';
-  if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    extractedSubdomain = 'elite-cuts-default';
-  } else {
-    const parts = hostname.split('.');
-    if (parts.length > 2) {
-      extractedSubdomain = parts[0];
-    }
+
+  if (
+    hostname === 'barberboard.pro' ||
+    hostname === 'www.barberboard.pro' ||
+    hostname.endsWith('.vercel.app') ||
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1'
+  ) {
+    return <HomePage />;
   }
 
-  if (extractedSubdomain === 'elite-cuts-default' || hostname === 'elitecuts.app') {
-    return <HomePage />;
+  if (hostname.endsWith('.barberboard.pro')) {
+    return <LandingPage />;
   }
 
   return <LandingPage />;
@@ -103,6 +105,7 @@ function AppRoutes() {
         <Route index element={<HomeRouter />} />
         <Route path="boutique" element={<BoutiquePage />} />
         <Route path="register" element={<Register />} />
+        <Route path="docs" element={<DocsPage />} />
       </Route>
       <Route path="/login" element={<Navigate to="/?login=true" replace />} />
       <Route path="/onboarding" element={<Onboarding />} />

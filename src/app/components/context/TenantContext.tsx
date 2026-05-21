@@ -31,21 +31,29 @@ export function useTenant() {
   return context;
 }
 
+function extractSubdomain(hostname: string): string {
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return 'elite-cuts-default';
+  }
+  if (hostname.endsWith('.vercel.app')) {
+    return 'elite-cuts-default';
+  }
+  if (hostname === 'barberboard.pro' || hostname === 'www.barberboard.pro') {
+    return 'elite-cuts-default';
+  }
+  if (hostname.endsWith('.barberboard.pro')) {
+    return hostname.split('.')[0];
+  }
+  return 'elite-cuts-default';
+}
+
 export function TenantProvider({ children }: { children: React.ReactNode }) {
   const [tenant, setTenant] = useState<TenantData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const getSubdomain = () => {
-    const hostname = window.location.hostname;
-    if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      return 'elite-cuts-default';
-    }
-    const parts = hostname.split('.');
-    if (parts.length > 2) {
-      return parts[0];
-    }
-    return 'elite-cuts-default';
+    return extractSubdomain(window.location.hostname);
   };
 
   useEffect(() => {

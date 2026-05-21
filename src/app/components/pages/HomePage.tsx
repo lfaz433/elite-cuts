@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router';
 import LoginModal from '../modals/LoginModal';
@@ -7,7 +7,7 @@ import {
   Smartphone, Menu, X, ChevronRight, ChevronLeft, Check, ChevronDown, Star
 } from 'lucide-react';
 
-type Lang = 'fr' | 'en';
+type Lang = 'fr' | 'en' | 'ar';
 
 const CONTENT = {
   fr: {
@@ -40,7 +40,7 @@ const CONTENT = {
       grid: [
         { icon: Bell, title: 'Notifications push', desc: 'Alertes temps réel pour chaque réservation.' },
         { icon: Shield, title: 'Données 100% sécurisées', desc: 'Chaque salon est isolé. Vos données restent privées.' },
-        { icon: Smartphone, title: 'Application Mobile PWA', desc: "Installez Elite Cuts sur votre iPhone ou Android en un clic. Fonctionne comme une vraie app — sans passer par l'App Store.", bullets: ['Notifications push natives', 'Fonctionne hors ligne', 'Icône sur l\'écran d\'accueil'] }
+        { icon: Smartphone, title: 'Application Mobile PWA', desc: "Installez Barbeboard sur votre iPhone ou Android en un clic. Fonctionne comme une vraie app — sans passer par l'App Store.", bullets: ['Notifications push natives', 'Fonctionne hors ligne', 'Icône sur l\'écran d\'accueil'] }
       ]
     },
     howItWorks: {
@@ -60,7 +60,7 @@ const CONTENT = {
     testimonials: {
       title: 'Ce qu\'ils en pensent',
       items: [
-        { name: 'Karim B.', salon: 'Gold Cuts Paris', text: 'Elite Cuts a transformé mon salon. En 3 mois, mes réservations ont augmenté de 40%.' },
+        { name: 'Karim B.', salon: 'Gold Cuts Paris', text: 'Barbeboard a transformé mon salon. En 3 mois, mes réservations ont augmenté de 40%.' },
         { name: 'Yassine M.', salon: 'Fade Studio Lyon', text: 'La gestion de mon équipe de 5 coiffeurs est devenue simple. Je vois tout en temps réel.' },
         { name: 'Sofiane A.', salon: 'Classic Barber Marseille', text: "L'onboarding prend 5 minutes. J'étais opérationnel le jour même." },
         { name: 'Mehdi R.', salon: 'The Barber Shop Toulouse', text: 'Le lien de réservation dans ma bio Instagram a tout changé.' }
@@ -73,14 +73,28 @@ const CONTENT = {
         { q: 'Combien de temps prend l\'installation ?', a: 'Moins de 5 minutes. Notre assistant vous guide.' },
         { q: 'Mes données sont-elles sécurisées ?', a: 'Oui. Chaque salon a ses données isolées avec Firebase.' },
         { q: 'Puis-je changer de formule ?', a: 'Oui, à tout moment. Effet immédiat.' },
-        { q: 'Y a-t-il une application mobile ?', a: 'Elite Cuts est une PWA — installez-la sur iOS et Android.' }
+        { q: 'Y a-t-il une application mobile ?', a: 'Barbeboard est une PWA — installez-la sur iOS et Android.' }
       ]
     },
-    cta: { title: 'Rejoignez les barbershops qui utilisent Elite Cuts', trust: '✓ 15 jours gratuits · ✓ Sans carte bancaire · ✓ Support inclus' },
+    cta: { title: 'Rejoignez les barbershops qui utilisent Barbeboard', trust: '✓ 15 jours gratuits · ✓ Sans carte bancaire · ✓ Support inclus' },
     footer: {
       desc: 'La plateforme des barbershops modernes',
       product: 'Produit', company: 'Entreprise', legal: 'Légal',
-      copyright: '© 2026 Elite Cuts. Tous droits réservés. Made with ❤️ for barbershops'
+      copyright: '© 2026 Barbeboard. Tous droits réservés. Made with ❤️ for barbershops'
+    },
+    mockup: {
+      dashboard: 'Dashboard',
+      monthlyRevenue: 'Revenus ce mois',
+      vsLastMonth: '+23% vs mois dernier',
+      nextBooking: 'Prochaine Réservation',
+      hairAndBeard: 'Coupe + Barbe',
+      monday: 'L', tuesday: 'M', wednesday: 'M', thursday: 'J', friday: 'V', saturday: 'S', sunday: 'D',
+      september: 'Septembre',
+      confirm: 'Confirmer',
+      active: 'Actif',
+      activeCount: '3 coiffeurs actifs aujourd\'hui',
+      mon: 'L', tue: 'M', wed: 'M', thu: 'J', fri: 'V', sat: 'S', sun: 'D',
+      thisWeek: 'Cette semaine'
     }
   },
   en: {
@@ -113,7 +127,7 @@ const CONTENT = {
       grid: [
         { icon: Bell, title: 'Push Notifications', desc: 'Real-time alerts for every booking.' },
         { icon: Shield, title: '100% Secure Data', desc: 'Every shop is isolated. Your data stays private.' },
-        { icon: Smartphone, title: 'Mobile PWA App', desc: "Install Elite Cuts on your iPhone or Android in one click. Works like a real app — without the App Store.", bullets: ['Native push notifications', 'Works offline', 'Home screen icon'] }
+        { icon: Smartphone, title: 'Mobile PWA App', desc: "Install Barbeboard on your iPhone or Android in one click. Works like a real app — without the App Store.", bullets: ['Native push notifications', 'Works offline', 'Home screen icon'] }
       ]
     },
     howItWorks: {
@@ -133,7 +147,7 @@ const CONTENT = {
     testimonials: {
       title: 'What they say',
       items: [
-        { name: 'Karim B.', salon: 'Gold Cuts Paris', text: 'Elite Cuts transformed my shop. In 3 months, my bookings increased by 40%.' },
+        { name: 'Karim B.', salon: 'Gold Cuts Paris', text: 'Barbeboard transformed my shop. In 3 months, my bookings increased by 40%.' },
         { name: 'Yassine M.', salon: 'Fade Studio Lyon', text: 'Managing my team of 5 is finally simple. I see everything in real-time.' },
         { name: 'Sofiane A.', salon: 'Classic Barber Marseille', text: 'Onboarding took 5 minutes. I was up and running the same day.' },
         { name: 'Mehdi R.', salon: 'The Barber Shop Toulouse', text: 'The booking link in my Instagram bio changed everything.' }
@@ -146,14 +160,134 @@ const CONTENT = {
         { q: 'How long does setup take?', a: 'Under 5 minutes. Our wizard guides you.' },
         { q: 'Is my data secure?', a: 'Yes. Every shop has isolated data powered by Firebase.' },
         { q: 'Can I change plans?', a: 'Yes, anytime. Changes take effect immediately.' },
-        { q: 'Is there a mobile app?', a: 'Elite Cuts is a PWA — install it on iOS and Android.' }
+        { q: 'Is there a mobile app?', a: 'Barbeboard is a PWA — install it on iOS and Android.' }
       ]
     },
-    cta: { title: 'Join the barbershops using Elite Cuts', trust: '✓ 15 days free · ✓ No credit card · ✓ Support included' },
+    cta: { title: 'Join the barbershops using Barbeboard', trust: '✓ 15 days free · ✓ No credit card · ✓ Support included' },
     footer: {
       desc: 'The platform for modern barbershops',
       product: 'Product', company: 'Company', legal: 'Legal',
-      copyright: '© 2026 Elite Cuts. All rights reserved. Made with ❤️ for barbershops'
+      copyright: '© 2026 Barbeboard. All rights reserved. Made with ❤️ for barbershops'
+    },
+    mockup: {
+      dashboard: 'Dashboard',
+      monthlyRevenue: 'Revenue this month',
+      vsLastMonth: '+23% vs last month',
+      nextBooking: 'Next Booking',
+      hairAndBeard: 'Haircut + Beard',
+      monday: 'M', tuesday: 'T', wednesday: 'W', thursday: 'T', friday: 'F', saturday: 'S', sunday: 'S',
+      september: 'September',
+      confirm: 'Confirm',
+      active: 'Active',
+      activeCount: '3 active barbers today',
+      mon: 'M', tue: 'T', wed: 'W', thu: 'T', fri: 'F', sat: 'S', sun: 'S',
+      thisWeek: 'This week'
+    }
+  },
+  ar: {
+    nav: {
+      features: 'المميزات',
+      pricing: 'الأسعار',
+      testimonials: 'آراء العملاء',
+      contact: 'تواصل معنا',
+      login: 'تسجيل الدخول',
+      trial: 'تجربة مجانية 15 يوماً'
+    },
+    hero: {
+      badge: '🚀 جديد — إدارة حلاقين متعددين متاحة الآن',
+      title: 'أدر صالون الحلاقة. طوّر أعمالك.',
+      subtitle: 'المنصة الوحيدة المصممة لصالونات الحلاقة الحديثة. الحجوزات، الفريق، الصندوق، التحليلات — كل شيء في لوحة تحكم واحدة.',
+      cta1: 'ابدأ مجاناً ←',
+      cta2: 'شاهد العرض',
+      trust: '✓ 15 يوماً مجاناً · ✓ بدون بطاقة بنكية · ✓ إلغاء في أي وقت'
+    },
+    stats: {
+      shops: '500+', shopsLabel: 'صالون',
+      revenue: '€2M+', revenueLabel: 'إيرادات مُدارة',
+      satisfaction: '98%', satisfactionLabel: 'رضا العملاء',
+      support: '24/7', supportLabel: 'دعم'
+    },
+    problems: {
+      title: 'هل تتعرف على نفسك؟',
+      p1: { title: 'دفتر مواعيد ضائع', desc: 'تفقد حجوزاتك بسبب نظام غير منظم.' },
+      p2: { title: 'لا رؤية للإيرادات', desc: 'لا تعرف أبداً مقدار ما تكسبه بالفعل.' },
+      p3: { title: 'فوضى في إدارة الفريق', desc: 'تنسيق الجداول يستغرق ساعات كل أسبوع.' },
+      solution: 'الحل ←'
+    },
+    features: {
+      f1: {
+        title: 'حجز عبر الإنترنت 24/7',
+        desc: 'يحجز عملاؤك من هواتفهم في أي وقت. تأكيدات تلقائية. قلل عدم الحضور بنسبة 60%.',
+        bullets: ['صفحة حجز مخصصة', 'تذكيرات تلقائية', 'سجل عميل كامل']
+      },
+      f2: {
+        title: 'تحليلات وتقارير فورية',
+        desc: 'تتبع إيراداتك، الإكراميات، الخدمات الأكثر مبيعاً وأداء الحلاقين.',
+        bullets: ['تقارير يومية/أسبوعية/شهرية', 'أداء كل حلاق', 'الخدمات الأكثر ربحية']
+      },
+      f3: {
+        title: 'إدارة فريق كاملة',
+        desc: 'أضف حلاقيك، حدد جداولهم وتتبع أدائهم. لكل حلاق بوابته الخاصة.',
+        bullets: ['بوابة مخصصة لكل حلاق', 'جدولة أسبوعية', 'الإكراميات والعمولات']
+      },
+      grid: [
+        { icon: Bell, title: 'إشعارات فورية', desc: 'تنبيهات فورية لكل حجز جديد.' },
+        { icon: Shield, title: 'بيانات آمنة 100%', desc: 'كل صالون معزول تماماً. بياناتك تظل خاصة.' },
+        { icon: Smartphone, title: 'تطبيق ويب PWA للموبايل', desc: 'ثبت Barbeboard على هاتف آيفون أو أندرويد بنقرة واحدة. يعمل كتطبيق حقيقي دون الحاجة لمتجر التطبيقات.', bullets: ['إشعارات دفع أصلية', 'يعمل بدون اتصال بالإنترنت', 'أيقونة على الشاشة الرئيسية'] }
+      ]
+    },
+    howItWorks: {
+      title: 'كيف يعمل؟',
+      s1: { title: 'أنشئ حسابك', desc: 'التسجيل يستغرق دقيقتين. اختر اسم النطاق الفرعي الخاص بك.' },
+      s2: { title: 'قم بإعداد صالونك', desc: 'أضف الحلاقين، الخدمات وأوقات العمل.' },
+      s3: { title: 'طور أعمالك', desc: 'ابدأ في استقبال الحجوزات وتتبع نموك.' }
+    },
+    pricing: {
+      title: 'أسعار بسيطة وشفافة',
+      monthly: 'شهري', annual: 'سنوي (توفير 20%)',
+      basic: { name: 'أساسي', desc: 'للحلاقين المستقلين', price: 29, features: ['حلاقين كحد أقصى 2', 'حجوزات غير محدودة عبر الإنترنت', 'إشعارات تلقائية', 'تقارير أساسية', 'دعم عبر البريد الإلكتروني'] },
+      pro: { name: 'برو', desc: 'للصالونات النامية', badge: '⭐ الأكثر شعبية', price: 59, features: ['حلاقين كحد أقصى 8', 'كل ما في الأساسي + تحليلات متقدمة', 'نظام كاشير متكامل', 'إشعارات فورية', 'دعم ذو أولوية'] },
+      enterprise: { name: 'شراكة', desc: 'للعلامات التجارية والصالونات المتعددة', price: 99, features: ['حلاقين غير محدودين', 'كل ما في برو + نطاق مخصص', 'إعداد ومرافقة مخصصة', 'دعم عبر الهاتف', 'واجهة برمجة تطبيقات API مخصصة'] },
+      ctaFree: 'ابدأ مجاناً', ctaContact: 'تواصل معنا'
+    },
+    testimonials: {
+      title: 'ماذا يقول عملاؤنا',
+      items: [
+        { name: 'كريم ب.', salon: 'جولد كاتس باريس', text: 'Barbeboard غيّر صالوني تماماً. زادت حجوزاتي بنسبة 40% خلال 3 أشهر.' },
+        { name: 'ياسين م.', salon: 'فيد ستوديو ليون', text: 'إدارة فريقي المكون من 5 حلاقين أصبحت بسيطة جداً. أرى كل شيء بشكل فوري.' },
+        { name: 'سفيان أ.', salon: 'كلاسيك باربر مارسيليا', text: 'التسجيل لم يستغرق سوى 5 دقائق. بدأت العمل في نفس اليوم.' },
+        { name: 'مهدي ر.', salon: 'ذا باربر شوب تولوز', text: 'رابط الحجز في حسابي على إنستغرام غيّر كل شيء.' }
+      ]
+    },
+    faq: {
+      title: 'الأسئلة الشائعة',
+      items: [
+        { q: 'هل يمكنني الإلغاء في أي وقت؟', a: 'نعم، بدون أي التزامات. يمكنك الإلغاء بنقرة واحدة.' },
+        { q: 'كم يستغرق الإعداد؟', a: 'أقل من 5 دقائق. سيقوم مساعدنا بإرشادك خطوة بخطوة.' },
+        { q: 'هل بياناتي آمنة؟', a: 'نعم، كل صالون معزول تماماً ومدعوم بتقنيات Firebase الآمنة.' },
+        { q: 'هل يمكنني تغيير خطتي؟', a: 'نعم، في أي وقت. يتم تطبيق التغييرات فوراً.' },
+        { q: 'هل يوجد تطبيق للموبايل؟', a: 'Barbeboard هو تطبيق PWA — يمكنك تثبيته على آيفون وأندرويد.' }
+      ]
+    },
+    cta: { title: 'انضم إلى صالونات الحلاقة التي تثق في Barbeboard', trust: '✓ 15 يوماً مجاناً · ✓ بدون بطاقة بنكية · ✓ الدعم مشمول' },
+    footer: {
+      desc: 'المنصة المتكاملة لصالونات الحلاقة الحديثة',
+      product: 'المنتج', company: 'الشركة', legal: 'قانوني',
+      copyright: '© 2025 Barbeboard. جميع الحقوق محفوظة.'
+    },
+    mockup: {
+      dashboard: 'لوحة التحكم',
+      monthlyRevenue: 'إيرادات هذا الشهر',
+      vsLastMonth: '+23% مقارنة بالشهر الماضي',
+      nextBooking: 'الحجز التالي',
+      hairAndBeard: 'قصة شعر + لحية',
+      monday: 'ن', tuesday: 'ث', wednesday: 'ر', thursday: 'خ', friday: 'ج', saturday: 'س', sunday: 'ح',
+      september: 'سبتمبر',
+      confirm: 'تأكيد',
+      active: 'نشط',
+      activeCount: '3 حلاقين نشطين اليوم',
+      mon: 'ن', tue: 'ث', wed: 'ر', thu: 'خ', fri: 'ج', sat: 'س', sun: 'ح',
+      thisWeek: 'هذا الأسبوع'
     }
   }
 };
@@ -167,9 +301,40 @@ export default function HomePage() {
   const [loginOpen, setLoginOpen] = useState(false);
   const navigate = useNavigate();
 
+  const [langDropdownOpen, setLangDropdownOpen] = useState(false);
+  const desktopDropdownRef = useRef<HTMLDivElement>(null);
+  const mobileDropdownRef = useRef<HTMLDivElement>(null);
+
+  const languages = [
+    { code: 'fr', label: 'Français', flag: '🇫🇷' },
+    { code: 'en', label: 'English', flag: '🇬🇧' },
+    { code: 'ar', label: 'العربية', flag: '🇸🇦' },
+  ];
+
+  const currentLanguage = languages.find(l => l.code === lang) || languages[0];
+
   useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (
+        (!desktopDropdownRef.current || !desktopDropdownRef.current.contains(target)) &&
+        (!mobileDropdownRef.current || !mobileDropdownRef.current.contains(target))
+      ) {
+        setLangDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Noto+Sans+Arabic:wght@300;400;500;600;700;800;900&display=swap';
+    document.head.appendChild(link);
+
     const savedLang = localStorage.getItem('elite_lang') as Lang;
-    if (savedLang && (savedLang === 'fr' || savedLang === 'en')) setLang(savedLang);
+    if (savedLang && (savedLang === 'fr' || savedLang === 'en' || savedLang === 'ar')) setLang(savedLang);
 
     const params = new URLSearchParams(window.location.search);
     if (params.get('login') === 'true') {
@@ -182,8 +347,17 @@ export default function HomePage() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  const toggleLang = () => {
-    const newLang = lang === 'fr' ? 'en' : 'fr';
+  useEffect(() => {
+    if (lang === 'ar') {
+      document.documentElement.dir = 'rtl';
+      document.documentElement.lang = 'ar';
+    } else {
+      document.documentElement.dir = 'ltr';
+      document.documentElement.lang = lang;
+    }
+  }, [lang]);
+
+  const selectLang = (newLang: Lang) => {
     setLang(newLang);
     localStorage.setItem('elite_lang', newLang);
   };
@@ -191,7 +365,13 @@ export default function HomePage() {
   const t = CONTENT[lang];
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white selection:bg-[#D4AF37]/30 font-sans">
+    <div 
+      className={`min-h-screen bg-[#0a0a0a] text-white selection:bg-[#D4AF37]/30 ${lang === 'ar' ? 'text-right' : 'text-left'}`}
+      style={{ 
+        fontFamily: lang === 'ar' ? "'Noto Sans Arabic', sans-serif" : "'Inter', sans-serif",
+        '--primary-color': '#D4AF37'
+      } as React.CSSProperties}
+    >
       
       {/* Animated Background Gradients */}
       <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
@@ -202,9 +382,11 @@ export default function HomePage() {
       {/* Navbar */}
       <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${isScrolled ? 'bg-[#0a0a0a]/80 backdrop-blur-md border-b border-[#D4AF37]/20 py-4' : 'bg-transparent py-6'}`}>
         <div className="max-w-7xl mx-auto px-6 flex items-center justify-between">
-          <div className="flex items-center gap-2 cursor-pointer" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
-            <Scissors className="w-8 h-8 text-[#D4AF37]" />
-            <span className="text-2xl font-bold text-white tracking-tight">Elite <span className="text-[#D4AF37]">Cuts</span></span>
+          <div style={{ fontFamily: "'Inter', sans-serif" }} className="flex items-center gap-2 cursor-pointer select-none py-1 flex-shrink-0" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'var(--primary-color)' }}>
+              <Scissors className="w-4 h-4 text-black" />
+            </div>
+            <span className="text-xl font-bold text-white tracking-tight leading-none">Barbe<span style={{ color: 'var(--primary-color)' }}>board</span></span>
           </div>
 
           <div className="hidden md:flex items-center gap-8">
@@ -212,12 +394,49 @@ export default function HomePage() {
             <a href="#tarifs" className="text-white/70 hover:text-white transition-colors font-medium text-sm">{t.nav.pricing}</a>
             <a href="#temoignages" className="text-white/70 hover:text-white transition-colors font-medium text-sm">{t.nav.testimonials}</a>
             <a href="#contact" className="text-white/70 hover:text-white transition-colors font-medium text-sm">{t.nav.contact}</a>
+            <a href="/docs" className="text-white/70 hover:text-[#D4AF37] transition-colors font-medium text-sm">Documentation</a>
           </div>
 
           <div className="hidden md:flex items-center gap-5">
-            <button onClick={toggleLang} className="text-xs font-bold uppercase text-white/50 hover:text-white transition-colors border border-white/10 px-2 py-1 rounded">
-              {lang === 'fr' ? 'EN' : 'FR'}
-            </button>
+            <div className="relative" ref={desktopDropdownRef}>
+              <button
+                onClick={() => setLangDropdownOpen(!langDropdownOpen)}
+                className="flex items-center gap-2 px-3 py-1.5 border border-white/10 rounded-lg bg-white/5 hover:bg-white/10 transition-colors text-sm font-semibold text-white/90 select-none cursor-pointer"
+              >
+                <span>{currentLanguage.flag}</span>
+                <span className="uppercase text-xs font-bold">{currentLanguage.code}</span>
+                <ChevronDown className={`w-3 h-3 text-[#D4AF37] transition-transform duration-200 ${langDropdownOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              <AnimatePresence>
+                {langDropdownOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 10 }}
+                    transition={{ duration: 0.15 }}
+                    className={`absolute ${lang === 'ar' ? 'left-0' : 'right-0'} top-full mt-2 w-48 bg-[#1a1a1a]/95 backdrop-blur-md border border-[#D4AF37]/30 rounded-xl overflow-hidden shadow-2xl z-50 py-1`}
+                  >
+                    {languages.map((l) => (
+                      <button
+                        key={l.code}
+                        onClick={() => {
+                          selectLang(l.code as Lang);
+                          setLangDropdownOpen(false);
+                        }}
+                        className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/5 text-sm text-white/80 hover:text-white transition-colors cursor-pointer"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="text-base">{l.flag}</span>
+                          <span className="font-medium">{l.label}</span>
+                        </div>
+                        {lang === l.code && <Check className="w-4 h-4 text-[#D4AF37]" />}
+                      </button>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
             <button onClick={() => setLoginOpen(true)} className="text-sm font-medium hover:text-[#D4AF37] transition-colors">{t.nav.login}</button>
             <button onClick={() => navigate('/register')} className="px-5 py-2.5 bg-[#D4AF37] text-black rounded-lg font-bold text-sm hover:bg-[#FFD700] transition-all hover:shadow-lg hover:shadow-[#D4AF37]/20 active:scale-95">
               {t.nav.trial}
@@ -237,12 +456,54 @@ export default function HomePage() {
               <a href="#fonctionnalites" onClick={() => setMobileMenuOpen(false)}>{t.nav.features}</a>
               <a href="#tarifs" onClick={() => setMobileMenuOpen(false)}>{t.nav.pricing}</a>
               <a href="#temoignages" onClick={() => setMobileMenuOpen(false)}>{t.nav.testimonials}</a>
-              <button onClick={() => { setMobileMenuOpen(false); setLoginOpen(true); }} className="text-left text-[#D4AF37] mt-4">{t.nav.login}</button>
+              <a href="/docs" onClick={() => setMobileMenuOpen(false)}>Documentation</a>
+              <button onClick={() => { setMobileMenuOpen(false); setLoginOpen(true); }} className={`text-[#D4AF37] mt-4 ${lang === 'ar' ? 'text-right' : 'text-left'}`}>{t.nav.login}</button>
               <button onClick={() => { setMobileMenuOpen(false); navigate('/register'); }} className="mt-4 px-6 py-4 bg-[#D4AF37] text-black rounded-xl text-center shadow-lg shadow-[#D4AF37]/20">{t.nav.trial}</button>
             </div>
-            <button onClick={toggleLang} className="mt-auto mb-10 text-center font-bold text-white/50 p-4 border border-white/10 rounded-xl">
-              Switch to {lang === 'fr' ? 'English' : 'Français'}
-            </button>
+            <div className="mt-auto mb-10 flex justify-center w-full">
+              <div className="relative w-48" ref={mobileDropdownRef}>
+                <button
+                  onClick={() => setLangDropdownOpen(!langDropdownOpen)}
+                  className="w-full flex items-center justify-between px-4 py-2.5 border border-white/10 rounded-lg bg-white/5 hover:bg-white/10 transition-colors text-sm font-semibold text-white/90 select-none cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    <span>{currentLanguage.flag}</span>
+                    <span className="font-medium">{currentLanguage.label}</span>
+                  </div>
+                  <ChevronDown className={`w-3.5 h-3.5 text-[#D4AF37] transition-transform duration-200 ${langDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                <AnimatePresence>
+                  {langDropdownOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={{ duration: 0.15 }}
+                      className="absolute bottom-full left-0 right-0 mb-2 bg-[#1a1a1a]/95 backdrop-blur-md border border-[#D4AF37]/30 rounded-xl overflow-hidden shadow-2xl z-50 py-1"
+                    >
+                      {languages.map((l) => (
+                        <button
+                          key={l.code}
+                          onClick={() => {
+                            selectLang(l.code as Lang);
+                            setLangDropdownOpen(false);
+                            setMobileMenuOpen(false);
+                          }}
+                          className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/5 text-sm text-white/80 hover:text-white transition-colors cursor-pointer"
+                        >
+                          <div className="flex items-center gap-3">
+                            <span className="text-base">{l.flag}</span>
+                            <span className="font-medium">{l.label}</span>
+                          </div>
+                          {lang === l.code && <Check className="w-4 h-4 text-[#D4AF37]" />}
+                        </button>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -289,7 +550,7 @@ export default function HomePage() {
               className="relative rounded-2xl border border-white/10 bg-[#111]/80 backdrop-blur-xl shadow-2xl p-6"
             >
               <div className="flex items-center justify-between mb-8 border-b border-white/5 pb-4">
-                <div className="text-sm font-bold text-white/50">Dashboard</div>
+                <div className="text-sm font-bold text-white/50">{t.mockup.dashboard}</div>
                 <div className="flex gap-2">
                   <div className="w-3 h-3 rounded-full bg-red-500/50" />
                   <div className="w-3 h-3 rounded-full bg-yellow-500/50" />
@@ -298,9 +559,9 @@ export default function HomePage() {
               </div>
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div className="p-4 rounded-xl bg-white/5 border border-white/5">
-                  <div className="text-xs text-white/40 mb-1">Revenus ce mois</div>
+                  <div className="text-xs text-white/40 mb-1">{t.mockup.monthlyRevenue}</div>
                   <div className="text-2xl font-black text-[#D4AF37]">€4,280</div>
-                  <div className="text-[10px] text-green-400 mt-1 flex items-center gap-1">+23% vs mois dernier</div>
+                  <div className="text-[10px] text-green-400 mt-1 flex items-center gap-1">{t.mockup.vsLastMonth}</div>
                 </div>
                 <div className="p-4 rounded-xl bg-white/5 border border-white/5 flex flex-col justify-end">
                   <div className="flex items-end justify-between h-12 gap-1 opacity-70">
@@ -311,12 +572,12 @@ export default function HomePage() {
                 </div>
               </div>
               <div className="space-y-3">
-                <div className="text-xs font-bold text-white/40 uppercase tracking-widest mt-6 mb-2">Prochaine Réservation</div>
+                <div className="text-xs font-bold text-white/40 uppercase tracking-widest mt-6 mb-2">{t.mockup.nextBooking}</div>
                 <div className="p-3 rounded-lg bg-white/5 border border-white/5 flex items-center gap-4">
                   <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#D4AF37] to-[#FFD700] text-black flex items-center justify-center font-bold">JD</div>
                   <div className="flex-1">
                     <div className="text-sm font-bold">John Doe</div>
-                    <div className="text-xs text-white/50">Coupe + Barbe</div>
+                    <div className="text-xs text-white/50">{t.mockup.hairAndBeard}</div>
                   </div>
                   <div className="text-sm font-mono text-[#D4AF37]">14:30</div>
                 </div>
@@ -327,7 +588,7 @@ export default function HomePage() {
       </div>
 
       <div className="border-y border-white/5 bg-[#111]/50 backdrop-blur-sm py-10">
-        <div className="max-w-7xl mx-auto px-6 grid grid-cols-2 md:grid-cols-4 gap-8 divide-x divide-white/5">
+        <div className={`max-w-7xl mx-auto px-6 grid grid-cols-2 md:grid-cols-4 gap-8 divide-white/5 ${lang === 'ar' ? 'divide-x-reverse' : 'divide-x'}`}>
           {[
             { v: t.stats.shops, l: t.stats.shopsLabel },
             { v: t.stats.revenue, l: t.stats.revenueLabel },
@@ -386,14 +647,14 @@ export default function HomePage() {
               <div className="absolute inset-0 bg-gradient-to-br from-[#D4AF37]/5 to-transparent" />
               <div className="w-full max-w-sm bg-black rounded-2xl border border-white/10 shadow-2xl p-6 relative z-10">
                 <div className="flex justify-between items-center mb-6">
-                  <div className="text-white font-bold">Septembre</div>
+                  <div className="text-white font-bold">{t.mockup.september}</div>
                   <div className="flex gap-2">
                     <ChevronLeft className="w-4 h-4 text-white/50" />
                     <ChevronRight className="w-4 h-4 text-white/50" />
                   </div>
                 </div>
                 <div className="grid grid-cols-7 gap-2 text-center text-xs text-white/50 mb-4">
-                  <div>L</div><div>M</div><div>M</div><div>J</div><div>V</div><div>S</div><div>D</div>
+                  <div>{t.mockup.mon}</div><div>{t.mockup.tue}</div><div>{t.mockup.wed}</div><div>{t.mockup.thu}</div><div>{t.mockup.fri}</div><div>{t.mockup.sat}</div><div>{t.mockup.sun}</div>
                 </div>
                 <div className="grid grid-cols-7 gap-2 text-center text-sm font-medium mb-6">
                   {[...Array(30)].map((_, i) => (
@@ -407,7 +668,7 @@ export default function HomePage() {
                   <div className="flex-1 py-2 text-center rounded-lg bg-[#D4AF37] text-black font-bold text-xs shadow-lg shadow-[#D4AF37]/20">11:30</div>
                   <div className="flex-1 py-2 text-center rounded-lg border border-white/10 text-xs">14:00</div>
                 </div>
-                <button className="w-full py-3 bg-white/10 rounded-xl text-sm font-bold text-white">Confirmer</button>
+                <button className="w-full py-3 bg-white/10 rounded-xl text-sm font-bold text-white">{t.mockup.confirm}</button>
               </div>
             </motion.div>
           </div>
@@ -418,11 +679,11 @@ export default function HomePage() {
               <div className="w-full max-w-sm relative z-10 space-y-6">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="bg-black border border-white/10 p-4 rounded-xl">
-                    <div className="text-xs text-white/50 mb-1">Lundi</div>
+                    <div className="text-xs text-white/50 mb-1">{t.mockup.monday}</div>
                     <div className="text-xl font-bold text-white">€1,240</div>
                   </div>
                   <div className="bg-black border border-white/10 p-4 rounded-xl">
-                    <div className="text-xs text-white/50 mb-1">Mardi</div>
+                    <div className="text-xs text-white/50 mb-1">{t.mockup.tuesday}</div>
                     <div className="text-xl font-bold text-white">€980</div>
                   </div>
                 </div>
@@ -432,12 +693,12 @@ export default function HomePage() {
                       <div key={i} className="flex-1 bg-gradient-to-t from-[#D4AF37]/20 to-[#D4AF37] rounded-t-sm" style={{ height: `${h}%` }} />
                     ))}
                   </div>
-                  <div className="flex justify-between text-[10px] text-white/40 font-medium">
-                    <span>L</span><span>M</span><span>M</span><span>J</span><span>V</span><span>S</span><span>D</span>
+                  <div className="flex justify-between text-[10px] text-white/40 font-medium font-mono">
+                    <span>{t.mockup.mon}</span><span>{t.mockup.tue}</span><span>{t.mockup.wed}</span><span>{t.mockup.thu}</span><span>{t.mockup.fri}</span><span>{t.mockup.sat}</span><span>{t.mockup.sun}</span>
                   </div>
                 </div>
                 <div className="bg-[#D4AF37]/10 border border-[#D4AF37]/20 p-4 rounded-xl text-center">
-                  <div className="text-xs text-[#D4AF37] mb-1">Cette semaine</div>
+                  <div className="text-xs text-[#D4AF37] mb-1">{t.mockup.thisWeek}</div>
                   <div className="text-2xl font-black text-[#D4AF37]">€4,280</div>
                 </div>
               </div>
@@ -486,12 +747,12 @@ export default function HomePage() {
                       <div className="text-xs text-white/50">{member.spec}</div>
                     </div>
                     <div className="px-2 py-1 rounded-md bg-green-500/20 text-green-400 border border-green-500/20 text-[10px] font-bold uppercase tracking-wider">
-                      Actif
+                      {t.mockup.active}
                     </div>
                   </div>
                 ))}
                 <div className="pt-4 mt-2 border-t border-white/10 text-center text-xs text-white/50">
-                  3 coiffeurs actifs aujourd'hui
+                  {t.mockup.activeCount}
                 </div>
               </div>
             </motion.div>
@@ -613,7 +874,7 @@ export default function HomePage() {
         <div className="space-y-4">
           {t.faq.items.map((item, i) => (
             <div key={i} className="border border-white/10 rounded-2xl bg-[#111] overflow-hidden">
-              <button onClick={() => setOpenFaq(openFaq === i ? null : i)} className="w-full text-left p-6 flex items-center justify-between font-bold text-lg hover:text-[#D4AF37] transition-colors">
+              <button onClick={() => setOpenFaq(openFaq === i ? null : i)} className={`w-full p-6 flex items-center justify-between font-bold text-lg hover:text-[#D4AF37] transition-colors ${lang === 'ar' ? 'text-right' : 'text-left'}`}>
                 {item.q}
                 <ChevronDown className={`w-5 h-5 transition-transform ${openFaq === i ? 'rotate-180' : ''}`} />
               </button>
@@ -645,9 +906,11 @@ export default function HomePage() {
         <div className="max-w-7xl mx-auto px-6">
           <div className="grid md:grid-cols-4 gap-12 mb-16">
             <div className="md:col-span-1">
-              <div className="flex items-center gap-2 mb-4">
-                <Scissors className="w-6 h-6 text-[#D4AF37]" />
-                <span className="text-xl font-bold text-white tracking-tight">Elite <span className="text-[#D4AF37]">Cuts</span></span>
+              <div style={{ fontFamily: "'Inter', sans-serif" }} className="flex items-center gap-2 mb-4 select-none flex-shrink-0">
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'var(--primary-color)' }}>
+                  <Scissors className="w-4 h-4 text-black" />
+                </div>
+                <span className="text-xl font-bold text-white tracking-tight leading-none">Barbe<span style={{ color: 'var(--primary-color)' }}>board</span></span>
               </div>
               <p className="text-white/40 text-sm leading-relaxed">{t.footer.desc}</p>
             </div>

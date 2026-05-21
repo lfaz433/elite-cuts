@@ -9,3 +9,4 @@ functions/.env
 functions/lib/
 gcloud init/
 scratch/
+.vercel
