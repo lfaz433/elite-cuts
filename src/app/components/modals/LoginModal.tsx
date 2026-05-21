@@ -8,12 +8,6 @@ import { toast } from 'sonner';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../../lib/firebase';
 
-// Demo accounts always available for testing
-const DEMO_ACCOUNTS = [
-  { role: 'admin' as const, label: 'Admin', emoji: '👑', email: 'admin-elite@test.com', password: 'password123', color: '#D4AF37', description: 'Tableau de bord admin' },
-  { role: 'barber' as const, label: 'Coiffeur', emoji: '✂️', email: 'barber@test.com', password: 'password123', color: '#818cf8', description: 'Marcus Johnson' },
-  { role: 'client' as const, label: 'Client', emoji: '👤', email: 'client@test.com', password: 'password123', color: '#34d399', description: 'Accès client' },
-];
 
 export default function LoginModal({ onClose }: { onClose: () => void }) {
   const [isLogin, setIsLogin] = useState(true);
@@ -160,61 +154,6 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
                       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                       gap: 4, padding: '10px 6px', background: 'rgba(212,175,55,0.08)',
                       border: '1px solid rgba(212,175,55,0.25)', borderRadius: 12, cursor: isSubmitting ? 'wait' : 'pointer',
-                      transition: 'all 0.2s',
-                    }}
-                  >
-                    <span style={{ fontSize: 16 }}>{demo.emoji}</span>
-                    <span style={{ color: 'white', fontSize: 11, fontWeight: 700 }}>{demo.label}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Quick Access Grid */}
-          {isLogin && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
-              <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 2px 0' }}>Accès Démo Rapide</p>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-                {DEMO_ACCOUNTS.map(demo => (
-                  <button
-                    key={demo.role}
-                    type="button"
-                    disabled={isSubmitting}
-                    onClick={async () => {
-                      setIsSubmitting(true);
-                      setEmail(demo.email);
-                      setPassword(demo.password);
-                      try {
-                        await login(demo.email, demo.password);
-                        toast.success(`Connecté en tant que ${demo.label} !`);
-                      } catch (error: any) {
-                        if (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
-                          try {
-                            toast.loading(`Création automatique du compte ${demo.label}...`);
-                            await signup(demo.email, demo.password, demo.role === 'admin' ? 'Administrateur' : demo.role === 'barber' ? 'Marcus Johnson' : 'Client Démo');
-                            toast.success(`Compte ${demo.label} configuré et connecté !`);
-                          } catch (signupErr: any) {
-                            toast.error(`Échec de la configuration: ${signupErr.message}`);
-                          }
-                        } else {
-                          toast.error(`Erreur d'authentification (${demo.label})`);
-                        }
-                      } finally {
-                        setIsSubmitting(false);
-                      }
-                    }}
-                    style={{
-                      padding: '12px 6px',
-                      background: `rgba(${demo.role === 'admin' ? '212,175,55' : demo.role === 'barber' ? '129,140,248' : '52,211,153'}, 0.08)`,
-                      border: `1px solid rgba(${demo.role === 'admin' ? '212,175,55' : demo.role === 'barber' ? '129,140,248' : '52,211,153'}, 0.25)`,
-                      borderRadius: 12,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 4,
-                      cursor: isSubmitting ? 'wait' : 'pointer',
                       transition: 'all 0.2s',
                     }}
                   >
