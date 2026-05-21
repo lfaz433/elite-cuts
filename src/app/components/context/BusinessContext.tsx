@@ -336,7 +336,7 @@ const defaultProducts: Product[] = [
 const BusinessContext = createContext<BusinessContextType | undefined>(undefined);
 
 export function BusinessProvider({ children }: { children: ReactNode }) {
-  const { tenantId } = useTenant();
+  const { tenantId, subdomain } = useTenant();
   const [services, setServices] = useState<Service[]>([]);
   const [barbers, setBarbers] = useState<Barber[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -432,12 +432,14 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
 
   // Auto-seed if empty (Dev/First Run)
   useEffect(() => {
-    if (!loading && services.length === 0 && barbers.length === 0 && !isSeeding) {
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const isDefaultSubdomain = subdomain === 'elite-cuts-default';
+    if (isLocalhost && isDefaultSubdomain && !loading && services.length === 0 && barbers.length === 0 && !isSeeding) {
       setIsSeeding(true);
       console.log("Database empty, seeding default data...");
       seedDatabase().finally(() => setIsSeeding(false));
     }
-  }, [loading, services.length, barbers.length, isSeeding]);
+  }, [loading, services.length, barbers.length, isSeeding, subdomain]);
 
   const addService = async (service: Omit<Service, 'id'>) => {
     await addDoc(collection(db, 'services'), { ...service, tenantId });

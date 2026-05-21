@@ -16,6 +16,7 @@ export interface TenantData {
   settings: { maxBarbersLimit: number; allowOnlineBooking: boolean };
   onboardingComplete?: boolean;
   isDemo?: boolean;
+  subdomain?: string;
 }
 
 interface TenantContextType extends TenantData {
@@ -69,6 +70,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
       if (subdomain === 'elite-cuts-default') {
         const fallbackTenant = {
           tenantId: 'default-tenant',
+          subdomain: 'elite-cuts-default',
           name: "Barbeboard",
           branding: { primaryColor: "#D4AF37", logoUrl: "", businessName: "Barbeboard" },
           subscription: { 
@@ -120,6 +122,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
           const data = doc.data();
           setTenant({
             tenantId: doc.id,
+            subdomain: data.subdomain,
             name: data.name,
             branding: data.branding,
             subscription: {
@@ -159,6 +162,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
             const data = tenantDoc.data();
             setTenant({
               tenantId: tenantDoc.id,
+              subdomain: data.subdomain,
               name: data.name,
               branding: data.branding,
               subscription: {
