@@ -115,37 +115,34 @@ export function BarberAnalytics({ bookings, barbers, services, attendance, isBar
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }, []);
 
+  const _isSaleToday = (s: any): boolean => {
+    if (s.createdAt) {
+      try {
+        const d = new Date(typeof s.createdAt === 'number' ? s.createdAt : s.createdAt.toMillis?.() || s.createdAt);
+        const str = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        if (str === today) return true;
+      } catch { /* ignore */ }
+    }
+    if (s.date && s.date === today) return true;
+    if (s.completedAt) {
+      try {
+        const d = new Date(s.completedAt);
+        const str = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        if (str === today) return true;
+      } catch { /* ignore */ }
+    }
+    return false;
+  };
+
   const revenusAujourdhui = useMemo(() => {
     return (sales || [])
-      .filter(s => {
-        // Check createdAt timestamp (local date)
-        if (s.createdAt) {
-          try {
-            const d = new Date(s.createdAt);
-            const str = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-            if (str === today) return true;
-          } catch { /* ignore */ }
-        }
-        // Also check date string field (some sales stored as YYYY-MM-DD)
-        if (s.date && s.date === today) return true;
-        return false;
-      })
+      .filter(_isSaleToday)
       .reduce((sum, s) => sum + Number(s.amount || s.pricePaid || 0), 0);
   }, [sales, today]);
 
   const pourboiresToday = useMemo(() => {
     return (sales || [])
-      .filter(s => {
-        if (s.createdAt) {
-          try {
-            const d = new Date(s.createdAt);
-            const str = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-            if (str === today) return true;
-          } catch { /* ignore */ }
-        }
-        if (s.date && s.date === today) return true;
-        return false;
-      })
+      .filter(_isSaleToday)
       .reduce((sum, s) => sum + Number(s.tips || 0), 0);
   }, [sales, today]);
 

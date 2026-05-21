@@ -82,9 +82,9 @@ function ProductCard({ product, onSelect, authUser }: { product: any; onSelect: 
         )}
         <div className="flex items-center justify-between mt-3">
           <div>
-            <span className="text-[#D4AF37] font-black text-base">€{price.toFixed(2)}</span>
+            <span className="text-[#D4AF37] font-black text-base">€{Number(price || 0).toFixed(2)}</span>
             {hasPromo && (
-              <span className="text-white/30 line-through text-xs ml-2">€{product.sellPrice.toFixed(2)}</span>
+              <span className="text-white/30 line-through text-xs ml-2">€{Number(product.sellPrice || 0).toFixed(2)}</span>
             )}
           </div>
           {product.stock != null && product.stock > 0 && (
@@ -150,7 +150,7 @@ export default function BoutiquePage() {
       await updateProduct(productId, { stock: Math.max(0, product.stock - quantity) });
     }
 
-    toast.success(`Vente enregistrée — €${(customPrice * quantity * (1 - discount / 100)).toFixed(2)}`);
+    toast.success(`Vente enregistrée — €${Number(customPrice * quantity * (1 - discount / 100) || 0).toFixed(2)}`);
     setSelectedProduct(null);
   };
 

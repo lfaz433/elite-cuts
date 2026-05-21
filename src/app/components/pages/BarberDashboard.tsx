@@ -880,8 +880,8 @@ export default function BarberDashboard() {
                       <p className="text-white font-bold text-sm truncate">{product.name}</p>
                       <div className="flex items-center justify-between">
                         <div>
-                          <span className="text-[#D4AF37] font-black text-sm">€{(product.promoPrice ?? product.sellPrice).toFixed(2)}</span>
-                          {product.promoPrice && <span className="text-white/25 line-through text-xs ml-1">€{product.sellPrice.toFixed(2)}</span>}
+                          <span className="text-[#D4AF37] font-black text-sm">€{Number(product.promoPrice ?? product.sellPrice ?? 0).toFixed(2)}</span>
+                          {product.promoPrice && <span className="text-white/25 line-through text-xs ml-1">€{Number(product.sellPrice || 0).toFixed(2)}</span>}
                         </div>
                         <span className="text-white/25 text-[10px]">Stock: {product.stock ?? '∞'}</span>
                       </div>

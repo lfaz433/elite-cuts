@@ -71,11 +71,17 @@ service cloud.firestore {
       allow read, write: if isSuperAdmin();
     }
 
-    // 5. Unmigrated / Legacy Collections (Locked to prevent data leaks until migrated)
-    match /gallery/{document=**} {
-      allow read, write: if false;
+    // 5. Products collection (demo open)
+    match /products/{productId} {
+      allow read, write: if true;
     }
 
+    // Updated gallery rules (demo open)
+    match /gallery/{galleryId} {
+      allow read, write: if true;
+    }
+
+    // 6. Unmigrated / Legacy Collections (Locked to prevent data leaks until migrated)
     match /attendance/{document=**} {
       allow read, write: if false;
     }

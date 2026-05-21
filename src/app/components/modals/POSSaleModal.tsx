@@ -114,8 +114,8 @@ export function POSSaleModal({ product, currentBarber, onClose, onSell }: POSSal
             <div className="flex-1 min-w-0">
               <p className="font-black text-white text-base leading-tight truncate">{product.name}</p>
               <p className="text-[#D4AF37] font-bold text-sm mt-0.5">
-                €{(product.promoPrice ?? product.sellPrice).toFixed(2)}
-                {product.promoPrice && <span className="text-white/30 line-through text-xs ml-2">€{product.sellPrice.toFixed(2)}</span>}
+                €{Number(product.promoPrice ?? product.sellPrice ?? 0).toFixed(2)}
+                {product.promoPrice && <span className="text-white/30 line-through text-xs ml-2">€{Number(product.sellPrice || 0).toFixed(2)}</span>}
               </p>
               {isOutOfStock && (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-500/10 text-red-400 border border-red-500/20 rounded-lg text-[10px] font-black mt-1">

@@ -375,15 +375,22 @@ export default function AdminDashboard() {
                     // Local date string to avoid UTC-midnight timezone mismatch
                     const _d = new Date();
                     const _today = `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, '0')}-${String(_d.getDate()).padStart(2, '0')}`;
-                    const _isSaleToday = (s: any) => {
+                    const _isSaleToday = (s: any): boolean => {
                       if (s.createdAt) {
                         try {
-                          const d = new Date(s.createdAt);
+                          const d = new Date(typeof s.createdAt === 'number' ? s.createdAt : s.createdAt.toMillis?.() || s.createdAt);
                           const str = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
                           if (str === _today) return true;
                         } catch { /* ignore */ }
                       }
                       if (s.date && s.date === _today) return true;
+                      if (s.completedAt) {
+                        try {
+                          const d = new Date(s.completedAt);
+                          const str = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                          if (str === _today) return true;
+                        } catch { /* ignore */ }
+                      }
                       return false;
                     };
                     const revenusAujourdhui = (sales || [])
@@ -779,8 +786,8 @@ export default function AdminDashboard() {
                             <p className="text-white font-bold text-sm truncate">{product.name}</p>
                             <div className="flex items-center justify-between">
                               <div>
-                                <span className="text-[#D4AF37] font-black text-sm">€{(product.promoPrice ?? product.sellPrice).toFixed(2)}</span>
-                                {product.promoPrice && <span className="text-white/25 line-through text-xs ml-1">€{product.sellPrice.toFixed(2)}</span>}
+                                <span className="text-[#D4AF37] font-black text-sm">€{Number(product.promoPrice ?? product.sellPrice ?? 0).toFixed(2)}</span>
+                                {product.promoPrice && <span className="text-white/25 line-through text-xs ml-1">€{Number(product.sellPrice || 0).toFixed(2)}</span>}
                               </div>
                               <span className="text-white/25 text-[10px]">Stock: {product.stock ?? '∞'}</span>
                             </div>

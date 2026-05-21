@@ -26,21 +26,29 @@ const getDateOffset = (days) => {
 
 async function clearDemoData() {
   console.log('🗑️ Clearing old demo data...');
-  const collections = ['barbers', 'services', 'bookings', 'sales', 'expenses', 'users'];
+  const collections = ['barbers', 'services', 'bookings', 'sales', 'expenses', 'users', 'products', 'gallery'];
   for (const col of collections) {
-    const snap = await getDocs(query(collection(db, col), where('tenantId', '==', TENANT_ID)));
-    if (snap.size === 0) continue;
-    const batch = writeBatch(db);
-    snap.docs.forEach(d => batch.delete(d.ref));
-    await batch.commit();
-    console.log(`  Deleted ${snap.size} docs from ${col}`);
+    try {
+      const snap = await getDocs(query(collection(db, col), where('tenantId', '==', TENANT_ID)));
+      if (snap.size === 0) continue;
+      const batch = writeBatch(db);
+      snap.docs.forEach(d => batch.delete(d.ref));
+      await batch.commit();
+      console.log(`  Deleted ${snap.size} docs from ${col}`);
+    } catch (err) {
+      console.warn(`  ⚠️ Could not clear collection ${col}:`, err.message);
+    }
   }
-  // Delete the tenant doc
-  const tenantDocRef = doc(db, 'tenants', TENANT_ID);
-  const batch = writeBatch(db);
-  batch.delete(tenantDocRef);
-  await batch.commit();
-  console.log('  Deleted tenant document');
+  // Delete the tenant doc (optional, may require elevated permissions)
+  try {
+    const tenantDocRef = doc(db, 'tenants', TENANT_ID);
+    const batch = writeBatch(db);
+    batch.delete(tenantDocRef);
+    await batch.commit();
+    console.log('  Deleted tenant document');
+  } catch (err) {
+    console.warn('  ⚠️ Could not delete tenant document (may lack permissions):', err.message);
+  }
 }
 
 async function createAuthUser(email, password) {
@@ -247,6 +255,40 @@ async function main() {
     const docRef = doc(collection(db, 'expenses'));
     await setDoc(docRef, { ...e, tenantId: TENANT_ID, createdAt: Date.now() });
     console.log(`  ✅ Expense: ${e.description} — €${e.amount}`);
+  }
+
+  // 11. Seed Boutique products
+  console.log('🛍️ Seeding boutique products...');
+  const productsData = [
+    { name: 'Gel Coiffant Pro', price: 12.99, description: 'Tenue forte 24h', category: 'Styling', stock: 25, image: 'https://placehold.co/300x300/111/D4AF37?text=Gel' },
+    { name: 'Shampooing Barber', price: 8.99, description: 'Shampooing professionnel pour hommes', category: 'Soin', stock: 30, image: 'https://placehold.co/300x300/111/D4AF37?text=Shampoo' },
+    { name: 'Cire Capillaire', price: 15.99, description: 'Finition mate naturelle', category: 'Styling', stock: 20, image: 'https://placehold.co/300x300/111/D4AF37?text=Wax' },
+    { name: 'Energy Drink Barber', price: 3.50, description: 'Boisson énergisante premium', category: 'Boissons', stock: 50, image: 'https://placehold.co/300x300/111/D4AF37?text=Drink' },
+    { name: 'Huile à Barbe', price: 18.99, description: 'Huile naturelle pour barbe', category: 'Soin', stock: 15, image: 'https://placehold.co/300x300/111/D4AF37?text=Oil' },
+    { name: 'Pomade Brillante', price: 13.99, description: 'Finition brillante longue durée', category: 'Styling', stock: 18, image: 'https://placehold.co/300x300/111/D4AF37?text=Pomade' },
+  ];
+
+  for (const p of productsData) {
+    const docRef = doc(collection(db, 'products'));
+    await setDoc(docRef, { ...p, tenantId: TENANT_ID, createdAt: Date.now() });
+    console.log(`  ✅ Product: ${p.name} — €${p.price}`);
+  }
+
+  // 12. Seed Portfolio gallery photos
+  console.log('📸 Seeding portfolio gallery...');
+  const galleryData = [
+    { title: 'Dégradé Américain', barber: 'Karim B.', imageUrl: 'https://placehold.co/400x500/111/D4AF37?text=Degrade', category: 'Dégradé', likes: 24 },
+    { title: 'Coupe + Barbe Soignée', barber: 'Yassine M.', imageUrl: 'https://placehold.co/400x500/111/D4AF37?text=Coupe+Barbe', category: 'Coupe', likes: 31 },
+    { title: 'Fade Clean', barber: 'Marcus J.', imageUrl: 'https://placehold.co/400x500/111/D4AF37?text=Fade', category: 'Dégradé', likes: 18 },
+    { title: 'Rasage Classique', barber: 'Yassine M.', imageUrl: 'https://placehold.co/400x500/111/D4AF37?text=Rasage', category: 'Barbe', likes: 15 },
+    { title: 'Coloration Moderne', barber: 'Marcus J.', imageUrl: 'https://placehold.co/400x500/111/D4AF37?text=Color', category: 'Coloration', likes: 22 },
+    { title: 'Coupe Texturée', barber: 'Karim B.', imageUrl: 'https://placehold.co/400x500/111/D4AF37?text=Texture', category: 'Coupe', likes: 19 },
+  ];
+
+  for (const g of galleryData) {
+    const docRef = doc(collection(db, 'gallery'));
+    await setDoc(docRef, { ...g, tenantId: TENANT_ID, createdAt: Date.now() });
+    console.log(`  ✅ Gallery: ${g.title} (${g.category}) — ${g.likes} likes`);
   }
 
   console.log('\n✅ Demo seed complete!\n');
