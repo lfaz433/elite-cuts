@@ -84,26 +84,34 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
             onboardingComplete: data.onboardingComplete || false,
           });
         } else {
-          // Auto-seed ONLY on localhost/127.0.0.1
-          if (isLocalhost && subdomain === 'elite-cuts-default') {
-            console.log('Localhost: Seeding default tenant document in Firestore...');
-            const newTenantPayload = {
-              subdomain: "elite-cuts-default",
-              name: "Elite Cuts Test Shop",
-              branding: { primaryColor: "#111827", logoUrl: "https://placehold.co/100", businessName: "Elite Cuts Default" },
+          if (subdomain === 'elite-cuts-default') {
+            const fallbackTenant = {
+              tenantId: 'default-tenant',
+              name: "Barbeboard",
+              branding: { primaryColor: "#D4AF37", logoUrl: "", businessName: "Barbeboard" },
               subscription: { 
-                status: "trialing" as const, 
+                status: "active" as const, 
                 planId: "basic",
                 trialEndsAt: Date.now() + 14 * 24 * 60 * 60 * 1000,
                 currentPeriodEnd: 0
               },
               settings: { maxBarbersLimit: 3, allowOnlineBooking: true }
             };
-            const docRef = await addDoc(tenantsRef, newTenantPayload);
-            setTenant({
-              tenantId: docRef.id,
-              ...newTenantPayload
-            });
+            
+            // Auto-seed ONLY on localhost/127.0.0.1
+            if (isLocalhost) {
+              console.log('Localhost: Seeding default tenant document in Firestore...');
+              const docRef = await addDoc(tenantsRef, {
+                subdomain: "elite-cuts-default",
+                name: fallbackTenant.name,
+                branding: fallbackTenant.branding,
+                subscription: fallbackTenant.subscription,
+                settings: fallbackTenant.settings
+              });
+              setTenant({ ...fallbackTenant, tenantId: docRef.id });
+            } else {
+              setTenant(fallbackTenant);
+            }
           } else {
             setError('Barbershop not found');
           }
