@@ -33,6 +33,7 @@ interface Props {
   attendance: Attendance[];
   isBarberView?: boolean;
   sales?: any[];
+  expenses?: any[];
 }
 
 const GOLD_COLORS = ['#D4AF37', '#FFD700', '#B8960C', '#F5E050', '#C8A415', '#EAC730', '#A0830A'];
@@ -73,7 +74,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   return null;
 };
 
-export function BarberAnalytics({ bookings, barbers, services, attendance, isBarberView, sales = [] }: Props) {
+export function BarberAnalytics({ bookings, barbers, services, attendance, isBarberView, sales = [], expenses = [] }: Props) {
   const [periodFilter, setPeriodFilter] = useState<'day' | 'week' | 'month' | 'custom'>('month');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
@@ -221,6 +222,23 @@ export function BarberAnalytics({ bookings, barbers, services, attendance, isBar
     };
   }, [filtered, bookings, services, isBarberView, barbers]);
 
+  const totalDepenses = useMemo(() => {
+    return (expenses || [])
+      .filter(e => {
+        if (!e.createdAt) return false;
+        try {
+          const dateStr = new Date(e.createdAt).toISOString().split('T')[0];
+          return dateStr >= periodRange.start && dateStr <= periodRange.end;
+        } catch (err) {
+          return false;
+        }
+      })
+      .reduce((sum, e) => sum + Number(e.amount || 0), 0);
+  }, [expenses, periodRange]);
+
+  const soldeNet = kpis.revenue + kpis.tips - totalDepenses;
+
+
   // ── Per-barber analytics ────────────────────────────────────────────────────
   const barberStats = useMemo(() =>
     barbers.map(barber => {
@@ -338,22 +356,29 @@ export function BarberAnalytics({ bookings, barbers, services, attendance, isBar
       {/* ── Global KPI Cards ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Chiffre d'Affaires" value={`€${kpis.revenue.toFixed(0)}`} sub={`+€${kpis.tips.toFixed(0)} pourboires`} icon={DollarSign} color="text-green-400" bg="bg-green-500/10" trend={kpis.revTrend} />
+        
+        {/* Revenus Aujourd'hui */}
+        <div className="bg-[#141414] border border-white/5 p-6 rounded-3xl hover:border-[#D4AF37]/20 transition-all group relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-white/[0.02] to-transparent rounded-full -mr-10 -mt-10" />
+          <div className={`p-3 rounded-2xl w-fit mb-4 group-hover:scale-110 transition-transform ${revenusAujourdhui > 0 ? 'bg-[#D4AF37]/10 text-[#D4AF37]' : 'bg-white/5 text-white/30'}`}>
+            <Clock className="w-5 h-5" />
+          </div>
+          <p className="text-white/30 text-[10px] font-black uppercase tracking-widest mb-1">Revenus Aujourd'hui</p>
+          <p className={`text-3xl font-black ${revenusAujourdhui > 0 ? 'text-[#D4AF37]' : 'text-white/40'}`}>
+            €{revenusAujourdhui.toFixed(0)}
+          </p>
+          <p className="text-xs text-white/40 mt-1">
+            {revenusAujourdhui > 0 ? `+€${pourboiresToday.toFixed(0)} pourboires` : "Aucune vente aujourd'hui"}
+          </p>
+        </div>
+
         <StatCard label="Services Réalisés" value={kpis.count} sub={`${kpis.avecRdv} RDV · ${kpis.sansRdv} Walk-in`} icon={Scissors} color="text-[#D4AF37]" bg="bg-[#D4AF37]/10" />
         <StatCard label="Total Espèces" value={`€${kpis.cashTotal.toFixed(0)}`} sub={`${kpis.cashCount} paiements en caisse`} icon={Wallet} color="text-amber-400" bg="bg-amber-500/10" />
-        <StatCard label="Total Carte" value={`€${kpis.cardTotal.toFixed(0)}`} sub={`${kpis.cardCount} paiements par TPE`} icon={CreditCard} color="text-blue-400" bg="bg-blue-500/10" />
       </div>
 
       {/* ── Secondary Breakdown Cards ── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-[#141414] border border-white/5 p-4 rounded-2xl flex items-center gap-4 hover:border-[#D4AF37]/20 transition-all">
-          <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-400">
-            <Wallet className="w-4 h-4" />
-          </div>
-          <div>
-            <p className="text-white/30 text-[9px] font-black uppercase tracking-widest mb-0.5">Total Espèces</p>
-            <p className="text-lg font-black text-white">€{kpis.cashTotal.toFixed(2)}</p>
-          </div>
-        </div>
+        {/* Total Carte */}
         <div className="bg-[#141414] border border-white/5 p-4 rounded-2xl flex items-center gap-4 hover:border-[#D4AF37]/20 transition-all">
           <div className="p-2.5 rounded-xl bg-blue-500/10 text-blue-400">
             <CreditCard className="w-4 h-4" />
@@ -363,6 +388,8 @@ export function BarberAnalytics({ bookings, barbers, services, attendance, isBar
             <p className="text-lg font-black text-white">€{kpis.cardTotal.toFixed(2)}</p>
           </div>
         </div>
+
+        {/* Total Pourboires */}
         <div className="bg-[#141414] border border-white/5 p-4 rounded-2xl flex items-center gap-4 hover:border-[#D4AF37]/20 transition-all">
           <div className="p-2.5 rounded-xl bg-green-500/10 text-green-400">
             <DollarSign className="w-4 h-4" />
@@ -372,39 +399,35 @@ export function BarberAnalytics({ bookings, barbers, services, attendance, isBar
             <p className="text-lg font-black text-white">€{kpis.tips.toFixed(2)}</p>
           </div>
         </div>
-      </div>
 
-      {/* ── Top Service & Pourboires ── */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-[#141414] border border-white/5 p-6 rounded-3xl flex items-center gap-5">
-          <div className="w-16 h-16 bg-[#D4AF37]/10 rounded-2xl flex items-center justify-center shrink-0">
-            <Clock className="w-8 h-8 text-[#D4AF37]" />
+        {/* Solde Net */}
+        <div className="bg-[#141414] border border-white/5 p-4 rounded-2xl flex items-center gap-4 hover:border-[#D4AF37]/20 transition-all">
+          <div className={`p-2.5 rounded-xl ${soldeNet >= 0 ? 'bg-green-500/10 text-green-400' : 'bg-rose-500/10 text-rose-400'}`}>
+            <DollarSign className="w-4 h-4" />
           </div>
           <div>
-            <p className="text-[10px] text-white/40 font-black uppercase tracking-widest mb-1">REVENUS AUJOURD'HUI</p>
-            {revenusAujourdhui > 0 ? (
-              <>
-                <p className="text-2xl font-black text-[#D4AF37]">€{revenusAujourdhui.toFixed(2)}</p>
-                <p className="text-xs text-white/50 mt-1">+{pourboiresToday.toFixed(2)}€ pourboires</p>
-              </>
-            ) : (
-              <p className="text-sm font-medium text-white/40 mt-1">Aucune vente aujourd'hui</p>
-            )}
+            <p className="text-white/30 text-[9px] font-black uppercase tracking-widest mb-0.5">Solde Net (revenus - dépenses)</p>
+            <p className={`text-lg font-black ${soldeNet >= 0 ? 'text-green-400' : 'text-rose-400'}`}>
+              €{soldeNet.toFixed(2)}
+            </p>
           </div>
         </div>
-        {topService && (
-          <div className="bg-[#141414] border border-white/5 p-6 rounded-3xl flex items-center gap-5">
-            <div className="w-16 h-16 bg-[#D4AF37]/10 rounded-2xl flex items-center justify-center shrink-0">
-              <Award className="w-8 h-8 text-[#D4AF37]" />
-            </div>
-            <div>
-              <p className="text-[10px] text-white/40 font-black uppercase tracking-widest mb-1">Service Le Plus Demandé</p>
-              <p className="text-xl font-black text-white">{topService.name}</p>
-              <p className="text-sm text-white/50">{topService.count} fois ({periodLabels[periodFilter]})</p>
-            </div>
-          </div>
-        )}
       </div>
+
+      {/* ── Top Service ── */}
+      {topService && (
+        <div className="bg-[#141414] border border-white/5 p-6 rounded-3xl flex items-center gap-5">
+          <div className="w-16 h-16 bg-[#D4AF37]/10 rounded-2xl flex items-center justify-center shrink-0">
+            <Award className="w-8 h-8 text-[#D4AF37]" />
+          </div>
+          <div>
+            <p className="text-[10px] text-white/40 font-black uppercase tracking-widest mb-1">Service Le Plus Demandé</p>
+            <p className="text-xl font-black text-white">{topService.name}</p>
+            <p className="text-sm text-white/50">{topService.count} fois ({periodLabels[periodFilter]})</p>
+          </div>
+        </div>
+      )}
+
 
       {/* ── Revenue Trend (14 days) ── */}
       <div className="bg-[#141414] border border-white/5 p-6 rounded-3xl">

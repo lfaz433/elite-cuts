@@ -769,7 +769,7 @@ export default function AdminDashboard() {
 
               {activeTab === 'reports' && (
                 <motion.div key="reports" className="space-y-8">
-                  <BarberAnalytics bookings={bookings} barbers={barbers} services={services} attendance={attendance} sales={sales} />
+                  <BarberAnalytics bookings={bookings} barbers={barbers} services={services} attendance={attendance} sales={sales} expenses={expenses} />
                 </motion.div>
               )}
 
