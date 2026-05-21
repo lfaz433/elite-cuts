@@ -835,8 +835,8 @@ export default function SuperAdmin() {
         .reduce((sum, p) => sum + (p.amount || 0), 0);
 
       data.push({
-        name: monthLabel,
-        montant: totalForMonth
+        name: String(monthLabel || ''),
+        montant: Number(totalForMonth) || 0
       });
     }
     return data;

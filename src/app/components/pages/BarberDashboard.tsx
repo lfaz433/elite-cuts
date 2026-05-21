@@ -356,8 +356,8 @@ export default function BarberDashboard() {
     return getPastDays(7).map(date => {
       const dayBookings = myBookings.filter(b => b.status === 'completed' && b.date === date);
       const earnings = dayBookings.reduce((sum, b) => sum + ((b.pricePaid || 0) * commissionRate / 100) + (b.tip || 0), 0);
-      const dayName = new Date(date).toLocaleDateString('en-US', { weekday: 'short' });
-      return { day: dayName, services: dayBookings.length, earnings };
+      const dayName = String(new Date(date).toLocaleDateString('en-US', { weekday: 'short' }) || '');
+      return { day: dayName, services: dayBookings.length, earnings: Number(earnings) || 0 };
     });
   }, [myBookings, commissionRate]);
 
@@ -371,10 +371,10 @@ export default function BarberDashboard() {
       return periodBookings.reduce((sum, b) => sum + ((b.pricePaid || 0) * commissionRate / 100) + (b.tip || 0), 0);
     };
     return [
-      { week: 'Sem-3', earnings: getPeriodEarnings(28, 21) },
-      { week: 'Sem-2', earnings: getPeriodEarnings(21, 14) },
-      { week: 'Sem-1', earnings: getPeriodEarnings(14, 7) },
-      { week: 'Actuelle', earnings: getPeriodEarnings(7, 0) },
+      { week: 'Sem-3', earnings: Number(getPeriodEarnings(28, 21)) || 0 },
+      { week: 'Sem-2', earnings: Number(getPeriodEarnings(21, 14)) || 0 },
+      { week: 'Sem-1', earnings: Number(getPeriodEarnings(14, 7)) || 0 },
+      { week: 'Actuelle', earnings: Number(getPeriodEarnings(7, 0)) || 0 },
     ];
   }, [myBookings, commissionRate]);
 

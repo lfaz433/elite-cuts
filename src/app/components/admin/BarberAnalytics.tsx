@@ -253,10 +253,11 @@ export function BarberAnalytics({ bookings, barbers, services, attendance, isBar
       // attendance count in period
       const attendCount = attendance.filter(a => a.barberId === barber.id && a.date >= periodRange.start && a.date <= periodRange.end).length;
 
+      // NOTE: Do NOT include image/avatar fields here — Recharts iterates all
+      // keys in data objects and will crash if it encounters a base64 string.
       return {
-        id: barber.id,
-        name: barber.name,
-        image: barber.image,
+        id: String(barber.id || ''),
+        name: String(barber.name || ''),
         count: bbs.length,
         revenue,
         tips,
@@ -276,7 +277,7 @@ export function BarberAnalytics({ bookings, barbers, services, attendance, isBar
   const serviceStats = useMemo(() => {
     const map: Record<string, number> = {};
     filtered.forEach(b => { if (b.serviceId) map[b.serviceId] = (map[b.serviceId] || 0) + 1; });
-    return services.map(s => ({ name: s.name, count: map[s.id] || 0 }))
+    return services.map(s => ({ name: String(s.name || ''), count: map[s.id] || 0 }))
       .sort((a, b) => b.count - a.count);
   }, [filtered, services]);
 
@@ -291,7 +292,7 @@ export function BarberAnalytics({ bookings, barbers, services, attendance, isBar
     return days.map(date => {
       const dayBks = filtered.filter(b => b.date === date);
       return {
-        date: date.slice(5),
+        date: String(date.slice(5)),
         'Revenus €': dayBks.reduce((s, b) => s + (b.pricePaid || 0), 0),
         Services: dayBks.length,
       };
@@ -305,9 +306,11 @@ export function BarberAnalytics({ bookings, barbers, services, attendance, isBar
       return d.toISOString().split('T')[0];
     });
     return days.map(date => {
-      const row: Record<string, any> = { date: date.slice(5) };
+      // Only use primitive-safe keys: String(name). Never spread barber objects.
+      const row: Record<string, any> = { date: String(date.slice(5)) };
       barbers.forEach(b => {
-        row[b.name] = filtered.filter(bk => bk.date === date && bk.barberId === b.id).length;
+        const safeKey = String(b.name || '');
+        row[safeKey] = filtered.filter(bk => bk.date === date && bk.barberId === b.id).length;
       });
       return row;
     });
@@ -694,7 +697,7 @@ export function BarberAnalytics({ bookings, barbers, services, attendance, isBar
             <Tooltip content={<CustomTooltip />} />
             <Legend wrapperStyle={{ fontSize: 11, color: '#888' }} />
             {barbers.map((b, i) => (
-              <Bar key={b.id} dataKey={b.name} stackId="a" fill={GOLD_COLORS[i % GOLD_COLORS.length]} radius={i === barbers.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
+              <Bar key={b.id} dataKey={String(b.name || '')} stackId="a" fill={GOLD_COLORS[i % GOLD_COLORS.length]} radius={i === barbers.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
             ))}
           </BarChart>
         </ResponsiveContainer>

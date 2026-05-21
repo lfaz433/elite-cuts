@@ -115,7 +115,12 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
       try {
         const tenantsRef = collection(db, 'tenants');
         const q = query(tenantsRef, where('subdomain', '==', subdomain));
-        const querySnapshot = await getDocs(q);
+
+        // Race Firestore against a 10-second timeout to prevent infinite spinner
+        const timeoutPromise = new Promise<null>((_, reject) =>
+          setTimeout(() => reject(new Error('Tenant lookup timed out after 10s')), 10000)
+        );
+        const querySnapshot = await Promise.race([getDocs(q), timeoutPromise]) as Awaited<ReturnType<typeof getDocs>>;
 
         if (!querySnapshot.empty) {
           const doc = querySnapshot.docs[0];
