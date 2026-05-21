@@ -380,75 +380,14 @@ export default function AdminDashboard() {
                   </div>
 
                   {/* ── VUE D'ENSEMBLE KPI Cards ── */}
-                  {(() => {
-                    // Local date string to avoid UTC-midnight timezone mismatch
-                    const _d = new Date();
-                    const _today = `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, '0')}-${String(_d.getDate()).padStart(2, '0')}`;
-                    const _isSaleToday = (s: any): boolean => {
-                      if (s.createdAt) {
-                        try {
-                          const d = new Date(typeof s.createdAt === 'number' ? s.createdAt : s.createdAt.toMillis?.() || s.createdAt);
-                          const str = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                          if (str === _today) return true;
-                        } catch { /* ignore */ }
-                      }
-                      if (s.date && s.date === _today) return true;
-                      return false;
-                    };
-                    
-                    const _isBookingToday = (b: any): boolean => {
-                      if (b.completedAt) {
-                        try {
-                          const d = new Date(b.completedAt);
-                          const str = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                          if (str === _today) return true;
-                        } catch { /* ignore */ }
-                      } else if (b.date && b.date === _today) {
-                        return true;
-                      }
-                      return false;
-                    };
-
-                    const revenusAujourdhuiBookings = approvedBookings
-                      .filter(_isBookingToday)
-                      .reduce((sum: number, b: any) => sum + Number(b.pricePaid || 0), 0);
-                    const revenusAujourdhuiSales = (sales || [])
-                      .filter(_isSaleToday)
-                      .reduce((sum: number, s: any) => {
-                         const price = s.amount != null ? s.amount : (s.customPrice != null ? s.customPrice : (s.sellPrice || 0));
-                         const qty = s.quantity || 1;
-                         const disc = s.discount || 0;
-                         return sum + Number(price * qty * (1 - disc / 100));
-                      }, 0);
-                    const revenusAujourdhui = revenusAujourdhuiBookings + revenusAujourdhuiSales;
-
-                    const pourboiresTodayBookings = approvedBookings
-                      .filter(_isBookingToday)
-                      .reduce((sum: number, b: any) => sum + Number(b.tip || 0), 0);
-                    const pourboiresTodaySales = (sales || [])
-                      .filter(_isSaleToday)
-                      .reduce((sum: number, s: any) => sum + Number(s.tips || 0), 0);
-                    const pourboiresToday = pourboiresTodayBookings + pourboiresTodaySales;
-                    return (
-                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-                        {/* Card 1 — Revenu Total */}
-                        <div className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem] hover:border-[#D4AF37]/20 transition-all group relative overflow-hidden">
-                          <div className="p-4 rounded-3xl bg-green-500/10 text-green-400 w-fit mb-6 group-hover:scale-110 transition-transform"><DollarSign className="w-7 h-7" /></div>
-                          <p className="text-white/30 text-xs font-bold uppercase tracking-widest">Revenu Total</p>
-                          <p className="text-4xl font-black mt-2">€{totalRevenue.toFixed(0)}</p>
-                          <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-white/[0.02] to-transparent rounded-full -mr-16 -mt-16" />
-                        </div>
-
-                        {/* Card 2 — Revenus Aujourd'hui */}
-                        <div className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem] hover:border-[#D4AF37]/20 transition-all group relative overflow-hidden">
-                          <div className={`p-4 rounded-3xl w-fit mb-6 group-hover:scale-110 transition-transform ${revenusAujourdhui > 0 ? 'bg-[#D4AF37]/10 text-[#D4AF37]' : 'bg-white/5 text-white/20'}`}><Clock className="w-7 h-7" /></div>
-                          <p className="text-white/30 text-xs font-bold uppercase tracking-widest">Revenus Aujourd'hui</p>
-                          <p className={`text-4xl font-black mt-2 ${revenusAujourdhui > 0 ? 'text-[#D4AF37]' : 'text-white/40'}`}>€{revenusAujourdhui.toFixed(2)}</p>
-                          <p className="text-xs text-white/40 mt-1">
-                            {revenusAujourdhui > 0 ? `+€${pourboiresToday.toFixed(2)} pourboires` : "Aucune vente aujourd'hui"}
-                          </p>
-                          <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-white/[0.02] to-transparent rounded-full -mr-16 -mt-16" />
-                        </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {/* Card 1 — Revenu Total */}
+                    <div className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem] hover:border-[#D4AF37]/20 transition-all group relative overflow-hidden">
+                      <div className="p-4 rounded-3xl bg-green-500/10 text-green-400 w-fit mb-6 group-hover:scale-110 transition-transform"><DollarSign className="w-7 h-7" /></div>
+                      <p className="text-white/30 text-xs font-bold uppercase tracking-widest">Revenu Total</p>
+                      <p className="text-4xl font-black mt-2">€{totalRevenue.toFixed(0)}</p>
+                      <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-white/[0.02] to-transparent rounded-full -mr-16 -mt-16" />
+                    </div>
 
                         {/* Card 3 — Réservations */}
                         <div className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem] hover:border-[#D4AF37]/20 transition-all group relative overflow-hidden">
@@ -466,8 +405,6 @@ export default function AdminDashboard() {
                           <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-white/[0.02] to-transparent rounded-full -mr-16 -mt-16" />
                         </div>
                       </div>
-                    );
-                  })()}
 
                   <div className="grid lg:grid-cols-2 gap-8">
                     <div className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem]">

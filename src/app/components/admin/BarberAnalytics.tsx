@@ -115,58 +115,6 @@ export function BarberAnalytics({ bookings, barbers, services, attendance, isBar
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }, []);
 
-  const _isSaleToday = (s: any): boolean => {
-    if (s.createdAt) {
-      try {
-        const d = new Date(typeof s.createdAt === 'number' ? s.createdAt : s.createdAt.toMillis?.() || s.createdAt);
-        const str = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-        if (str === today) return true;
-      } catch { /* ignore */ }
-    }
-    if (s.date && s.date === today) return true;
-    return false;
-  };
-  
-  const _isBookingToday = (b: any): boolean => {
-    if (b.completedAt) {
-      try {
-        const d = new Date(b.completedAt);
-        const str = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-        if (str === today) return true;
-      } catch { /* ignore */ }
-    } else if (b.date && b.date === today) {
-      return true;
-    }
-    return false;
-  };
-
-  const revenusAujourdhui = useMemo(() => {
-    const revenusBookings = bookings
-      .filter(b => b.status === 'completed' || b.status === 'approved')
-      .filter(_isBookingToday)
-      .reduce((sum, b) => sum + Number(b.pricePaid || 0), 0);
-    const revenusSales = (sales || [])
-      .filter(_isSaleToday)
-      .reduce((sum, s) => {
-        const price = s.amount != null ? s.amount : (s.customPrice != null ? s.customPrice : (s.sellPrice || 0));
-        const qty = s.quantity || 1;
-        const disc = s.discount || 0;
-        return sum + Number(price * qty * (1 - disc / 100));
-      }, 0);
-    return revenusBookings + revenusSales;
-  }, [sales, bookings, today]);
-
-  const pourboiresToday = useMemo(() => {
-    const pourboiresBookings = bookings
-      .filter(b => b.status === 'completed' || b.status === 'approved')
-      .filter(_isBookingToday)
-      .reduce((sum, b) => sum + Number(b.tip || 0), 0);
-    const pourboiresSales = (sales || [])
-      .filter(_isSaleToday)
-      .reduce((sum, s) => sum + Number(s.tips || 0), 0);
-    return pourboiresBookings + pourboiresSales;
-  }, [sales, bookings, today]);
-
   const histFiltered = useMemo(() => {
     return bookings
       .filter(b => b.status === 'completed' || b.status === 'approved')
@@ -395,24 +343,8 @@ export function BarberAnalytics({ bookings, barbers, services, attendance, isBar
       </div>
 
       {/* ── Global KPI Cards ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <StatCard label="Chiffre d'Affaires" value={`€${kpis.revenue.toFixed(0)}`} sub={`+€${kpis.tips.toFixed(0)} pourboires`} icon={DollarSign} color="text-green-400" bg="bg-green-500/10" trend={kpis.revTrend} />
-        
-        {/* Revenus Aujourd'hui */}
-        <div className="bg-[#141414] border border-white/5 p-6 rounded-3xl hover:border-[#D4AF37]/20 transition-all group relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-white/[0.02] to-transparent rounded-full -mr-10 -mt-10" />
-          <div className={`p-3 rounded-2xl w-fit mb-4 group-hover:scale-110 transition-transform ${revenusAujourdhui > 0 ? 'bg-[#D4AF37]/10 text-[#D4AF37]' : 'bg-white/5 text-white/30'}`}>
-            <Clock className="w-5 h-5" />
-          </div>
-          <p className="text-white/30 text-[10px] font-black uppercase tracking-widest mb-1">Revenus Aujourd'hui</p>
-          <p className={`text-3xl font-black ${revenusAujourdhui > 0 ? 'text-[#D4AF37]' : 'text-white/40'}`}>
-            €{revenusAujourdhui.toFixed(0)}
-          </p>
-          <p className="text-xs text-white/40 mt-1">
-            {revenusAujourdhui > 0 ? `+€${pourboiresToday.toFixed(0)} pourboires` : "Aucune vente aujourd'hui"}
-          </p>
-        </div>
-
         <StatCard label="Services Réalisés" value={kpis.count} sub={`${kpis.avecRdv} RDV · ${kpis.sansRdv} Walk-in`} icon={Scissors} color="text-[#D4AF37]" bg="bg-[#D4AF37]/10" />
         <StatCard label="Total Espèces" value={`€${kpis.cashTotal.toFixed(0)}`} sub={`${kpis.cashCount} paiements en caisse`} icon={Wallet} color="text-amber-400" bg="bg-amber-500/10" />
       </div>
