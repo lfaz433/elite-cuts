@@ -589,7 +589,8 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
             ? `/admin/bookings?highlight=${docRef.id}`
             : `/barber/reservations?highlight=${docRef.id}`;
 
-          const res = await fetch('/api/send-push', {
+          console.log('Sending push notification to:', recId, 'message:', payload.body);
+          const response = await fetch('/api/send-push', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer placeholder_token' },
             body: JSON.stringify({ 
@@ -598,8 +599,9 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
               data: { ...payload.data, url }
             })
           });
-          const data = await res.json();
-          if (!res.ok) {
+          const data = await response.json();
+          console.log('Push API response:', response.status, data);
+          if (!response.ok) {
             toast.error(`Push API Error (${recId}): ` + (data.error || 'Unknown'));
             console.error('Push Error data:', data);
           } else {
@@ -680,11 +682,14 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
           });
         }
         
-        fetch('/api/send-push', {
+        console.log('Sending push notification to:', payload.recipientId, 'message:', payload.body);
+        const response = await fetch('/api/send-push', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer placeholder_token' },
           body: JSON.stringify(payload)
-        }).catch(console.error);
+        });
+        const result = await response.json();
+        console.log('Push API response:', response.status, result);
       }
     } catch (e) {
       console.error('Failed to trigger push notification:', e);

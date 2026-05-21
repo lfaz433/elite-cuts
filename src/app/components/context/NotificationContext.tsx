@@ -79,16 +79,21 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   // Login user to OneSignal when Auth changes
   useEffect(() => {
-    if (isInitialized && user) {
-      // Set external user ID so we can target them from the backend
-      // Admin gets generic 'admin' ID, Barber gets barberId, Client gets their uid
-      const externalId = user.role === 'admin' ? 'admin' : (user.barberId || user.uid);
-      if (externalId) {
-        OneSignal.login(externalId);
+    const handleLogin = async () => {
+      if (isInitialized && user) {
+        // Set external user ID so we can target them from the backend
+        // Admin gets generic 'admin' ID, Barber gets barberId, Client gets their uid
+        const externalId = user.role === 'admin' ? 'admin' : (user.barberId || user.uid);
+        if (externalId) {
+          await OneSignal.login(externalId);
+          console.log('OneSignal external user ID set:', externalId);
+        }
+      } else if (isInitialized && !user) {
+        await OneSignal.logout();
+        console.log('OneSignal logged out');
       }
-    } else if (isInitialized && !user) {
-      OneSignal.logout();
-    }
+    };
+    handleLogin();
   }, [user, isInitialized]);
 
   // Check initial permission status on load (even before OneSignal finishes initializing)
