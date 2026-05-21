@@ -32,16 +32,16 @@ export function useTenant() {
 }
 
 function extractSubdomain(hostname: string): string {
-  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+  if (
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname.endsWith('.vercel.app') ||
+    hostname === 'barbeboard.pro' ||
+    hostname === 'www.barbeboard.pro'
+  ) {
     return 'elite-cuts-default';
   }
-  if (hostname.endsWith('.vercel.app')) {
-    return 'elite-cuts-default';
-  }
-  if (hostname === 'barberboard.pro' || hostname === 'www.barberboard.pro') {
-    return 'elite-cuts-default';
-  }
-  if (hostname.endsWith('.barberboard.pro')) {
+  if (hostname.endsWith('.barbeboard.pro')) {
     return hostname.split('.')[0];
   }
   return 'elite-cuts-default';

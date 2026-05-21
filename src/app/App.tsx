@@ -80,21 +80,20 @@ function HomeRouter() {
   }
 
   const hostname = window.location.hostname;
-
-  if (
-    hostname === 'barberboard.pro' ||
-    hostname === 'www.barberboard.pro' ||
-    hostname.endsWith('.vercel.app') ||
+  
+  // Show HomePage on: localhost, vercel preview URLs, and main domain
+  const isMainDomain = 
     hostname === 'localhost' ||
-    hostname === '127.0.0.1'
-  ) {
+    hostname === '127.0.0.1' ||
+    hostname.endsWith('.vercel.app') ||
+    hostname === 'barbeboard.pro' ||
+    hostname === 'www.barbeboard.pro';
+  
+  if (isMainDomain) {
     return <HomePage />;
   }
-
-  if (hostname.endsWith('.barberboard.pro')) {
-    return <LandingPage />;
-  }
-
+  
+  // Show LandingPage only for tenant subdomains (e.g. mysalon.barbeboard.pro)
   return <LandingPage />;
 }
 
