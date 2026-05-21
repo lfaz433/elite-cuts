@@ -62,6 +62,50 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
       const hostname = window.location.hostname;
       const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
 
+      if (subdomain === 'elite-cuts-default') {
+        const fallbackTenant = {
+          tenantId: 'default-tenant',
+          name: "Barbeboard",
+          branding: { primaryColor: "#D4AF37", logoUrl: "", businessName: "Barbeboard" },
+          subscription: { 
+            status: "active" as const, 
+            planId: "basic",
+            trialEndsAt: Date.now() + 14 * 24 * 60 * 60 * 1000,
+            currentPeriodEnd: 0
+          },
+          settings: { maxBarbersLimit: 3, allowOnlineBooking: true },
+          onboardingComplete: true
+        };
+        
+        setTenant(fallbackTenant);
+        setIsLoading(false);
+
+        // Auto-seed ONLY on localhost/127.0.0.1 if missing
+        if (isLocalhost) {
+          try {
+            const tenantsRef = collection(db, 'tenants');
+            const q = query(tenantsRef, where('subdomain', '==', subdomain));
+            const snap = await getDocs(q);
+            if (snap.empty) {
+              console.log('Localhost: Seeding default tenant document in Firestore...');
+              const docRef = await addDoc(tenantsRef, {
+                subdomain: "elite-cuts-default",
+                name: fallbackTenant.name,
+                branding: fallbackTenant.branding,
+                subscription: fallbackTenant.subscription,
+                settings: fallbackTenant.settings
+              });
+              setTenant({ ...fallbackTenant, tenantId: docRef.id });
+            } else {
+              setTenant({ ...fallbackTenant, tenantId: snap.docs[0].id });
+            }
+          } catch (e) {
+            console.error('Failed to seed localhost:', e);
+          }
+        }
+        return;
+      }
+
       try {
         const tenantsRef = collection(db, 'tenants');
         const q = query(tenantsRef, where('subdomain', '==', subdomain));
@@ -84,37 +128,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
             onboardingComplete: data.onboardingComplete || false,
           });
         } else {
-          if (subdomain === 'elite-cuts-default') {
-            const fallbackTenant = {
-              tenantId: 'default-tenant',
-              name: "Barbeboard",
-              branding: { primaryColor: "#D4AF37", logoUrl: "", businessName: "Barbeboard" },
-              subscription: { 
-                status: "active" as const, 
-                planId: "basic",
-                trialEndsAt: Date.now() + 14 * 24 * 60 * 60 * 1000,
-                currentPeriodEnd: 0
-              },
-              settings: { maxBarbersLimit: 3, allowOnlineBooking: true }
-            };
-            
-            // Auto-seed ONLY on localhost/127.0.0.1
-            if (isLocalhost) {
-              console.log('Localhost: Seeding default tenant document in Firestore...');
-              const docRef = await addDoc(tenantsRef, {
-                subdomain: "elite-cuts-default",
-                name: fallbackTenant.name,
-                branding: fallbackTenant.branding,
-                subscription: fallbackTenant.subscription,
-                settings: fallbackTenant.settings
-              });
-              setTenant({ ...fallbackTenant, tenantId: docRef.id });
-            } else {
-              setTenant(fallbackTenant);
-            }
-          } else {
-            setError('Barbershop not found');
-          }
+          setError('Barbershop not found');
         }
       } catch (err: any) {
         console.error('Error fetching tenant:', err);
