@@ -280,7 +280,7 @@ export default function AdminDashboard() {
   }, [approvedBookings]);
 
   const barberPerformance = useMemo(() => barbers.map(barber => ({
-    name: barber.name,
+    name: String(barber.name || ''),
     total: approvedBookings.filter(b => b.barberId === barber.id).length
   })), [barbers, approvedBookings]);
 
@@ -372,17 +372,26 @@ export default function AdminDashboard() {
 
                   {/* ── VUE D'ENSEMBLE KPI Cards ── */}
                   {(() => {
-                    const _today = new Date().toISOString().split('T')[0];
+                    // Local date string to avoid UTC-midnight timezone mismatch
+                    const _d = new Date();
+                    const _today = `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, '0')}-${String(_d.getDate()).padStart(2, '0')}`;
+                    const _isSaleToday = (s: any) => {
+                      if (s.createdAt) {
+                        try {
+                          const d = new Date(s.createdAt);
+                          const str = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                          if (str === _today) return true;
+                        } catch { /* ignore */ }
+                      }
+                      if (s.date && s.date === _today) return true;
+                      return false;
+                    };
                     const revenusAujourdhui = (sales || [])
-                      .filter(s => {
-                        try { return new Date(s.createdAt).toISOString().split('T')[0] === _today; } catch { return false; }
-                      })
-                      .reduce((sum, s) => sum + Number(s.amount || s.pricePaid || 0), 0);
+                      .filter(_isSaleToday)
+                      .reduce((sum: number, s: any) => sum + Number(s.amount || s.pricePaid || 0), 0);
                     const pourboiresToday = (sales || [])
-                      .filter(s => {
-                        try { return new Date(s.createdAt).toISOString().split('T')[0] === _today; } catch { return false; }
-                      })
-                      .reduce((sum, s) => sum + Number(s.tips || 0), 0);
+                      .filter(_isSaleToday)
+                      .reduce((sum: number, s: any) => sum + Number(s.tips || 0), 0);
                     return (
                       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
                         {/* Card 1 — Revenu Total */}
