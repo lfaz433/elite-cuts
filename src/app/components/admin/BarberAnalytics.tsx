@@ -135,16 +135,31 @@ export function BarberAnalytics({ bookings, barbers, services, attendance, isBar
   };
 
   const revenusAujourdhui = useMemo(() => {
-    return (sales || [])
+    const revenusBookings = bookings
+      .filter(b => b.status === 'completed' || b.status === 'approved')
       .filter(_isSaleToday)
-      .reduce((sum, s) => sum + Number(s.amount || s.pricePaid || 0), 0);
-  }, [sales, today]);
+      .reduce((sum, b) => sum + Number(b.pricePaid || 0), 0);
+    const revenusSales = (sales || [])
+      .filter(_isSaleToday)
+      .reduce((sum, s) => {
+        const price = s.customPrice != null ? s.customPrice : (s.sellPrice || 0);
+        const qty = s.quantity || 1;
+        const disc = s.discount || 0;
+        return sum + Number(price * qty * (1 - disc / 100));
+      }, 0);
+    return revenusBookings + revenusSales;
+  }, [sales, bookings, today]);
 
   const pourboiresToday = useMemo(() => {
-    return (sales || [])
+    const pourboiresBookings = bookings
+      .filter(b => b.status === 'completed' || b.status === 'approved')
+      .filter(_isSaleToday)
+      .reduce((sum, b) => sum + Number(b.tip || 0), 0);
+    const pourboiresSales = (sales || [])
       .filter(_isSaleToday)
       .reduce((sum, s) => sum + Number(s.tips || 0), 0);
-  }, [sales, today]);
+    return pourboiresBookings + pourboiresSales;
+  }, [sales, bookings, today]);
 
   const histFiltered = useMemo(() => {
     return bookings

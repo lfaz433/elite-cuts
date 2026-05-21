@@ -266,7 +266,16 @@ export default function AdminDashboard() {
   const bookingsPagination = usePagination(finalBookings, 15);
   useEffect(() => { bookingsPagination.reset(); }, [statusFilter, dateFilter, barberFilter]);
   const approvedBookings = useMemo(() => filteredBookings.filter(b => b.status === 'completed' || b.status === 'approved'), [filteredBookings]);
-  const totalRevenue = useMemo(() => approvedBookings.reduce((sum, b) => sum + (b.pricePaid || 0), 0), [approvedBookings]);
+  const totalRevenue = useMemo(() => {
+    const serviceRev = approvedBookings.reduce((sum, b) => sum + (b.pricePaid || 0), 0);
+    const productRev = (sales || []).reduce((sum, s) => {
+      const price = s.customPrice != null ? s.customPrice : (s.sellPrice || 0);
+      const qty = s.quantity || 1;
+      const disc = s.discount || 0;
+      return sum + (price * qty * (1 - disc / 100));
+    }, 0);
+    return serviceRev + productRev;
+  }, [approvedBookings, sales]);
 
   const revenueTrend = useMemo(() => {
     const last7Days = Array.from({ length: 7 }, (_, i) => {
@@ -393,12 +402,26 @@ export default function AdminDashboard() {
                       }
                       return false;
                     };
-                    const revenusAujourdhui = (sales || [])
+                    const revenusAujourdhuiBookings = approvedBookings
                       .filter(_isSaleToday)
-                      .reduce((sum: number, s: any) => sum + Number(s.amount || s.pricePaid || 0), 0);
-                    const pourboiresToday = (sales || [])
+                      .reduce((sum: number, b: any) => sum + Number(b.pricePaid || 0), 0);
+                    const revenusAujourdhuiSales = (sales || [])
+                      .filter(_isSaleToday)
+                      .reduce((sum: number, s: any) => {
+                         const price = s.customPrice != null ? s.customPrice : (s.sellPrice || 0);
+                         const qty = s.quantity || 1;
+                         const disc = s.discount || 0;
+                         return sum + Number(price * qty * (1 - disc / 100));
+                      }, 0);
+                    const revenusAujourdhui = revenusAujourdhuiBookings + revenusAujourdhuiSales;
+
+                    const pourboiresTodayBookings = approvedBookings
+                      .filter(_isSaleToday)
+                      .reduce((sum: number, b: any) => sum + Number(b.tip || 0), 0);
+                    const pourboiresTodaySales = (sales || [])
                       .filter(_isSaleToday)
                       .reduce((sum: number, s: any) => sum + Number(s.tips || 0), 0);
+                    const pourboiresToday = pourboiresTodayBookings + pourboiresTodaySales;
                     return (
                       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
                         {/* Card 1 — Revenu Total */}
