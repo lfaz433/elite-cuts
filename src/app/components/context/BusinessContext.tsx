@@ -651,6 +651,34 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
           expiresAt: Date.now() + (30 * 24 * 60 * 60 * 1000),
           tenantId
         });
+
+        // Write to Admin UI Notifications
+        await addDoc(collection(db, 'notifications'), {
+          recipientId: 'admin',
+          type: payload.type,
+          title: payload.title,
+          message: payload.body,
+          reservationId: id,
+          read: false,
+          createdAt: Date.now(),
+          expiresAt: Date.now() + (30 * 24 * 60 * 60 * 1000),
+          tenantId
+        });
+
+        // Write to Barber UI Notifications
+        if (booking.barberId) {
+          await addDoc(collection(db, 'notifications'), {
+            recipientId: booking.barberId,
+            type: payload.type,
+            title: payload.title,
+            message: payload.body,
+            reservationId: id,
+            read: false,
+            createdAt: Date.now(),
+            expiresAt: Date.now() + (30 * 24 * 60 * 60 * 1000),
+            tenantId
+          });
+        }
         
         fetch('/api/send-push', {
           method: 'POST',

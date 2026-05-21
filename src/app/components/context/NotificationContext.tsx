@@ -3,7 +3,7 @@ import { useAuth } from './AuthContext';
 import { db } from '../../lib/firebase';
 import { 
   collection, query, where, onSnapshot, orderBy, 
-  limit, updateDoc, doc, writeBatch 
+  limit, updateDoc, doc, writeBatch, getDocs 
 } from 'firebase/firestore';
 import OneSignal from 'react-onesignal';
 import { useTenant } from './TenantContext';
@@ -201,7 +201,57 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       unsubUid();
       if (unsubEmail) unsubEmail();
     };
-  }, [user, tenantId]);
+  }, [user?.uid, user?.role, user?.barberId, user?.email, tenantId]);
+
+  // Fix 2: Handle mobile browser background throttling
+  useEffect(() => {
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'visible') {
+        // Force refresh notifications when app comes back to foreground
+        if (!user || !tenantId) return;
+        
+        const recipientId = user.role === 'admin' ? 'admin' : (user.barberId || user.uid);
+        if (!recipientId) return;
+
+        try {
+          const snapshotUid = await getDocs(query(
+            collection(db, 'notifications'),
+            where('recipientId', '==', recipientId),
+            where('tenantId', '==', tenantId)
+          ));
+          let merged = snapshotUid.docs.map(d => ({ id: d.id, ...d.data() } as AppNotification));
+
+          if (user.role === 'client' && user.email) {
+            const snapshotEmail = await getDocs(query(
+              collection(db, 'notifications'),
+              where('recipientId', '==', user.email),
+              where('tenantId', '==', tenantId)
+            ));
+            const emailNotifs = snapshotEmail.docs.map(d => ({ id: d.id, ...d.data() } as AppNotification));
+            merged = [...merged, ...emailNotifs];
+          }
+
+          const seen = new Set<string>();
+          const deduped: AppNotification[] = [];
+          for (const n of merged) {
+            if (!seen.has(n.id)) {
+              seen.add(n.id);
+              deduped.push(n);
+            }
+          }
+          
+          const valid = deduped.filter(n => !n.expiresAt || n.expiresAt > Date.now());
+          valid.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+          setNotifications(valid.slice(0, 50));
+        } catch (error) {
+          console.error("Error refreshing notifications:", error);
+        }
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [user?.uid, user?.role, user?.barberId, user?.email, tenantId]);
 
   const unreadCount = notifications.filter(n => !n.read).length;
 

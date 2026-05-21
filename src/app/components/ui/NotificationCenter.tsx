@@ -9,8 +9,20 @@ export default function NotificationCenter() {
   const { notifications, unreadCount, markAsRead, markAllAsRead, permissionStatus, requestPermission } = useNotifications();
   const { user } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
+  const [isNew, setIsNew] = useState(false);
+  const prevUnreadCount = useRef(unreadCount);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (unreadCount > prevUnreadCount.current) {
+      setIsNew(true);
+      const timer = setTimeout(() => setIsNew(false), 1500);
+      prevUnreadCount.current = unreadCount;
+      return () => clearTimeout(timer);
+    }
+    prevUnreadCount.current = unreadCount;
+  }, [unreadCount]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -70,17 +82,19 @@ export default function NotificationCenter() {
 
   return (
     <div className="relative" ref={dropdownRef}>
-      <button 
+      <motion.button 
         onClick={() => setIsOpen(!isOpen)}
-        className="p-2.5 rounded-full bg-white/5 hover:bg-white/10 transition-all relative border border-white/10"
+        className={`p-2.5 rounded-full bg-white/5 hover:bg-white/10 transition-all relative border ${isNew ? 'border-[#D4AF37] shadow-[0_0_15px_rgba(212,175,55,0.5)]' : 'border-white/10'}`}
+        animate={isNew ? { scale: [1, 1.1, 1] } : {}}
+        transition={{ duration: 0.3, repeat: 3 }}
       >
-        <Bell className="w-5 h-5 text-white/80" />
+        <Bell className={`w-5 h-5 ${isNew ? 'text-[#D4AF37]' : 'text-white/80'}`} />
         {unreadCount > 0 && (
           <span className="absolute top-0 right-0 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center text-[9px] font-black animate-pulse">
             {unreadCount > 9 ? '9+' : unreadCount}
           </span>
         )}
-      </button>
+      </motion.button>
 
       <AnimatePresence>
         {isOpen && (
