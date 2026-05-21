@@ -70,6 +70,7 @@ const SalesReport = lazy(() => import('../admin/SalesReport').then(m => ({ defau
 const ProductManagement = lazy(() => import('../admin/ProductManagement').then(m => ({ default: m.ProductManagement })));
 const FinanceReport = lazy(() => import('../admin/FinanceReport').then(m => ({ default: m.FinanceReport })));
 const ExpenseModal = lazy(() => import('../modals/ExpenseModal'));
+const DepositModal = lazy(() => import('../modals/DepositModal'));
 
 const compressImage = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -108,7 +109,7 @@ export default function AdminDashboard() {
     updateBooking, deleteBooking, products, sales, addProduct, updateProduct,
     deleteProduct, addSale, attendance, settlements, addSettlement,
     resetBarberBalance, seedDatabase, gallery,
-    expenses, caisseBalance, totalExpenses
+    expenses, caisseBalance, totalExpenses, deposits, totalDeposits
   } = useBusiness();
   
   const navigate = useNavigate();
@@ -177,6 +178,7 @@ export default function AdminDashboard() {
   const [bookingToReject, setBookingToReject] = useState<string | null>(null);
   const [activeBookingId, setActiveBookingId] = useState<string | null>(null);
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
+  const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
 
   const triggerSuccess = (callback: () => void) => {
     return new Promise<void>((resolve) => {
@@ -767,138 +769,230 @@ export default function AdminDashboard() {
 
               {activeTab === 'reports' && (
                 <motion.div key="reports" className="space-y-8">
-                  <BarberAnalytics bookings={bookings} barbers={barbers} services={services} attendance={attendance} />
+                  <BarberAnalytics bookings={bookings} barbers={barbers} services={services} attendance={attendance} sales={sales} />
                 </motion.div>
               )}
 
-              {activeTab === 'depenses' && (
-                <motion.div key="depenses" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
-                  <div className="flex flex-wrap items-center justify-between gap-4">
-                    <div>
-                      <h2 className="text-3xl font-black uppercase tracking-tight">Gestion des Dépenses</h2>
-                      <p className="text-white/40 text-sm mt-1">Suivez les retraits de caisse et les dépenses opérationnelles de votre salon.</p>
-                    </div>
-                    <button
-                      onClick={() => setIsExpenseModalOpen(true)}
-                      className="px-6 py-4 bg-gradient-to-r from-red-600 to-rose-500 hover:from-red-500 hover:to-rose-400 text-white rounded-2xl font-black text-sm uppercase tracking-wider shadow-lg shadow-red-500/20 active:scale-[0.98] transition-all flex items-center gap-2"
-                    >
-                      <Wallet className="w-4 h-4" /> Retirer de la caisse
-                    </button>
-                  </div>
+              {activeTab === 'depenses' && (() => {
+                const totalRevenus = (sales || []).reduce((sum, s) => {
+                  const amount = Number(s.amount || s.pricePaid || 0);
+                  const tips = Number(s.tips || 0);
+                  return sum + amount + tips;
+                }, 0);
+                const totalDepenses = (expenses || []).reduce((sum, e) => {
+                  return sum + Number(e.amount || 0);
+                }, 0);
+                const soldeCaisse = totalRevenus + totalDeposits - totalDepenses;
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem] hover:border-[#D4AF37]/20 transition-all group relative overflow-hidden">
-                      <div className="p-4 rounded-3xl bg-[#D4AF37]/10 w-fit mb-6 group-hover:scale-110 transition-transform text-[#D4AF37]">
-                        <DollarSign className="w-7 h-7" />
+                return (
+                  <motion.div key="depenses" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <div>
+                        <h2 className="text-3xl font-black uppercase tracking-tight">Gestion des Dépenses</h2>
+                        <p className="text-white/40 text-sm mt-1">Suivez les retraits de caisse, les dépôts et les dépenses opérationnelles de votre salon.</p>
                       </div>
-                      <p className="text-white/30 text-xs font-bold uppercase tracking-widest">Total Revenus</p>
-                      <p className="text-4xl font-black mt-2 text-[#D4AF37]">
-                        €{(caisseBalance + totalExpenses).toFixed(2)}
-                      </p>
-                      <p className="text-white/40 text-[10px] mt-1">Ventes boutique + Prestations + Pourboires</p>
-                      <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-[#D4AF37]/[0.02] to-transparent rounded-full -mr-16 -mt-16" />
-                    </div>
-
-                    <div className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem] hover:border-red-500/20 transition-all group relative overflow-hidden">
-                      <div className="p-4 rounded-3xl bg-red-500/10 w-fit mb-6 group-hover:scale-110 transition-transform text-red-400">
-                        <Wallet className="w-7 h-7" />
+                      <div className="flex gap-3">
+                        <button
+                          onClick={() => setIsDepositModalOpen(true)}
+                          className="px-6 py-4 bg-gradient-to-r from-emerald-600 to-green-500 hover:from-emerald-500 hover:to-green-400 text-white rounded-2xl font-black text-sm uppercase tracking-wider shadow-lg shadow-green-500/20 active:scale-[0.98] transition-all flex items-center gap-2"
+                        >
+                          💵 Ajouter à la caisse
+                        </button>
+                        <button
+                          onClick={() => setIsExpenseModalOpen(true)}
+                          className="px-6 py-4 bg-gradient-to-r from-red-600 to-rose-500 hover:from-red-500 hover:to-rose-400 text-white rounded-2xl font-black text-sm uppercase tracking-wider shadow-lg shadow-red-500/20 active:scale-[0.98] transition-all flex items-center gap-2"
+                        >
+                          <Wallet className="w-4 h-4" /> Retirer de la caisse
+                        </button>
                       </div>
-                      <p className="text-white/30 text-xs font-bold uppercase tracking-widest">Total Dépenses</p>
-                      <p className="text-4xl font-black mt-2 text-red-500">
-                        €{totalExpenses.toFixed(2)}
-                      </p>
-                      <p className="text-white/40 text-[10px] mt-1">Retraits de caisse et achats</p>
-                      <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-red-500/[0.02] to-transparent rounded-full -mr-16 -mt-16" />
                     </div>
 
-                    <div className={`bg-[#141414] border border-white/5 p-8 rounded-[2.5rem] transition-all group relative overflow-hidden ${caisseBalance >= 0 ? 'hover:border-green-500/20' : 'hover:border-red-500/20'}`}>
-                      <div className={`p-4 rounded-3xl w-fit mb-6 group-hover:scale-110 transition-transform ${caisseBalance >= 0 ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
-                        <TrendingUp className="w-7 h-7" />
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem] hover:border-[#D4AF37]/20 transition-all group relative overflow-hidden">
+                        <div className="p-4 rounded-3xl bg-[#D4AF37]/10 w-fit mb-6 group-hover:scale-110 transition-transform text-[#D4AF37]">
+                          <DollarSign className="w-7 h-7" />
+                        </div>
+                        <p className="text-white/30 text-xs font-bold uppercase tracking-widest">Total Revenus</p>
+                        <p className="text-4xl font-black mt-2 text-[#D4AF37]">
+                          €{totalRevenus.toFixed(2)}
+                        </p>
+                        <p className="text-white/40 text-[10px] mt-1">Ventes boutique + Prestations + Pourboires</p>
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-[#D4AF37]/[0.02] to-transparent rounded-full -mr-16 -mt-16" />
                       </div>
-                      <p className="text-white/30 text-xs font-bold uppercase tracking-widest">Solde Caisse</p>
-                      <p className={`text-4xl font-black mt-2 ${caisseBalance >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                        €{caisseBalance.toFixed(2)}
-                      </p>
-                      <p className="text-white/40 text-[10px] mt-1">Revenus nets disponibles</p>
-                      <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-white/[0.02] to-transparent rounded-full -mr-16 -mt-16" />
-                    </div>
-                  </div>
 
-                  <div className="bg-[#141414] border border-white/5 rounded-[2.5rem] overflow-hidden">
-                    <h3 className="px-8 py-6 text-lg font-black uppercase border-b border-white/5">Historique des Dépenses</h3>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left">
-                        <thead>
-                          <tr className="bg-white/5 text-white/40 text-[10px] uppercase font-black tracking-widest border-b border-white/10">
-                            <th className="px-8 py-4">Date</th>
-                            <th className="px-8 py-4">Titre</th>
-                            <th className="px-8 py-4">Catégorie</th>
-                            <th className="px-8 py-4">Description</th>
-                            <th className="px-8 py-4">Montant</th>
-                            <th className="px-8 py-4">Créé par</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-white/5">
-                          {expenses.length === 0 ? (
-                            <tr>
-                              <td colSpan={6} className="px-8 py-12 text-center text-white/40 text-sm">
-                                Aucune dépense enregistrée
-                              </td>
+                      <div className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem] hover:border-red-500/20 transition-all group relative overflow-hidden">
+                        <div className="p-4 rounded-3xl bg-red-500/10 w-fit mb-6 group-hover:scale-110 transition-transform text-red-400">
+                          <Wallet className="w-7 h-7" />
+                        </div>
+                        <p className="text-white/30 text-xs font-bold uppercase tracking-widest">Total Dépenses</p>
+                        <p className="text-4xl font-black mt-2 text-red-500">
+                          €{totalDepenses.toFixed(2)}
+                        </p>
+                        <p className="text-white/40 text-[10px] mt-1">Retraits de caisse et achats</p>
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-red-500/[0.02] to-transparent rounded-full -mr-16 -mt-16" />
+                      </div>
+
+                      <div className={`bg-[#141414] border border-white/5 p-8 rounded-[2.5rem] transition-all group relative overflow-hidden ${soldeCaisse >= 0 ? 'hover:border-green-500/20' : 'hover:border-red-500/20'}`}>
+                        <div className={`p-4 rounded-3xl w-fit mb-6 group-hover:scale-110 transition-transform ${soldeCaisse >= 0 ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+                          <TrendingUp className="w-7 h-7" />
+                        </div>
+                        <p className="text-white/30 text-xs font-bold uppercase tracking-widest">Solde Caisse</p>
+                        <p className={`text-4xl font-black mt-2 ${soldeCaisse >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                          €{soldeCaisse.toFixed(2)}
+                        </p>
+                        <p className="text-white/40 text-[10px] mt-1">Revenus nets disponibles (avec dépôts)</p>
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-white/[0.02] to-transparent rounded-full -mr-16 -mt-16" />
+                      </div>
+                    </div>
+
+                    <div className="bg-[#141414] border border-white/5 rounded-[2.5rem] overflow-hidden">
+                      <h3 className="px-8 py-6 text-lg font-black uppercase border-b border-white/5">Historique des Dépenses</h3>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left">
+                          <thead>
+                            <tr className="bg-white/5 text-white/40 text-[10px] uppercase font-black tracking-widest border-b border-white/10">
+                              <th className="px-8 py-4">Date</th>
+                              <th className="px-8 py-4">Titre</th>
+                              <th className="px-8 py-4">Catégorie</th>
+                              <th className="px-8 py-4">Description</th>
+                              <th className="px-8 py-4">Montant</th>
+                              <th className="px-8 py-4">Créé par</th>
                             </tr>
-                          ) : (
-                            [...expenses]
-                              .sort((a, b) => b.createdAt - a.createdAt)
-                              .map((expense) => {
-                                const categoryLabels: Record<string, string> = {
-                                  facture: 'Facture',
-                                  materiel: 'Matériel',
-                                  salaire: 'Salaire',
-                                  achat: 'Achat',
-                                  autre: 'Autre'
-                                };
-                                const categoryColors: Record<string, string> = {
-                                  facture: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-                                  materiel: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
-                                  salaire: 'bg-green-500/10 text-green-400 border-green-500/20',
-                                  achat: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
-                                  autre: 'bg-white/10 text-white/60 border-white/20'
-                                };
+                          </thead>
+                          <tbody className="divide-y divide-white/5">
+                            {expenses.length === 0 ? (
+                              <tr>
+                                <td colSpan={6} className="px-8 py-12 text-center text-white/40 text-sm">
+                                  Aucune dépense enregistrée
+                                </td>
+                              </tr>
+                            ) : (
+                              [...expenses]
+                                .sort((a, b) => b.createdAt - a.createdAt)
+                                .map((expense) => {
+                                  const categoryLabels: Record<string, string> = {
+                                    facture: 'Facture',
+                                    materiel: 'Matériel',
+                                    salaire: 'Salaire',
+                                    achat: 'Achat',
+                                    autre: 'Autre'
+                                  };
+                                  const categoryColors: Record<string, string> = {
+                                    facture: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+                                    materiel: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
+                                    salaire: 'bg-green-500/10 text-green-400 border-green-500/20',
+                                    achat: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
+                                    autre: 'bg-white/10 text-white/60 border-white/20'
+                                  };
 
-                                return (
-                                  <tr key={expense.id} className="hover:bg-white/[0.01] transition-colors">
-                                    <td className="px-8 py-4 text-white/60 text-xs">
-                                      {new Date(expense.createdAt).toLocaleString('fr-FR', {
-                                        dateStyle: 'short',
-                                        timeStyle: 'short'
-                                      })}
-                                    </td>
-                                    <td className="px-8 py-4 font-bold text-sm text-white">
-                                      {expense.title}
-                                    </td>
-                                    <td className="px-8 py-4">
-                                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase border ${categoryColors[expense.category] || categoryColors.autre}`}>
-                                        {categoryLabels[expense.category] || expense.category}
-                                      </span>
-                                    </td>
-                                    <td className="px-8 py-4 text-white/40 text-xs max-w-xs truncate" title={expense.description}>
-                                      {expense.description || '—'}
-                                    </td>
-                                    <td className="px-8 py-4 font-black text-red-500 text-sm">
-                                      -€{expense.amount.toFixed(2)}
-                                    </td>
-                                    <td className="px-8 py-4 text-white/60 text-xs">
-                                      {expense.createdByName || 'Administrateur'}
-                                    </td>
-                                  </tr>
-                                );
-                              })
-                          )}
-                        </tbody>
-                      </table>
+                                  return (
+                                    <tr key={expense.id} className="hover:bg-white/[0.01] transition-colors">
+                                      <td className="px-8 py-4 text-white/60 text-xs">
+                                        {new Date(expense.createdAt).toLocaleString('fr-FR', {
+                                          dateStyle: 'short',
+                                          timeStyle: 'short'
+                                        })}
+                                      </td>
+                                      <td className="px-8 py-4 font-bold text-sm text-white">
+                                        {expense.title}
+                                      </td>
+                                      <td className="px-8 py-4">
+                                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase border ${categoryColors[expense.category] || categoryColors.autre}`}>
+                                          {categoryLabels[expense.category] || expense.category}
+                                        </span>
+                                      </td>
+                                      <td className="px-8 py-4 text-white/40 text-xs max-w-xs truncate" title={expense.description}>
+                                        {expense.description || '—'}
+                                      </td>
+                                      <td className="px-8 py-4 font-black text-red-500 text-sm">
+                                        -€{expense.amount.toFixed(2)}
+                                      </td>
+                                      <td className="px-8 py-4 text-white/60 text-xs">
+                                        {expense.createdByName || 'Administrateur'}
+                                      </td>
+                                    </tr>
+                                  );
+                                })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
-                  </div>
-                </motion.div>
-              )}
+
+                    <div className="bg-[#141414] border border-white/5 rounded-[2.5rem] overflow-hidden">
+                      <h3 className="px-8 py-6 text-lg font-black uppercase border-b border-white/5 text-green-400">Historique des Dépôts</h3>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left">
+                          <thead>
+                            <tr className="bg-white/5 text-white/40 text-[10px] uppercase font-black tracking-widest border-b border-white/10">
+                              <th className="px-8 py-4">Date</th>
+                              <th className="px-8 py-4">Titre</th>
+                              <th className="px-8 py-4">Catégorie</th>
+                              <th className="px-8 py-4">Description</th>
+                              <th className="px-8 py-4">Montant</th>
+                              <th className="px-8 py-4">Créé par</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-white/5">
+                            {(deposits || []).length === 0 ? (
+                              <tr>
+                                <td colSpan={6} className="px-8 py-12 text-center text-white/40 text-sm">
+                                  Aucun dépôt enregistré
+                                </td>
+                              </tr>
+                            ) : (
+                              [...(deposits || [])]
+                                .sort((a, b) => b.createdAt - a.createdAt)
+                                .map((deposit) => {
+                                  const categoryLabels: Record<string, string> = {
+                                    fonds_caisse: 'Fonds de caisse',
+                                    depot_especes: 'Dépôt espèces',
+                                    remboursement: 'Remboursement',
+                                    autre: 'Autre'
+                                  };
+                                  const categoryColors: Record<string, string> = {
+                                    fonds_caisse: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+                                    depot_especes: 'bg-green-500/10 text-green-400 border-green-500/20',
+                                    remboursement: 'bg-teal-500/10 text-teal-400 border-teal-500/20',
+                                    autre: 'bg-white/10 text-white/60 border-white/20'
+                                  };
+
+                                  return (
+                                    <tr key={deposit.id} className="hover:bg-white/[0.01] transition-colors">
+                                      <td className="px-8 py-4 text-white/60 text-xs">
+                                        {new Date(deposit.createdAt).toLocaleString('fr-FR', {
+                                          dateStyle: 'short',
+                                          timeStyle: 'short'
+                                        })}
+                                      </td>
+                                      <td className="px-8 py-4 font-bold text-sm text-white">
+                                        {deposit.title}
+                                      </td>
+                                      <td className="px-8 py-4">
+                                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase border ${categoryColors[deposit.category] || categoryColors.autre}`}>
+                                          {categoryLabels[deposit.category] || deposit.category}
+                                        </span>
+                                      </td>
+                                      <td className="px-8 py-4 text-white/40 text-xs max-w-xs truncate" title={deposit.description}>
+                                        {deposit.description || '—'}
+                                      </td>
+                                      <td className="px-8 py-4 font-black text-green-400 text-sm">
+                                        +€{deposit.amount.toFixed(2)}
+                                      </td>
+                                      <td className="px-8 py-4 text-white/60 text-xs">
+                                        {deposit.createdByName || 'Administrateur'}
+                                      </td>
+                                    </tr>
+                                  );
+                                })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </motion.div>
+                );
+              })()}
 
               {activeTab === 'attendance' && (
                 <motion.div key="attendance" className="space-y-12">
@@ -1462,6 +1556,7 @@ export default function AdminDashboard() {
         }} />}
         {isManualBookingOpen && <ManualBookingModal onClose={() => setIsManualBookingOpen(false)} />}
         {isExpenseModalOpen && <ExpenseModal onClose={() => setIsExpenseModalOpen(false)} />}
+        {isDepositModalOpen && <DepositModal onClose={() => setIsDepositModalOpen(false)} />}
         {activeBookingId && <AddServiceModal bookingId={activeBookingId} onClose={() => setActiveBookingId(null)} />}
         {posProduct && (
           <POSSaleModal

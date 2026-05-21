@@ -241,6 +241,19 @@ export default function Register() {
       <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-[#D4AF37]/5 rounded-full blur-[120px]" />
 
       <div className="w-full max-w-4xl bg-gradient-to-br from-[#141414] to-[#0a0a0a] border border-[#D4AF37]/20 rounded-3xl p-8 md:p-12 shadow-2xl relative z-10 backdrop-blur-md">
+        {/* Back Button */}
+        <button
+          onClick={() => {
+            if (step === 1) {
+              navigate('/');
+            } else {
+              setStep(prev => Math.max(1, prev - 1));
+            }
+          }}
+          className="absolute top-6 left-8 flex items-center gap-1.5 text-xs text-white/40 hover:text-white transition-colors"
+        >
+          {step === 1 ? "← Retour à l'accueil" : "← Retour"}
+        </button>
         
         {/* Header */}
         <div className="flex flex-col items-center mb-10 text-center">

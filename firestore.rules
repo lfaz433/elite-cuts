@@ -49,6 +49,11 @@ service cloud.firestore {
       allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
     }
 
+    match /deposits/{depositId} {
+      allow read, write: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
+    }
+
     // 3. User Profiles Collection (Owner-only access)
     match /users/{userId} {
       allow read, write: if isSuperAdmin() || (request.auth != null && request.auth.uid == userId);

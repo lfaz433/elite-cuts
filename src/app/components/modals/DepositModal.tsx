@@ -1,22 +1,22 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
-import { X, Loader2 } from 'lucide-react';
+import { X, Loader2, ArrowDownRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { useBusiness } from '../context/BusinessContext';
 import { useAuth } from '../context/AuthContext';
 
-interface ExpenseModalProps {
+interface DepositModalProps {
   onClose: () => void;
 }
 
-export default function ExpenseModal({ onClose }: ExpenseModalProps) {
-  const { addExpense } = useBusiness();
+export default function DepositModal({ onClose }: DepositModalProps) {
+  const { addDeposit } = useBusiness();
   const { user } = useAuth();
   
   const [amount, setAmount] = useState('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [category, setCategory] = useState<'facture' | 'materiel' | 'salaire' | 'achat' | 'autre'>('autre');
+  const [category, setCategory] = useState<'fonds_caisse' | 'depot_especes' | 'remboursement' | 'autre'>('autre');
   const [isSaving, setIsSaving] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -34,7 +34,7 @@ export default function ExpenseModal({ onClose }: ExpenseModalProps) {
 
     setIsSaving(true);
     try {
-      await addExpense({
+      await addDeposit({
         title,
         amount: numAmount,
         description: description.trim(),
@@ -42,7 +42,7 @@ export default function ExpenseModal({ onClose }: ExpenseModalProps) {
         createdBy: user?.uid || 'unknown',
         createdByName: user?.name || user?.email || 'Administrateur'
       });
-      toast.success("Dépense enregistrée avec succès !");
+      toast.success("Dépôt enregistré avec succès !");
       onClose();
     } catch (error: any) {
       console.error(error);
@@ -72,11 +72,12 @@ export default function ExpenseModal({ onClose }: ExpenseModalProps) {
           <X className="w-6 h-6" />
         </button>
 
-        <h3 className="text-2xl font-black text-white uppercase tracking-tight mb-2">
-          Retirer de la caisse
+        <h3 className="text-2xl font-black text-white uppercase tracking-tight mb-2 flex items-center gap-2">
+          <span className="p-1 bg-green-500/10 rounded-lg"><ArrowDownRight className="w-6 h-6 text-green-400" /></span>
+          Ajouter à la caisse
         </h3>
         <p className="text-white/40 text-sm mb-6">
-          Enregistrez une nouvelle dépense ou un retrait d'espèces.
+          Enregistrez un dépôt d'argent pour alimenter le solde de la caisse.
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -104,7 +105,7 @@ export default function ExpenseModal({ onClose }: ExpenseModalProps) {
               required
               value={title} 
               onChange={(e) => setTitle(e.target.value)} 
-              placeholder="ex: Achat serviettes, café..." 
+              placeholder="ex: Fonds de caisse initial, Apport..." 
               className="w-full bg-white/5 border border-white/10 p-3.5 rounded-2xl text-white font-medium focus:border-[#D4AF37] focus:outline-none transition-colors"
             />
           </div>
@@ -118,10 +119,9 @@ export default function ExpenseModal({ onClose }: ExpenseModalProps) {
               onChange={(e) => setCategory(e.target.value as any)}
               className="w-full bg-[#1c1c1c] border border-white/10 p-3.5 rounded-2xl text-white font-medium focus:border-[#D4AF37] focus:outline-none transition-colors"
             >
-              <option value="facture">Facture</option>
-              <option value="materiel">Matériel</option>
-              <option value="salaire">Salaire</option>
-              <option value="achat">Achat</option>
+              <option value="fonds_caisse">Fonds de caisse</option>
+              <option value="depot_especes">Dépôt espèces</option>
+              <option value="remboursement">Remboursement</option>
               <option value="autre">Autre</option>
             </select>
           </div>
@@ -154,7 +154,7 @@ export default function ExpenseModal({ onClose }: ExpenseModalProps) {
             <button 
               type="submit" 
               disabled={isSaving}
-              className="w-full py-4 bg-gradient-to-r from-red-600 to-rose-500 disabled:from-red-800 disabled:to-rose-800 text-white rounded-2xl font-black uppercase text-sm tracking-widest shadow-xl shadow-red-500/10 hover:shadow-red-500/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+              className="w-full py-4 bg-gradient-to-r from-emerald-600 to-green-500 disabled:from-emerald-800 disabled:to-green-800 text-white rounded-2xl font-black uppercase text-sm tracking-widest shadow-xl shadow-green-500/10 hover:shadow-green-500/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
             >
               {isSaving ? (
                 <>
@@ -162,7 +162,7 @@ export default function ExpenseModal({ onClose }: ExpenseModalProps) {
                   Traitement...
                 </>
               ) : (
-                "Confirmer le retrait"
+                "Confirmer le dépôt"
               )}
             </button>
             <button 
@@ -170,7 +170,7 @@ export default function ExpenseModal({ onClose }: ExpenseModalProps) {
               onClick={onClose} 
               className="w-full py-3 text-white/40 hover:text-white text-sm transition-colors"
             >
-              Annuler
+              ✕ Annuler
             </button>
           </div>
         </form>

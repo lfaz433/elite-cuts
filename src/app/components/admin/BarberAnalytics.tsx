@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend,
@@ -32,6 +32,7 @@ interface Props {
   services: Service[];
   attendance: Attendance[];
   isBarberView?: boolean;
+  sales?: any[];
 }
 
 const GOLD_COLORS = ['#D4AF37', '#FFD700', '#B8960C', '#F5E050', '#C8A415', '#EAC730', '#A0830A'];
@@ -72,10 +73,99 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   return null;
 };
 
-export function BarberAnalytics({ bookings, barbers, services, attendance, isBarberView }: Props) {
+export function BarberAnalytics({ bookings, barbers, services, attendance, isBarberView, sales = [] }: Props) {
   const [periodFilter, setPeriodFilter] = useState<'day' | 'week' | 'month' | 'custom'>('month');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
+
+  // --- Local filters for Historique des Services ---
+  const [histStartDate, setHistStartDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return d.toISOString().split('T')[0];
+  });
+  const [histEndDate, setHistEndDate] = useState(() => {
+    return new Date().toISOString().split('T')[0];
+  });
+  const [histBarberId, setHistBarberId] = useState('all');
+  const [histServiceId, setHistServiceId] = useState('all');
+  const [histPaymentMethod, setHistPaymentMethod] = useState('all'); // all, cash, card
+  const [histSearch, setHistSearch] = useState('');
+  const [histPage, setHistPage] = useState(1);
+
+  // Reset page when any filter state changes
+  useEffect(() => {
+    setHistPage(1);
+  }, [histStartDate, histEndDate, histBarberId, histServiceId, histPaymentMethod, histSearch]);
+
+  const today = useMemo(() => new Date().toISOString().split('T')[0], []);
+
+  const revenusAujourdhui = useMemo(() => {
+    return (sales || [])
+      .filter(s => {
+        if (!s.createdAt) return false;
+        try {
+          const dateStr = new Date(s.createdAt).toISOString().split('T')[0];
+          return dateStr === today;
+        } catch (e) {
+          return false;
+        }
+      })
+      .reduce((sum, s) => sum + Number(s.amount || s.pricePaid || 0), 0);
+  }, [sales, today]);
+
+  const pourboiresToday = useMemo(() => {
+    return (sales || [])
+      .filter(s => {
+        if (!s.createdAt) return false;
+        try {
+          const dateStr = new Date(s.createdAt).toISOString().split('T')[0];
+          return dateStr === today;
+        } catch (e) {
+          return false;
+        }
+      })
+      .reduce((sum, s) => sum + Number(s.tips || 0), 0);
+  }, [sales, today]);
+
+  const histFiltered = useMemo(() => {
+    return bookings
+      .filter(b => b.status === 'completed' || b.status === 'approved')
+      .filter(b => {
+        if (histStartDate && b.date < histStartDate) return false;
+        if (histEndDate && b.date > histEndDate) return false;
+        if (histBarberId !== 'all' && b.barberId !== histBarberId) return false;
+        if (histServiceId !== 'all' && b.serviceId !== histServiceId) return false;
+        if (histPaymentMethod !== 'all' && b.paymentMethod !== histPaymentMethod) return false;
+        if (histSearch.trim() !== '') {
+          const searchLower = histSearch.toLowerCase();
+          const clientName = (b.clientName || 'Walk-in').toLowerCase();
+          if (!clientName.includes(searchLower)) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => `${b.date}T${b.time}`.localeCompare(`${a.date}T${a.time}`));
+  }, [bookings, histStartDate, histEndDate, histBarberId, histServiceId, histPaymentMethod, histSearch]);
+
+  const itemsPerPage = 10;
+  const totalItems = histFiltered.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / itemsPerPage));
+  const paginatedServices = useMemo(() => {
+    const startIdx = (histPage - 1) * itemsPerPage;
+    return histFiltered.slice(startIdx, startIdx + itemsPerPage);
+  }, [histFiltered, histPage]);
+
+  const handleResetFilters = () => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    setHistStartDate(d.toISOString().split('T')[0]);
+    setHistEndDate(new Date().toISOString().split('T')[0]);
+    setHistBarberId('all');
+    setHistServiceId('all');
+    setHistPaymentMethod('all');
+    setHistSearch('');
+    setHistPage(1);
+  };
 
   // ── Period filter ──────────────────────────────────────────────────────────
   const periodRange = useMemo(() => {
@@ -253,16 +343,53 @@ export function BarberAnalytics({ bookings, barbers, services, attendance, isBar
         <StatCard label="Total Carte" value={`€${kpis.cardTotal.toFixed(0)}`} sub={`${kpis.cardCount} paiements par TPE`} icon={CreditCard} color="text-blue-400" bg="bg-blue-500/10" />
       </div>
 
-      {/* ── Top Service & Pourboires ── */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-gradient-to-br from-[#141414] to-black border border-white/5 p-6 rounded-3xl flex items-center gap-5">
-          <div className="w-16 h-16 bg-amber-500/10 rounded-2xl flex items-center justify-center shrink-0">
-            <Wallet className="w-8 h-8 text-amber-500" />
+      {/* ── Secondary Breakdown Cards ── */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-[#141414] border border-white/5 p-4 rounded-2xl flex items-center gap-4 hover:border-[#D4AF37]/20 transition-all">
+          <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-400">
+            <Wallet className="w-4 h-4" />
           </div>
           <div>
-            <p className="text-[10px] text-white/40 font-black uppercase tracking-widest mb-1">Total Pourboires</p>
-            <p className="text-2xl font-black text-amber-400">€{kpis.tips.toFixed(2)}</p>
-            <p className="text-sm text-white/50">Collectés sur la période</p>
+            <p className="text-white/30 text-[9px] font-black uppercase tracking-widest mb-0.5">Total Espèces</p>
+            <p className="text-lg font-black text-white">€{kpis.cashTotal.toFixed(2)}</p>
+          </div>
+        </div>
+        <div className="bg-[#141414] border border-white/5 p-4 rounded-2xl flex items-center gap-4 hover:border-[#D4AF37]/20 transition-all">
+          <div className="p-2.5 rounded-xl bg-blue-500/10 text-blue-400">
+            <CreditCard className="w-4 h-4" />
+          </div>
+          <div>
+            <p className="text-white/30 text-[9px] font-black uppercase tracking-widest mb-0.5">Total Carte</p>
+            <p className="text-lg font-black text-white">€{kpis.cardTotal.toFixed(2)}</p>
+          </div>
+        </div>
+        <div className="bg-[#141414] border border-white/5 p-4 rounded-2xl flex items-center gap-4 hover:border-[#D4AF37]/20 transition-all">
+          <div className="p-2.5 rounded-xl bg-green-500/10 text-green-400">
+            <DollarSign className="w-4 h-4" />
+          </div>
+          <div>
+            <p className="text-white/30 text-[9px] font-black uppercase tracking-widest mb-0.5">Total Pourboires</p>
+            <p className="text-lg font-black text-white">€{kpis.tips.toFixed(2)}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Top Service & Pourboires ── */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="bg-[#141414] border border-white/5 p-6 rounded-3xl flex items-center gap-5">
+          <div className="w-16 h-16 bg-[#D4AF37]/10 rounded-2xl flex items-center justify-center shrink-0">
+            <Clock className="w-8 h-8 text-[#D4AF37]" />
+          </div>
+          <div>
+            <p className="text-[10px] text-white/40 font-black uppercase tracking-widest mb-1">REVENUS AUJOURD'HUI</p>
+            {revenusAujourdhui > 0 ? (
+              <>
+                <p className="text-2xl font-black text-[#D4AF37]">€{revenusAujourdhui.toFixed(2)}</p>
+                <p className="text-xs text-white/50 mt-1">+{pourboiresToday.toFixed(2)}€ pourboires</p>
+              </>
+            ) : (
+              <p className="text-sm font-medium text-white/40 mt-1">Aucune vente aujourd'hui</p>
+            )}
           </div>
         </div>
         {topService && (
@@ -298,10 +425,97 @@ export function BarberAnalytics({ bookings, barbers, services, attendance, isBar
 
       {/* ── Historique des Services ── */}
       <div className="bg-[#141414] border border-white/5 rounded-3xl overflow-hidden">
-        <div className="px-6 py-5 border-b border-white/5 flex items-center gap-3">
-          <Calendar className="w-5 h-5 text-[#D4AF37]" />
-          <h3 className="text-lg font-bold">Historique des Services</h3>
+        <div className="px-6 py-5 border-b border-white/5 flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-3">
+            <Calendar className="w-5 h-5 text-[#D4AF37]" />
+            <h3 className="text-lg font-bold">Historique des Services</h3>
+          </div>
         </div>
+
+        {/* Filter Bar */}
+        <div className="p-6 border-b border-white/5 bg-white/[0.01] grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 items-end">
+          <div>
+            <label className="block text-white/40 text-[10px] font-black uppercase tracking-widest mb-2">Du</label>
+            <input
+              type="date"
+              value={histStartDate}
+              onChange={e => setHistStartDate(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 outline-none focus:border-[#D4AF37] text-xs text-white [color-scheme:dark]"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-white/40 text-[10px] font-black uppercase tracking-widest mb-2">Au</label>
+            <input
+              type="date"
+              value={histEndDate}
+              onChange={e => setHistEndDate(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 outline-none focus:border-[#D4AF37] text-xs text-white [color-scheme:dark]"
+            />
+          </div>
+
+          <div>
+            <label className="block text-white/40 text-[10px] font-black uppercase tracking-widest mb-2">Coiffeur</label>
+            <select
+              value={histBarberId}
+              onChange={e => setHistBarberId(e.target.value)}
+              className="w-full bg-[#141414] border border-white/10 rounded-xl px-3 py-2 outline-none focus:border-[#D4AF37] text-xs text-white"
+            >
+              <option value="all">Tous</option>
+              {barbers.map(b => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-white/40 text-[10px] font-black uppercase tracking-widest mb-2">Service</label>
+            <select
+              value={histServiceId}
+              onChange={e => setHistServiceId(e.target.value)}
+              className="w-full bg-[#141414] border border-white/10 rounded-xl px-3 py-2 outline-none focus:border-[#D4AF37] text-xs text-white"
+            >
+              <option value="all">Tous</option>
+              {services.map(s => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-white/40 text-[10px] font-black uppercase tracking-widest mb-2">Paiement</label>
+            <select
+              value={histPaymentMethod}
+              onChange={e => setHistPaymentMethod(e.target.value)}
+              className="w-full bg-[#141414] border border-white/10 rounded-xl px-3 py-2 outline-none focus:border-[#D4AF37] text-xs text-white"
+            >
+              <option value="all">Tous</option>
+              <option value="cash">Espèce</option>
+              <option value="card">Carte</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-white/40 text-[10px] font-black uppercase tracking-widest mb-2">Rechercher</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Nom client..."
+                value={histSearch}
+                onChange={e => setHistSearch(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 outline-none focus:border-[#D4AF37] text-xs text-white placeholder-white/20"
+              />
+              <button
+                onClick={handleResetFilters}
+                className="px-3 py-2 border border-white/10 hover:border-[#D4AF37] hover:text-[#D4AF37] rounded-xl text-xs transition-colors shrink-0 text-white/60 font-black uppercase"
+                title="Réinitialiser les filtres"
+              >
+                Réinit.
+              </button>
+            </div>
+          </div>
+        </div>
+
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
@@ -316,54 +530,79 @@ export function BarberAnalytics({ bookings, barbers, services, attendance, isBar
               </tr>
             </thead>
             <tbody className="divide-y divide-white/[0.04]">
-              {[...filtered]
-                .sort((a, b) => `${b.date}T${b.time}`.localeCompare(`${a.date}T${a.time}`))
-                .slice(0, 100)
-                .map((b) => {
-                  const barber = barbers.find(bb => bb.id === b.barberId);
-                  const service = services.find(s => s.id === b.serviceId);
-                  const clientName = b.clientName || 'Walk-in';
-                  
-                  return (
-                    <tr key={b.id} className="hover:bg-white/[0.02] transition-colors">
-                      <td className="px-6 py-4">
-                        <p className="text-white font-bold text-sm">{b.date}</p>
-                        <p className="text-white/40 text-xs">{b.time}</p>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          <img
-                            src={barber?.image || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=60&h=60&fit=crop'}
-                            className="w-6 h-6 rounded-full object-cover"
-                            onError={(e) => { (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=60&h=60&fit=crop'; }}
-                          />
-                          <span className="text-white/80 text-sm font-medium">{barber?.name || 'Inconnu'}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-white font-medium">{clientName}</td>
-                      <td className="px-6 py-4 text-sm text-white/80">{service?.name || 'Service Personnalisé'}</td>
-                      <td className="px-6 py-4 font-bold text-[#D4AF37]">€{(b.pricePaid || 0).toFixed(2)}</td>
-                      <td className="px-6 py-4 font-bold text-amber-400">€{(b.tip || 0).toFixed(2)}</td>
-                      <td className="px-6 py-4">
-                        {b.paymentMethod === 'cash' ? (
-                          <span className="px-2 py-1 bg-green-500/10 text-green-400 rounded-lg text-[10px] font-black uppercase">Espèce</span>
-                        ) : b.paymentMethod === 'card' ? (
-                          <span className="px-2 py-1 bg-blue-500/10 text-blue-400 rounded-lg text-[10px] font-black uppercase">Carte</span>
-                        ) : (
-                          <span className="px-2 py-1 bg-white/10 text-white/40 rounded-lg text-[10px] font-black uppercase">Inconnu</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              {filtered.length === 0 && (
+              {paginatedServices.map((b) => {
+                const barber = barbers.find(bb => bb.id === b.barberId);
+                const service = services.find(s => s.id === b.serviceId);
+                const clientName = b.clientName || 'Walk-in';
+                
+                return (
+                  <tr key={b.id} className="hover:bg-white/[0.02] transition-colors">
+                    <td className="px-6 py-4">
+                      <p className="text-white font-bold text-sm">{b.date}</p>
+                      <p className="text-white/40 text-xs">{b.time}</p>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-2">
+                        <img
+                          src={barber?.image || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=60&h=60&fit=crop'}
+                          className="w-6 h-6 rounded-full object-cover"
+                          onError={(e) => { (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=60&h=60&fit=crop'; }}
+                        />
+                        <span className="text-white/80 text-sm font-medium">{barber?.name || 'Inconnu'}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-white font-medium">{clientName}</td>
+                    <td className="px-6 py-4 text-sm text-white/80">{service?.name || 'Service Personnalisé'}</td>
+                    <td className="px-6 py-4 font-bold text-[#D4AF37]">€{(b.pricePaid || 0).toFixed(2)}</td>
+                    <td className="px-6 py-4 font-bold text-amber-400">€{(b.tip || 0).toFixed(2)}</td>
+                    <td className="px-6 py-4">
+                      {b.paymentMethod === 'cash' ? (
+                        <span className="px-2 py-1 bg-green-500/10 text-green-400 rounded-lg text-[10px] font-black uppercase">Espèce</span>
+                      ) : b.paymentMethod === 'card' ? (
+                        <span className="px-2 py-1 bg-blue-500/10 text-blue-400 rounded-lg text-[10px] font-black uppercase">Carte</span>
+                      ) : (
+                        <span className="px-2 py-1 bg-white/10 text-white/40 rounded-lg text-[10px] font-black uppercase">Inconnu</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+              {paginatedServices.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-white/20 italic">Aucune donnée pour cette période.</td>
+                  <td colSpan={7} className="px-6 py-12 text-center text-white/20 italic">Aucun service ne correspond à ces critères.</td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Footer */}
+        {totalItems > 0 && (
+          <div className="px-6 py-4 border-t border-white/5 flex items-center justify-between gap-4 flex-wrap bg-white/[0.01]">
+            <span className="text-xs text-white/40 font-medium">
+              {totalItems} {totalItems > 1 ? 'services au total' : 'service au total'}
+            </span>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => setHistPage(p => Math.max(1, p - 1))}
+                disabled={histPage === 1}
+                className="px-4 py-2 border border-white/10 hover:border-[#D4AF37] disabled:hover:border-white/10 disabled:opacity-40 rounded-xl text-xs font-black transition-colors text-white uppercase"
+              >
+                Précédent
+              </button>
+              <span className="text-xs text-white font-medium">
+                Page {histPage} sur {totalPages}
+              </span>
+              <button
+                onClick={() => setHistPage(p => Math.min(totalPages, p + 1))}
+                disabled={histPage === totalPages}
+                className="px-4 py-2 border border-white/10 hover:border-[#D4AF37] disabled:hover:border-white/10 disabled:opacity-40 rounded-xl text-xs font-black transition-colors text-white uppercase"
+              >
+                Suivant
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── Revenue per Barber bar chart + Service distribution pie ── */}

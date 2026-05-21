@@ -167,6 +167,18 @@ export interface Expense {
   createdByName: string; // admin user name
 }
 
+export interface Deposit {
+  id: string;
+  tenantId: string;
+  title: string;
+  amount: number;
+  category: 'fonds_caisse' | 'depot_especes' | 'remboursement' | 'autre';
+  description?: string;
+  createdAt: number;
+  createdBy: string;
+  createdByName: string;
+}
+
 interface BusinessContextType {
   services: Service[];
   barbers: Barber[];
@@ -178,6 +190,7 @@ interface BusinessContextType {
   attendance: Attendance[];
   settlements: Settlement[];
   expenses: Expense[];
+  deposits: Deposit[];
   loading: boolean;
   addAttendance: (attendance: Omit<Attendance, 'id'>) => Promise<void>;
   addSettlement: (settlement: Omit<Settlement, 'id' | 'createdAt'>) => Promise<void>;
@@ -201,7 +214,9 @@ interface BusinessContextType {
   deleteProduct: (id: string) => Promise<void>;
   addSale: (sale: Omit<Sale, 'id' | 'date' | 'time'>) => Promise<void>;
   addExpense: (expense: Omit<Expense, 'id' | 'tenantId' | 'createdAt'>) => Promise<void>;
+  addDeposit: (deposit: Omit<Deposit, 'id' | 'tenantId' | 'createdAt'>) => Promise<void>;
   totalExpenses: number;
+  totalDeposits: number;
   caisseBalance: number;
   seedDatabase: () => Promise<void>;
   updateBarberStatus: (id: string, status: Barber['status']) => Promise<void>;
@@ -347,13 +362,14 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   const [attendance, setAttendance] = useState<Attendance[]>([]);
   const [settlements, setSettlements] = useState<Settlement[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [deposits, setDeposits] = useState<Deposit[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!tenantId) return;
 
     let loaded = 0;
-    const total = 10;
+    const total = 11;
     const essential = ['services', 'barbers', 'businessInfo'];
     const loadedEssential = new Set<string>();
 
@@ -421,10 +437,15 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       markLoaded();
     }, () => markLoaded());
 
+    const unsubDeposits = onSnapshot(query(collection(db, 'deposits'), where('tenantId', '==', tenantId)), (snapshot) => {
+      setDeposits(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Deposit)));
+      markLoaded();
+    }, () => markLoaded());
+
     return () => {
       clearTimeout(timeout);
       unsubServices(); unsubBarbers(); unsubBookings(); unsubInfo();
-      unsubGallery(); unsubProducts(); unsubSales(); unsubAttendance(); unsubSettlements(); unsubExpenses();
+      unsubGallery(); unsubProducts(); unsubSales(); unsubAttendance(); unsubSettlements(); unsubExpenses(); unsubDeposits();
     };
   }, [tenantId]);
 
@@ -693,6 +714,18 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  const addDeposit = async (deposit: Omit<Deposit, 'id' | 'tenantId' | 'createdAt'>) => {
+    if (!tenantId) {
+      toast.error("Erreur: Tenant non identifié.");
+      return;
+    }
+    await addDoc(collection(db, 'deposits'), {
+      ...deposit,
+      tenantId,
+      createdAt: Date.now()
+    });
+  };
+
   const addAttendance = async (record: Omit<Attendance, 'id'>) => {
     await addDoc(collection(db, 'attendance'), record);
   };
@@ -874,8 +907,30 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   };
 
   const totalExpenses = useMemo(() => {
-    return expenses.reduce((sum, e) => sum + e.amount, 0);
+    return expenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
   }, [expenses]);
+
+  const totalDeposits = useMemo(() => {
+    return deposits.reduce((sum, d) => sum + Number(d.amount || 0), 0);
+  }, [deposits]);
+
+  const totalRevenus = useMemo(() => {
+    return (sales || []).reduce((sum, s) => {
+      const amount = Number(s.amount || s.pricePaid || 0);
+      const tips = Number(s.tips || 0);
+      return sum + amount + tips;
+    }, 0);
+  }, [sales]);
+
+  const totalDepenses = useMemo(() => {
+    return (expenses || []).reduce((sum, e) => {
+      return sum + Number(e.amount || 0);
+    }, 0);
+  }, [expenses]);
+
+  const caisseBalance = useMemo(() => {
+    return totalRevenus + totalDeposits - totalDepenses;
+  }, [totalRevenus, totalDeposits, totalDepenses]);
 
   const completedBookings = useMemo(() => {
     return bookings.filter(b => b.status === 'completed' || b.status === 'approved');
@@ -891,25 +946,21 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     return completedBookings.reduce((sum, b) => sum + (b.tip || 0), 0);
   }, [completedBookings]);
 
-  const caisseBalance = useMemo(() => {
-    return totalSales + totalTips - totalExpenses;
-  }, [totalSales, totalTips, totalExpenses]);
-
   const value = useMemo(() => ({
     services, barbers, bookings, businessInfo, gallery, products, sales,
-    attendance, settlements, expenses, loading,
+    attendance, settlements, expenses, deposits, loading,
     addService, updateService, deleteService,
     addBarber, updateBarber, deleteBarber,
     addBooking, updateBookingStatus, updateBooking, deleteBooking,
     updateBusinessInfo, addToGallery, removeFromGallery,
-    addProduct, updateProduct, deleteProduct, addSale, addExpense,
-    totalExpenses, caisseBalance,
+    addProduct, updateProduct, deleteProduct, addSale, addExpense, addDeposit,
+    totalExpenses, totalDeposits, caisseBalance,
     addAttendance, addSettlement, resetBarberBalance, resetAllBalances, seedDatabase,
     updateBarberStatus,
     getAvailableBarbers, getAvailableTimeSlots
   }), [
     services, barbers, bookings, businessInfo, gallery, products, sales,
-    attendance, settlements, expenses, loading, totalExpenses, caisseBalance
+    attendance, settlements, expenses, deposits, loading, totalExpenses, totalDeposits, caisseBalance
   ]);
 
   return (
