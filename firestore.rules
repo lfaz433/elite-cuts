@@ -4,11 +4,9 @@ service cloud.firestore {
 
     // Helper: checks if user is logged in and belongs to the specified tenant
     function isMemberOfTenant(tenantId) {
-      return tenantId == 'barbeboard-demo' || (
-        request.auth != null && (
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId == tenantId ||
-          request.auth.token.tenantId == tenantId
-        )
+      return request.auth != null && (
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId == tenantId ||
+        request.auth.token.tenantId == tenantId
       );
     }
 
@@ -26,18 +24,19 @@ service cloud.firestore {
 
     // 2. Scoped Business Operations Collections
     match /bookings/{bookingId} {
-      allow read, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
-      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
+      allow read: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId) || resource.data.tenantId == 'barbeboard-demo';
+      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId) || request.resource.data.tenantId == 'barbeboard-demo';
+      allow update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
     }
 
     match /barbers/{barberId} {
-      allow read, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
-      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
+      allow read: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId) || resource.data.tenantId == 'barbeboard-demo';
+      allow create, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
     }
 
     match /services/{serviceId} {
-      allow read, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
-      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
+      allow read: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId) || resource.data.tenantId == 'barbeboard-demo';
+      allow create, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
     }
 
     match /sales/{saleId} {
