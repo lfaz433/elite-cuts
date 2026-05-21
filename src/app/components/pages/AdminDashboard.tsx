@@ -370,20 +370,58 @@ export default function AdminDashboard() {
                     {renderDateFilterSelector()}
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {[
-                      { label: 'Revenu Total', value: `€${totalRevenue.toFixed(0)}`, icon: DollarSign, color: 'text-green-400', bg: 'bg-green-500/10' },
-                      { label: 'Réservations', value: filteredBookings.length, icon: Calendar, color: 'text-blue-400', bg: 'bg-blue-500/10' },
-                      { label: 'Services Prévus', value: bookings.filter(b => b.status === 'approved').length, icon: Scissors, color: 'text-[#D4AF37]', bg: 'bg-[#D4AF37]/10' },
-                    ].map((stat, i) => (
-                      <div key={i} className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem] hover:border-[#D4AF37]/20 transition-all group relative overflow-hidden">
-                        <div className={`p-4 rounded-3xl ${stat.bg} w-fit mb-6 group-hover:scale-110 transition-transform ${stat.color}`}><stat.icon className="w-7 h-7" /></div>
-                        <p className="text-white/30 text-xs font-bold uppercase tracking-widest">{stat.label}</p>
-                        <p className="text-4xl font-black mt-2">{stat.value}</p>
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-white/[0.02] to-transparent rounded-full -mr-16 -mt-16" />
+                  {/* ── VUE D'ENSEMBLE KPI Cards ── */}
+                  {(() => {
+                    const _today = new Date().toISOString().split('T')[0];
+                    const revenusAujourdhui = (sales || [])
+                      .filter(s => {
+                        try { return new Date(s.createdAt).toISOString().split('T')[0] === _today; } catch { return false; }
+                      })
+                      .reduce((sum, s) => sum + Number(s.amount || s.pricePaid || 0), 0);
+                    const pourboiresToday = (sales || [])
+                      .filter(s => {
+                        try { return new Date(s.createdAt).toISOString().split('T')[0] === _today; } catch { return false; }
+                      })
+                      .reduce((sum, s) => sum + Number(s.tips || 0), 0);
+                    return (
+                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+                        {/* Card 1 — Revenu Total */}
+                        <div className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem] hover:border-[#D4AF37]/20 transition-all group relative overflow-hidden">
+                          <div className="p-4 rounded-3xl bg-green-500/10 text-green-400 w-fit mb-6 group-hover:scale-110 transition-transform"><DollarSign className="w-7 h-7" /></div>
+                          <p className="text-white/30 text-xs font-bold uppercase tracking-widest">Revenu Total</p>
+                          <p className="text-4xl font-black mt-2">€{totalRevenue.toFixed(0)}</p>
+                          <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-white/[0.02] to-transparent rounded-full -mr-16 -mt-16" />
+                        </div>
+
+                        {/* Card 2 — Revenus Aujourd'hui */}
+                        <div className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem] hover:border-[#D4AF37]/20 transition-all group relative overflow-hidden">
+                          <div className={`p-4 rounded-3xl w-fit mb-6 group-hover:scale-110 transition-transform ${revenusAujourdhui > 0 ? 'bg-[#D4AF37]/10 text-[#D4AF37]' : 'bg-white/5 text-white/20'}`}><Clock className="w-7 h-7" /></div>
+                          <p className="text-white/30 text-xs font-bold uppercase tracking-widest">Revenus Aujourd'hui</p>
+                          <p className={`text-4xl font-black mt-2 ${revenusAujourdhui > 0 ? 'text-[#D4AF37]' : 'text-white/40'}`}>€{revenusAujourdhui.toFixed(2)}</p>
+                          <p className="text-xs text-white/40 mt-1">
+                            {revenusAujourdhui > 0 ? `+€${pourboiresToday.toFixed(2)} pourboires` : "Aucune vente aujourd'hui"}
+                          </p>
+                          <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-white/[0.02] to-transparent rounded-full -mr-16 -mt-16" />
+                        </div>
+
+                        {/* Card 3 — Réservations */}
+                        <div className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem] hover:border-[#D4AF37]/20 transition-all group relative overflow-hidden">
+                          <div className="p-4 rounded-3xl bg-blue-500/10 text-blue-400 w-fit mb-6 group-hover:scale-110 transition-transform"><Calendar className="w-7 h-7" /></div>
+                          <p className="text-white/30 text-xs font-bold uppercase tracking-widest">Réservations</p>
+                          <p className="text-4xl font-black mt-2">{filteredBookings.length}</p>
+                          <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-white/[0.02] to-transparent rounded-full -mr-16 -mt-16" />
+                        </div>
+
+                        {/* Card 4 — Services Prévus */}
+                        <div className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem] hover:border-[#D4AF37]/20 transition-all group relative overflow-hidden">
+                          <div className="p-4 rounded-3xl bg-[#D4AF37]/10 text-[#D4AF37] w-fit mb-6 group-hover:scale-110 transition-transform"><Scissors className="w-7 h-7" /></div>
+                          <p className="text-white/30 text-xs font-bold uppercase tracking-widest">Services Prévus</p>
+                          <p className="text-4xl font-black mt-2">{bookings.filter(b => b.status === 'approved').length}</p>
+                          <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-white/[0.02] to-transparent rounded-full -mr-16 -mt-16" />
+                        </div>
                       </div>
-                    ))}
-                  </div>
+                    );
+                  })()}
 
                   <div className="grid lg:grid-cols-2 gap-8">
                     <div className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem]">
