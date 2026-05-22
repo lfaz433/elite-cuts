@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { X, Wallet, Euro, Clock, CheckCircle, XCircle } from 'lucide-react';
 import { useBusiness, Barber } from '../context/BusinessContext';
 import { addDoc, collection } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 import { db } from '../../lib/firebase';
 import { useTenant } from '../context/TenantContext';
 import { toast } from 'sonner';
@@ -39,6 +40,11 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, currentBarber }) => 
     
     setIsSubmitting(true);
     try {
+      const auth = getAuth();
+      if (auth.currentUser) {
+        await auth.currentUser.getIdToken(true);
+      }
+
       await addDoc(collection(db, 'payroll_requests'), {
         tenantId,
         barberId: currentBarber.id,

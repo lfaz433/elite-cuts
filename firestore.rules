@@ -68,14 +68,33 @@ service cloud.firestore {
     }
 
     match /payroll_requests/{requestId} {
-      allow read: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
-      allow create: if isMemberOfTenant(request.resource.data.tenantId);
-      allow update: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow read: if isSuperAdmin() || 
+        isMemberOfTenant(resource.data.tenantId);
+      
+      allow create: if request.auth != null && (
+        isSuperAdmin() ||
+        request.auth.token.tenantId == request.resource.data.tenantId ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId == request.resource.data.tenantId
+      );
+      
+      allow update, delete: if request.auth != null && (
+        isSuperAdmin() ||
+        request.auth.token.tenantId == resource.data.tenantId ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId == resource.data.tenantId
+      );
     }
 
     match /payroll_payments/{paymentId} {
-      allow read: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
-      allow create: if isMemberOfTenant(request.resource.data.tenantId);
+      allow read: if request.auth != null && (
+        isSuperAdmin() ||
+        request.auth.token.tenantId == resource.data.tenantId ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId == resource.data.tenantId
+      );
+      allow create: if request.auth != null && (
+        isSuperAdmin() ||
+        request.auth.token.tenantId == request.resource.data.tenantId ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId == request.resource.data.tenantId
+      );
     }
 
     match /manual_payments/{paymentId} {
