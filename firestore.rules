@@ -45,8 +45,16 @@ service cloud.firestore {
     }
 
     match /expenses/{expenseId} {
-      allow read, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
-      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
+      allow read, update, delete: if request.auth != null && (
+        isSuperAdmin() ||
+        request.auth.token.tenantId == resource.data.tenantId ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId == resource.data.tenantId
+      );
+      allow create: if request.auth != null && (
+        isSuperAdmin() ||
+        request.auth.token.tenantId == request.resource.data.tenantId ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId == request.resource.data.tenantId
+      );
     }
 
     match /deposits/{depositId} {

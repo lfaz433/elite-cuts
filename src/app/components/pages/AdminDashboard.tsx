@@ -318,44 +318,48 @@ export default function AdminDashboard() {
 
   const handlePayrollApprove = async (request: any, approvedAmount: number) => {
     try {
-      const now = Date.now();
+      console.log('Approving request:', request.id, 'amount:', approvedAmount);
+      
+      // Step 1: Update request status
       await updateDoc(doc(db, 'payroll_requests', request.id), {
         status: 'approved',
-        approvedAmount,
-        processedAt: now,
-        processedBy: user?.uid
+        approvedAmount: Number(approvedAmount),
+        processedAt: Date.now(),
+        processedBy: user?.uid,
       });
+      console.log('Step 1 done - request updated');
+      
+      // Step 2: Create payment record
       await addDoc(collection(db, 'payroll_payments'), {
         tenantId: request.tenantId,
         barberId: request.barberId,
         barberName: request.barberName,
-        amount: approvedAmount,
+        amount: Number(approvedAmount),
         requestId: request.id,
-        paidAt: now,
-        paidBy: user?.uid
+        paidAt: Date.now(),
+        paidBy: user?.uid,
       });
-      await addExpense({
+      console.log('Step 2 done - payment created');
+      
+      // Step 3: Create expense
+      await addDoc(collection(db, 'expenses'), {
+        tenantId: request.tenantId,
         title: `Salaire — ${request.barberName}`,
-        amount: approvedAmount,
+        amount: Number(approvedAmount),
         category: 'salaire',
-        description: `Paiement approuvé #${request.id.slice(0, 5)}`,
+        description: `Paiement approuvé #${request.id}`,
+        createdAt: Date.now(),
         createdBy: user?.uid || '',
         createdByName: user?.displayName || user?.email || '',
-        isPayroll: true
+        isPayroll: true,
       });
-      await addDoc(collection(db, 'notifications'), {
-        tenantId: request.tenantId,
-        recipientId: request.barberId,
-        title: 'Paiement Approuvé',
-        message: `✅ Votre demande de €${approvedAmount} a été approuvée par l'administrateur`,
-        type: 'payroll',
-        createdAt: new Date().toISOString(),
-        read: false
-      });
+      console.log('Step 3 done - expense created');
+      
       toast.success('Paiement approuvé');
-    } catch (err) {
-      console.error(err);
+    } catch (error: any) {
+      console.error('APPROVAL ERROR:', error.code, error.message);
       toast.error("Erreur lors de l'approbation");
+      throw error;
     }
   };
 
