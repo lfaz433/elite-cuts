@@ -268,6 +268,33 @@ export default function AdminDashboard() {
   // Pagination for reservations (15 per page) — must come AFTER finalBookings
   const bookingsPagination = usePagination(finalBookings, 15);
   useEffect(() => { bookingsPagination.reset(); }, [statusFilter, dateFilter, barberFilter]);
+
+  // Pagination and filtering for expenses and deposits
+  const [expenseCategoryFilter, setExpenseCategoryFilter] = useState<string>('all');
+  const [expenseSearchQuery, setExpenseSearchQuery] = useState<string>('');
+  const [depositSearchQuery, setDepositSearchQuery] = useState<string>('');
+
+  const finalExpenses = useMemo(() => {
+    return expenses.filter(exp => {
+      const matchCat = expenseCategoryFilter === 'all' || exp.category === expenseCategoryFilter;
+      const matchSearch = (exp.title || '').toLowerCase().includes(expenseSearchQuery.toLowerCase()) || 
+                          (exp.description || '').toLowerCase().includes(expenseSearchQuery.toLowerCase());
+      return matchCat && matchSearch;
+    }).sort((a, b) => b.createdAt - a.createdAt);
+  }, [expenses, expenseCategoryFilter, expenseSearchQuery]);
+
+  const finalDeposits = useMemo(() => {
+    return (deposits || []).filter(dep => {
+      return (dep.title || '').toLowerCase().includes(depositSearchQuery.toLowerCase()) || 
+             (dep.description || '').toLowerCase().includes(depositSearchQuery.toLowerCase());
+    }).sort((a, b) => b.createdAt - a.createdAt);
+  }, [deposits, depositSearchQuery]);
+
+  const expensesPagination = usePagination(finalExpenses, 10);
+  useEffect(() => { expensesPagination.reset(); }, [expenseCategoryFilter, expenseSearchQuery]);
+
+  const depositsPagination = usePagination(finalDeposits, 10);
+  useEffect(() => { depositsPagination.reset(); }, [depositSearchQuery]);
   const approvedBookings = useMemo(() => filteredBookings.filter(b => b.status === 'completed' || b.status === 'approved'), [filteredBookings]);
   const totalRevenue = useMemo(() => {
     const serviceRev = approvedBookings.reduce((sum, b) => sum + (b.pricePaid || 0), 0);
@@ -1065,7 +1092,33 @@ export default function AdminDashboard() {
                     </div>
 
                     <div className="bg-[#141414] border border-white/5 rounded-[2.5rem] overflow-hidden">
-                      <h3 className="px-8 py-6 text-lg font-black uppercase border-b border-white/5">Historique des Dépenses</h3>
+                      <div className="px-8 py-6 border-b border-white/5 flex flex-col sm:flex-row justify-between items-center gap-4">
+                        <h3 className="text-lg font-black uppercase">Historique des Dépenses</h3>
+                        <div className="flex gap-2 w-full sm:w-auto">
+                          <select 
+                            value={expenseCategoryFilter}
+                            onChange={(e) => setExpenseCategoryFilter(e.target.value)}
+                            className="bg-black border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:border-[#D4AF37] outline-none"
+                          >
+                            <option value="all">Toutes les catégories</option>
+                            <option value="facture">Facture</option>
+                            <option value="materiel">Matériel</option>
+                            <option value="salaire">Salaire</option>
+                            <option value="achat">Achat</option>
+                            <option value="autre">Autre</option>
+                          </select>
+                          <div className="relative flex-1 sm:w-64">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
+                            <input 
+                              type="text"
+                              value={expenseSearchQuery}
+                              onChange={(e) => setExpenseSearchQuery(e.target.value)}
+                              placeholder="Rechercher une dépense..."
+                              className="w-full bg-black border border-white/10 rounded-xl py-2 pl-10 pr-4 text-sm text-white focus:border-[#D4AF37] outline-none"
+                            />
+                          </div>
+                        </div>
+                      </div>
                       <div className="overflow-x-auto">
                         <table className="w-full text-left">
                           <thead>
@@ -1079,15 +1132,14 @@ export default function AdminDashboard() {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-white/5">
-                            {expenses.length === 0 ? (
+                            {expensesPagination.paginated.length === 0 ? (
                               <tr>
                                 <td colSpan={6} className="px-8 py-12 text-center text-white/40 text-sm">
-                                  Aucune dépense enregistrée
+                                  Aucune dépense trouvée
                                 </td>
                               </tr>
                             ) : (
-                              [...expenses]
-                                .sort((a, b) => b.createdAt - a.createdAt)
+                              expensesPagination.paginated
                                 .map((expense) => {
                                   const categoryLabels: Record<string, string> = {
                                     facture: 'Facture',
@@ -1136,10 +1188,23 @@ export default function AdminDashboard() {
                           </tbody>
                         </table>
                       </div>
+                      <PaginationBar {...expensesPagination} />
                     </div>
 
                     <div className="bg-[#141414] border border-white/5 rounded-[2.5rem] overflow-hidden">
-                      <h3 className="px-8 py-6 text-lg font-black uppercase border-b border-white/5 text-green-400">Historique des Dépôts</h3>
+                      <div className="px-8 py-6 border-b border-white/5 flex flex-col sm:flex-row justify-between items-center gap-4">
+                        <h3 className="text-lg font-black uppercase text-green-400">Historique des Dépôts</h3>
+                        <div className="relative w-full sm:w-64">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
+                          <input 
+                            type="text"
+                            value={depositSearchQuery}
+                            onChange={(e) => setDepositSearchQuery(e.target.value)}
+                            placeholder="Rechercher un dépôt..."
+                            className="w-full bg-black border border-white/10 rounded-xl py-2 pl-10 pr-4 text-sm text-white focus:border-[#D4AF37] outline-none"
+                          />
+                        </div>
+                      </div>
                       <div className="overflow-x-auto">
                         <table className="w-full text-left">
                           <thead>
@@ -1153,15 +1218,14 @@ export default function AdminDashboard() {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-white/5">
-                            {(deposits || []).length === 0 ? (
+                            {depositsPagination.paginated.length === 0 ? (
                               <tr>
                                 <td colSpan={6} className="px-8 py-12 text-center text-white/40 text-sm">
-                                  Aucun dépôt enregistré
+                                  Aucun dépôt trouvé
                                 </td>
                               </tr>
                             ) : (
-                              [...(deposits || [])]
-                                .sort((a, b) => b.createdAt - a.createdAt)
+                              depositsPagination.paginated
                                 .map((deposit) => {
                                   const categoryLabels: Record<string, string> = {
                                     fonds_caisse: 'Fonds de caisse',
@@ -1208,6 +1272,7 @@ export default function AdminDashboard() {
                           </tbody>
                         </table>
                       </div>
+                      <PaginationBar {...depositsPagination} />
                     </div>
                   </motion.div>
                 );
