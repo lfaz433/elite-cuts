@@ -898,7 +898,7 @@ export default function SuperAdmin() {
               onClick={() => navigate('/admin')}
               className="px-4 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-sm font-bold transition-all text-white/80 hover:text-white"
             >
-              ← Dashboard
+              <span className="sm:hidden">←</span><span className="hidden sm:inline">← Dashboard</span>
             </button>
             <div className="flex items-center gap-3">
               <Zap className="w-8 h-8 text-yellow-400 fill-yellow-400" />
@@ -918,7 +918,7 @@ export default function SuperAdmin() {
           </div>
         </div>
 
-        <div className="flex gap-4 border-b border-white/10 pb-4 overflow-x-auto">
+        <div className="flex gap-2 overflow-x-auto pb-2 border-b border-white/10" style={{ scrollbarWidth: 'none' }}>
           {[
             { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
             { id: 'tenants', label: 'Salons', icon: Users },
@@ -942,7 +942,7 @@ export default function SuperAdmin() {
 
         <main className="min-h-[500px]">
           {loading ? (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-pulse">
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 animate-pulse">
               {[1, 2, 3, 4, 5, 6].map(i => (
                 <div key={i} className="h-28 bg-white/5 border border-white/10 rounded-2xl"></div>
               ))}
@@ -976,7 +976,7 @@ export default function SuperAdmin() {
                   {/* Section 2 — KPI cards row */}
                   <div className="space-y-4">
                     <h3 className="text-sm font-bold uppercase tracking-widest text-[#D4AF37]">Vue d'ensemble</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
                       {/* Total Salons */}
                       <div className="bg-[#111]/80 backdrop-blur border border-white/10 hover:border-[#D4AF37]/45 p-6 rounded-2xl transition-all duration-300 shadow-xl group hover:shadow-[#D4AF37]/5">
                         <div className="flex items-center justify-between mb-4">
@@ -1058,7 +1058,7 @@ export default function SuperAdmin() {
                         </div>
                       ) : (
                         <div className="h-64 w-full">
-                          <ResponsiveContainer width="100%" height="100%">
+                          <ResponsiveContainer width="100%" height={250}>
                             <BarChart data={revenueChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                               <XAxis dataKey="name" stroke="rgba(255,255,255,0.4)" fontSize={11} tickLine={false} />
@@ -1297,6 +1297,7 @@ export default function SuperAdmin() {
                   <div className="space-y-4">
                     <h3 className="text-sm font-bold uppercase tracking-widest text-[#D4AF37]">Salons les plus actifs</h3>
                     <div className="bg-[#111]/80 backdrop-blur border border-white/10 rounded-2xl overflow-hidden shadow-xl">
+                      <div className="overflow-x-auto w-full">
                       <table className="w-full text-left text-sm">
                         <thead className="bg-white/5 border-b border-white/10 text-white/50 text-xs font-bold uppercase tracking-wider">
                           <tr>
@@ -1342,6 +1343,7 @@ export default function SuperAdmin() {
                           )}
                         </tbody>
                       </table>
+                      </div>
                     </div>
                   </div>
 
@@ -1406,6 +1408,7 @@ export default function SuperAdmin() {
                   </div>
 
                   <div className="bg-[#111] border border-white/10 rounded-2xl overflow-hidden">
+                    <div className="overflow-x-auto w-full">
                     <table className="w-full text-left text-sm">
                       <thead className="bg-white/5 border-b border-white/10 text-white/50">
                         <tr>
@@ -1454,16 +1457,17 @@ export default function SuperAdmin() {
                               </span>
                             </td>
                             <td className="p-4 text-white/50">{t.createdAt ? new Date(t.createdAt).toLocaleDateString() : 'N/A'}</td>
-                            <td className="p-4 flex gap-2 justify-end">
+                            <td className="p-4"><div className="flex flex-wrap gap-1 justify-end">
                               <button onClick={() => handleViewTenant(t)} className="px-3 py-1 bg-blue-500/10 text-blue-400 rounded-lg text-xs font-bold hover:bg-blue-500/20">👁 Voir</button>
                               <button onClick={() => handleFreeAccess(t.id)} className="px-3 py-1 bg-green-500/10 text-green-400 rounded-lg text-xs font-bold hover:bg-green-500/20">✓ Accès gratuit</button>
                               <button onClick={() => handleSuspend(t.id)} className="px-3 py-1 bg-orange-500/10 text-orange-400 rounded-lg text-xs font-bold hover:bg-orange-500/20">⏸ Suspendre</button>
                               <button onClick={() => handleDelete(t.id, t.name)} className="px-3 py-1 bg-red-500/10 text-red-400 rounded-lg text-xs font-bold hover:bg-red-500/20">🗑 Supprimer</button>
-                            </td>
+                            </div></td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
+                    </div>
                   </div>
 
                   {/* Pagination Bar */}
@@ -1495,7 +1499,7 @@ export default function SuperAdmin() {
 
               {activeTab === 'revenue' && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
-                  <div className="grid grid-cols-4 gap-6">
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                     <div className="bg-[#111] border border-white/10 p-6 rounded-2xl">
                       <div className="text-white/50 text-xs font-bold uppercase tracking-widest mb-2">Total Salons</div>
                       <div className="text-4xl font-black">{tenants.length}</div>
@@ -1580,7 +1584,8 @@ export default function SuperAdmin() {
                   </div>
 
                   <div className="bg-[#111] border border-white/10 rounded-2xl overflow-hidden">
-                    <table className="w-full text-left text-sm">
+                    <div className="overflow-x-auto w-full">
+                    <table className="min-w-[600px] w-full text-left text-sm">
                       <thead className="bg-white/5 border-b border-white/10 text-white/50">
                         <tr>
                           <th className="p-4 font-medium">Salon</th>
@@ -1614,6 +1619,7 @@ export default function SuperAdmin() {
                         })}
                       </tbody>
                     </table>
+                    </div>
                   </div>
                 </motion.div>
               )}
@@ -1660,7 +1666,8 @@ export default function SuperAdmin() {
                   <div>
                     <h3 className="text-xl font-bold mb-6">Salons bénéficiant d'un accès gratuit</h3>
                     <div className="bg-[#111] border border-white/10 rounded-2xl overflow-hidden">
-                      <table className="w-full text-left text-sm">
+                      <div className="overflow-x-auto w-full">
+                      <table className="min-w-[600px] w-full text-left text-sm">
                         <thead className="bg-white/5 border-b border-white/10 text-white/50">
                           <tr>
                             <th className="p-4 font-medium">Salon</th>
@@ -1682,15 +1689,16 @@ export default function SuperAdmin() {
                               <td className="p-4 text-white/60">{t.subdomain}</td>
                               <td className="p-4 uppercase text-xs font-black">{t.subscription?.planId}</td>
                               <td className="p-4 text-white/50">{t.freeAccessGrantedAt ? new Date(t.freeAccessGrantedAt).toLocaleDateString() : 'N/A'}</td>
-                              <td className="p-4 text-right">
+                              <td className="p-4"><div className="flex flex-wrap gap-1 justify-end">
                                 <button onClick={() => revokeFreeAccess(t.id)} className="px-3 py-1 bg-red-500/10 text-red-400 rounded-lg text-xs font-bold hover:bg-red-500/20">
                                   Révoquer
                                 </button>
-                              </td>
+                              </div></td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
+                      </div>
                     </div>
                   </div>
                 </motion.div>
@@ -1699,7 +1707,7 @@ export default function SuperAdmin() {
               {activeTab === 'payments' && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
                   {/* Top section — 4 metric cards */}
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                     <div className="bg-[#111] border border-white/10 p-6 rounded-3xl space-y-2">
                       <div className="text-white/50 text-xs font-bold uppercase tracking-wider">Total encaissé</div>
                       <div className="text-3xl font-black text-[#D4AF37]">€{totalManualEncaisse.toFixed(2)}</div>
@@ -1804,7 +1812,8 @@ export default function SuperAdmin() {
 
                   {/* Payments Table */}
                   <div className="bg-[#111] border border-white/10 rounded-3xl overflow-hidden">
-                    <table className="w-full text-left text-sm">
+                    <div className="overflow-x-auto w-full">
+                    <table className="min-w-[700px] w-full text-left text-sm">
                       <thead className="bg-white/5 border-b border-white/10 text-white/50">
                         <tr>
                           <th className="p-4 font-medium">Date</th>
@@ -1870,31 +1879,32 @@ export default function SuperAdmin() {
                                     {p.status === 'paid' ? 'Payé' : p.status === 'pending' ? 'En attente' : 'Partiel'}
                                   </span>
                                 </td>
-                                <td className="p-4 text-right space-x-2">
-                                  {!isTenantActive && p.status === 'paid' && (
-                                    <button
-                                      onClick={() => handleActivateManualPayment(p)}
-                                      className="px-3 py-1 bg-green-500/10 hover:bg-green-500/20 text-green-400 border border-green-500/20 rounded-lg text-xs font-bold transition-all"
-                                    >
-                                      ✓ Activer
-                                    </button>
-                                  )}
+                              <td className="p-4"><div className="flex flex-wrap gap-1 justify-end">
+                                {!isTenantActive && p.status === 'paid' && (
                                   <button
-                                    onClick={() => {
-                                      setSelectedPayment(p);
-                                      setIsEditPaymentMode(false);
-                                    }}
-                                    className="px-3 py-1 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 rounded-lg text-xs font-bold transition-all"
+                                    onClick={() => handleActivateManualPayment(p)}
+                                    className="px-3 py-1 bg-green-500/10 hover:bg-green-500/20 text-green-400 border border-green-500/20 rounded-lg text-xs font-bold transition-all"
                                   >
-                                    👁 Voir
+                                    ✓ Activer
                                   </button>
-                                </td>
+                                )}
+                                <button
+                                  onClick={() => {
+                                    setSelectedPayment(p);
+                                    setIsEditPaymentMode(false);
+                                  }}
+                                  className="px-3 py-1 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 rounded-lg text-xs font-bold transition-all"
+                                >
+                                  👁 Voir
+                                </button>
+                              </div></td>
                               </tr>
                             );
                           })
                         )}
                       </tbody>
                     </table>
+                    </div>
                   </div>
                 </motion.div>
               )}
