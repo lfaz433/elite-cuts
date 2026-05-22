@@ -26,7 +26,7 @@ const getDateOffset = (days) => {
 
 async function clearDemoData() {
   console.log('🗑️ Clearing old demo data...');
-  const collections = ['barbers', 'services', 'bookings', 'sales', 'expenses', 'users', 'products', 'gallery'];
+  const collections = ['barbers', 'services', 'bookings', 'sales', 'expenses', 'users', 'products', 'gallery', 'payroll_requests', 'payroll_payments'];
   for (const col of collections) {
     try {
       const snap = await getDocs(query(collection(db, col), where('tenantId', '==', TENANT_ID)));
@@ -289,6 +289,36 @@ async function main() {
     const docRef = doc(collection(db, 'gallery'));
     await setDoc(docRef, { ...g, tenantId: TENANT_ID, createdAt: Date.now() });
     console.log(`  ✅ Gallery: ${g.title} (${g.category}) — ${g.likes} likes`);
+  }
+
+  // 13. Seed Payroll
+  console.log('💳 Seeding payroll data...');
+  const payrollBarbers = Object.keys(barberIds);
+  
+  const requests = [
+    { barberName: payrollBarbers[0], barberId: barberIds[payrollBarbers[0]], amount: 150, status: 'pending', requestedAt: Date.now() - 86400000 },
+    { barberName: payrollBarbers[1], barberId: barberIds[payrollBarbers[1]], amount: 200, status: 'approved', requestedAt: Date.now() - 86400000 * 3, processedAt: Date.now() - 86400000 * 2, processedBy: adminUid, approvedAmount: 200 },
+    { barberName: payrollBarbers[2], barberId: barberIds[payrollBarbers[2]], amount: 120, status: 'rejected', requestedAt: Date.now() - 86400000 * 5, processedAt: Date.now() - 86400000 * 4, processedBy: adminUid }
+  ];
+
+  for (const r of requests) {
+    const docRef = doc(collection(db, 'payroll_requests'));
+    await setDoc(docRef, { ...r, tenantId: TENANT_ID });
+    console.log(`  ✅ Payroll Request: ${r.barberName} — €${r.amount} (${r.status})`);
+    
+    if (r.status === 'approved') {
+      const pDocRef = doc(collection(db, 'payroll_payments'));
+      await setDoc(pDocRef, {
+        tenantId: TENANT_ID,
+        barberId: r.barberId,
+        barberName: r.barberName,
+        amount: r.approvedAmount,
+        requestId: docRef.id,
+        paidAt: r.processedAt,
+        paidBy: r.processedBy
+      });
+      console.log(`  ✅ Payroll Payment: ${r.barberName} — €${r.approvedAmount}`);
+    }
   }
 
   console.log('\n✅ Demo seed complete!\n');

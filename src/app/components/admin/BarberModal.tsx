@@ -23,7 +23,7 @@ const BarberModal = ({
     barber || { 
       name: '', specialty: '', experience: '', rating: 5, image: '', 
       shiftStart: '09:00', shiftEnd: '18:00', workingDays: [1,2,3,4,5,6], 
-      commission: 50, phone: '', email: '', status: 'available', password: ''
+      commission: 50, commissionRate: 50, phone: '', email: '', status: 'available', password: ''
     }
   );
 
@@ -63,8 +63,8 @@ const BarberModal = ({
                   <input type="text" value={formData.experience} onChange={e => setFormData({ ...formData, experience: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-[#D4AF37] outline-none transition-colors" placeholder="Ex: 5 ans" />
                 </div>
                 <div>
-                  <label className="block text-white/60 text-sm mb-2">Commission (%)</label>
-                  <input type="number" value={formData.commission || 50} onChange={e => setFormData({ ...formData, commission: parseInt(e.target.value) || 50 })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-[#D4AF37] outline-none transition-colors" />
+                  <label className="block text-white/60 text-sm mb-2">Taux Commission (%)</label>
+                  <input type="number" min="1" max="100" value={formData.commissionRate || formData.commission || 50} onChange={e => setFormData({ ...formData, commissionRate: parseInt(e.target.value) || 50, commission: parseInt(e.target.value) || 50 })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-[#D4AF37] outline-none transition-colors" />
                 </div>
               </div>
 

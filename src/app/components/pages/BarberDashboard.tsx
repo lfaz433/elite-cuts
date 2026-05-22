@@ -30,7 +30,7 @@ import NotificationCenter from '../ui/NotificationCenter';
 import NotificationPermissionModal from '../modals/NotificationPermissionModal';
 // Lazy load heavy components
 const ScannerModal = lazy(() => import('../modals/ScannerModal'));
-const SettlementModal = lazy(() => import('../modals/SettlementModal'));
+const WalletModal = lazy(() => import('../modals/WalletModal'));
 const ManualBookingModal = lazy(() => import('../modals/ManualBookingModal'));
 const SaleModal = lazy(() => import('../modals/SaleModal').then(m => ({ default: m.SaleModal })));
 const POSSaleModal = lazy(() => import('../modals/POSSaleModal').then(m => ({ default: m.POSSaleModal })));
@@ -249,7 +249,7 @@ export default function BarberDashboard() {
   const [resSubTab, setResSubTab] = useState<'today' | 'upcoming' | 'history'>('today');
   const [activeBookingId, setActiveBookingId] = useState<string | null>(null);
   const [checkInModalOpen, setCheckInModalOpen] = useState(false);
-  const [settlementModalOpen, setSettlementModalOpen] = useState(false);
+  const [walletModalOpen, setWalletModalOpen] = useState(false);
   const [addServiceOpen, setAddServiceOpen] = useState(false);
   const [saleModalOpen, setSaleModalOpen] = useState(false);
   const [posProduct, setPosProduct] = useState<any>(null);
@@ -474,7 +474,7 @@ export default function BarberDashboard() {
             </div>
             {!isCheckedInToday && <button onClick={() => setCheckInModalOpen(true)} className="p-2 bg-[#D4AF37]/10 text-[#D4AF37] rounded-lg text-xs font-bold border border-[#D4AF37]/20">Pointage</button>}
             <NotificationCenter />
-            <button onClick={() => setSettlementModalOpen(true)} className="p-2 bg-white/5 text-white/60 rounded-lg hover:bg-white/10"><Wallet className="w-4 h-4" /></button>
+            <button onClick={() => setWalletModalOpen(true)} className="p-2 bg-white/5 text-white/60 rounded-lg hover:bg-white/10"><Wallet className="w-4 h-4" /></button>
             <button onClick={handleLogout} className="p-2 hover:bg-red-500/10 rounded-lg transition-colors text-white/60 hover:text-red-500">
               <LogOut className="w-4 h-4" />
             </button>
@@ -1062,7 +1062,7 @@ export default function BarberDashboard() {
 
       <Suspense fallback={<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"><div className="w-8 h-8 border-4 border-[#D4AF37] border-t-transparent rounded-full animate-spin"></div></div>}>
         {checkInModalOpen && <ScannerModal onClose={() => setCheckInModalOpen(false)} currentBarber={currentBarber} handleCheckInSuccess={handleCheckInSuccess} />}
-        {settlementModalOpen && <SettlementModal onClose={() => setSettlementModalOpen(false)} todayEarnings={{total: stats.today.earnings}} currentBarber={currentBarber} addSettlement={addSettlement} />}
+        {walletModalOpen && <WalletModal onClose={() => setWalletModalOpen(false)} currentBarber={currentBarber} />}
         {activeBookingId && <AddServiceModal bookingId={activeBookingId} onClose={() => setActiveBookingId(null)} />}
         {addServiceOpen && <WalkInModal onClose={() => setAddServiceOpen(false)} services={services} currentBarber={currentBarber} commissionRate={commissionRate} addBooking={addBooking} />}
         {saleModalOpen && <SaleModal onClose={() => setSaleModalOpen(false)} products={products} currentBarber={currentBarber} addSale={addSale} />}

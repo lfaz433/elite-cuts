@@ -67,6 +67,17 @@ service cloud.firestore {
                                     (request.auth != null && request.auth.uid == request.resource.data.recipientId);
     }
 
+    match /payroll_requests/{requestId} {
+      allow read: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow create: if isMemberOfTenant(request.resource.data.tenantId);
+      allow update: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+    }
+
+    match /payroll_payments/{paymentId} {
+      allow read: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow create: if isMemberOfTenant(request.resource.data.tenantId);
+    }
+
     match /manual_payments/{paymentId} {
       allow read, write: if isSuperAdmin();
     }

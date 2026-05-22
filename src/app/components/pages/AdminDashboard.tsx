@@ -36,6 +36,7 @@ import {
   Download,
   Share2,
   Copy,
+  Euro,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useBusiness } from '../context/BusinessContext';
@@ -109,7 +110,8 @@ export default function AdminDashboard() {
     updateBooking, deleteBooking, products, sales, addProduct, updateProduct,
     deleteProduct, addSale, attendance, settlements, addSettlement,
     resetBarberBalance, seedDatabase, gallery,
-    expenses, caisseBalance, totalExpenses, deposits, totalDeposits
+    expenses, caisseBalance, totalExpenses, deposits, totalDeposits,
+    payrollRequests, payrollPayments, getBarberWalletBalance
   } = useBusiness();
   
   const navigate = useNavigate();
@@ -179,6 +181,7 @@ export default function AdminDashboard() {
   const [activeBookingId, setActiveBookingId] = useState<string | null>(null);
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
   const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
+  const [approvalAmounts, setApprovalAmounts] = useState<Record<string, number>>({});
 
   const triggerSuccess = (callback: () => void) => {
     return new Promise<void>((resolve) => {
@@ -313,6 +316,72 @@ export default function AdminDashboard() {
     </div>
   );
 
+  const handlePayrollApprove = async (request: any, approvedAmount: number) => {
+    try {
+      const now = Date.now();
+      await updateDoc(doc(db, 'payroll_requests', request.id), {
+        status: 'approved',
+        approvedAmount,
+        processedAt: now,
+        processedBy: user?.uid
+      });
+      await addDoc(collection(db, 'payroll_payments'), {
+        tenantId: request.tenantId,
+        barberId: request.barberId,
+        barberName: request.barberName,
+        amount: approvedAmount,
+        requestId: request.id,
+        paidAt: now,
+        paidBy: user?.uid
+      });
+      await addExpense({
+        title: `Salaire — ${request.barberName}`,
+        amount: approvedAmount,
+        category: 'salaire',
+        description: `Paiement approuvé #${request.id.slice(0, 5)}`,
+        createdBy: user?.uid || '',
+        createdByName: user?.displayName || user?.email || '',
+        isPayroll: true
+      });
+      await addDoc(collection(db, 'notifications'), {
+        tenantId: request.tenantId,
+        recipientId: request.barberId,
+        title: 'Paiement Approuvé',
+        message: `✅ Votre demande de €${approvedAmount} a été approuvée par l'administrateur`,
+        type: 'payroll',
+        createdAt: new Date().toISOString(),
+        read: false
+      });
+      toast.success('Paiement approuvé');
+    } catch (err) {
+      console.error(err);
+      toast.error("Erreur lors de l'approbation");
+    }
+  };
+
+  const handlePayrollReject = async (request: any) => {
+    try {
+      await updateDoc(doc(db, 'payroll_requests', request.id), {
+        status: 'rejected',
+        processedAt: Date.now(),
+        processedBy: user?.uid
+      });
+      await addDoc(collection(db, 'notifications'), {
+        tenantId: request.tenantId,
+        recipientId: request.barberId,
+        title: 'Paiement Rejeté',
+        message: `❌ Votre demande de €${request.amount} a été rejetée`,
+        type: 'payroll',
+        createdAt: new Date().toISOString(),
+        read: false
+      });
+      toast.success('Paiement rejeté');
+    } catch (err) {
+      console.error(err);
+      toast.error('Erreur lors du rejet');
+    }
+  };
+
   const hasUnreadBookings = bookings.some(b => b.unreadAdmin);
   const sidebarTabs = [
     { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -321,6 +390,7 @@ export default function AdminDashboard() {
     { id: 'barbers', icon: Users, label: 'Coiffeurs' },
     { id: 'services', icon: Scissors, label: 'Services' },
     { id: 'boutique', icon: ShoppingBag, label: 'Boutique' },
+    { id: 'paie', icon: Euro, label: 'Paie', hasNotification: (payrollRequests || []).filter(r => r.status === 'pending').length > 0 },
     { id: 'depenses', icon: Wallet, label: 'Dépenses' },
     { id: 'gallery', icon: ImageIcon, label: 'Portfolio' },
     { id: 'attendance', icon: Clock, label: 'Pointage' },
@@ -791,6 +861,130 @@ export default function AdminDashboard() {
               {activeTab === 'reports' && (
                 <motion.div key="reports" className="space-y-8">
                   <BarberAnalytics bookings={bookings} barbers={barbers} services={services} attendance={attendance} sales={sales} expenses={expenses} />
+                </motion.div>
+              )}
+
+              {activeTab === 'paie' && (
+                <motion.div key="paie" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
+                  <div className="flex justify-between items-center">
+                    <h2 className="text-3xl font-black uppercase">Gestion de la Paie</h2>
+                  </div>
+                  
+                  {/* Section A: Demandes en attente */}
+                  <div className="bg-[#141414] rounded-3xl border border-[#D4AF37]/20 p-6 shadow-2xl">
+                    <h3 className="text-xl font-bold mb-6 flex items-center gap-3">
+                      Demandes en attente
+                      {(payrollRequests || []).filter(r => r.status === 'pending').length > 0 && <span className="bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full">{(payrollRequests || []).filter(r => r.status === 'pending').length}</span>}
+                    </h3>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left">
+                        <thead>
+                          <tr className="text-white/40 border-b border-white/10 text-sm">
+                            <th className="pb-4 font-normal">Coiffeur</th>
+                            <th className="pb-4 font-normal">Date</th>
+                            <th className="pb-4 font-normal">Montant Demandé</th>
+                            <th className="pb-4 font-normal text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5">
+                          {(payrollRequests || []).filter(r => r.status === 'pending').map(req => (
+                            <tr key={req.id} className="group">
+                              <td className="py-4 font-bold">{req.barberName}</td>
+                              <td className="py-4 text-white/60">{new Date(req.requestedAt).toLocaleDateString()}</td>
+                              <td className="py-4 font-bold text-[#D4AF37]">
+                                <input 
+                                  type="number" 
+                                  value={approvalAmounts[req.id] !== undefined ? approvalAmounts[req.id] : req.amount}
+                                  onChange={e => setApprovalAmounts({ ...approvalAmounts, [req.id]: Number(e.target.value) })}
+                                  className="w-24 bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-[#D4AF37] outline-none focus:border-[#D4AF37]"
+                                />
+                              </td>
+                              <td className="py-4 flex justify-end gap-2">
+                                <button onClick={() => handlePayrollApprove(req, approvalAmounts[req.id] !== undefined ? approvalAmounts[req.id] : req.amount)} className="px-4 py-2 bg-green-500/20 text-green-400 rounded-xl hover:bg-green-500 hover:text-black font-bold text-sm transition-colors flex items-center gap-2">
+                                  ✓ Approuver
+                                </button>
+                                <button onClick={() => handlePayrollReject(req)} className="px-4 py-2 bg-red-500/20 text-red-400 rounded-xl hover:bg-red-500 hover:text-white font-bold text-sm transition-colors flex items-center gap-2">
+                                  ✗ Rejeter
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                          {(payrollRequests || []).filter(r => r.status === 'pending').length === 0 && (
+                            <tr><td colSpan={4} className="py-8 text-center text-white/40">Aucune demande en attente</td></tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Section B: Soldes des coiffeurs */}
+                  <div className="bg-[#141414] rounded-3xl border border-white/5 p-6">
+                    <h3 className="text-xl font-bold mb-6">Soldes des coiffeurs</h3>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left">
+                        <thead>
+                          <tr className="text-white/40 border-b border-white/10 text-sm">
+                            <th className="pb-4 font-normal">Coiffeur</th>
+                            <th className="pb-4 font-normal">Total Gagné (Commissions + Pourboires)</th>
+                            <th className="pb-4 font-normal">Déjà payé</th>
+                            <th className="pb-4 font-normal">Solde Actuel</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5">
+                          {barbers.filter(b => !b.archived).map(barber => {
+                            const balance = getBarberWalletBalance(barber.id);
+                            
+                            const rate = (barber.commissionRate || 50) / 100;
+                            const earned = (bookings || [])
+                              .filter(b => b.barberId === barber.id && b.status === 'completed')
+                              .reduce((sum, b) => sum + (Number(b.pricePaid || 0) * rate) + Number(b.tip || 0), 0);
+                              
+                            const paid = (payrollPayments || [])
+                              .filter(p => p.barberId === barber.id)
+                              .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+                            return (
+                              <tr key={barber.id}>
+                                <td className="py-4 font-bold">{barber.name}</td>
+                                <td className="py-4 text-green-400">€{earned.toFixed(2)}</td>
+                                <td className="py-4 text-white/60">€{paid.toFixed(2)}</td>
+                                <td className={`py-4 font-black ${balance < 0 ? 'text-red-500' : 'text-[#D4AF37]'}`}>
+                                  €{balance.toFixed(2)}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Section C: Historique des paiements */}
+                  <div className="bg-[#141414] rounded-3xl border border-white/5 p-6">
+                    <h3 className="text-xl font-bold mb-6">Historique des paiements</h3>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left">
+                        <thead>
+                          <tr className="text-white/40 border-b border-white/10 text-sm">
+                            <th className="pb-4 font-normal">Date</th>
+                            <th className="pb-4 font-normal">Coiffeur</th>
+                            <th className="pb-4 font-normal">Montant</th>
+                            <th className="pb-4 font-normal">Statut</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5">
+                          {[...(payrollPayments || [])].sort((a,b) => b.paidAt - a.paidAt).slice(0, 10).map(payment => (
+                            <tr key={payment.id}>
+                              <td className="py-4 text-white/60">{new Date(payment.paidAt).toLocaleDateString()}</td>
+                              <td className="py-4 font-bold">{payment.barberName}</td>
+                              <td className="py-4 font-black text-[#D4AF37]">€{payment.amount.toFixed(2)}</td>
+                              <td className="py-4"><span className="bg-green-500/10 text-green-400 px-2 py-1 rounded-lg text-xs font-bold">Payé</span></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </motion.div>
               )}
 

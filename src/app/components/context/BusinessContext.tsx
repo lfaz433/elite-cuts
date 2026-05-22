@@ -44,7 +44,33 @@ export interface Barber {
   secondaryServiceId?: string;
   archived?: boolean;
   commission?: number; // percentage
+  commissionRate?: number;
   status?: 'available' | 'busy' | 'break' | 'offline';
+}
+
+export interface PayrollRequest {
+  id: string;
+  tenantId: string;
+  barberId: string;
+  barberName: string;
+  amount: number;
+  approvedAmount?: number;
+  status: 'pending' | 'approved' | 'rejected';
+  note?: string;
+  requestedAt: number;
+  processedAt?: number;
+  processedBy?: string;
+}
+
+export interface PayrollPayment {
+  id: string;
+  tenantId: string;
+  barberId: string;
+  barberName: string;
+  amount: number;
+  requestId: string;
+  paidAt: number;
+  paidBy: string;
 }
 
 export interface Settlement {
@@ -191,7 +217,10 @@ interface BusinessContextType {
   settlements: Settlement[];
   expenses: Expense[];
   deposits: Deposit[];
+  payrollRequests: PayrollRequest[];
+  payrollPayments: PayrollPayment[];
   loading: boolean;
+  getBarberWalletBalance: (barberId: string) => number;
   addAttendance: (attendance: Omit<Attendance, 'id'>) => Promise<void>;
   addSettlement: (settlement: Omit<Settlement, 'id' | 'createdAt'>) => Promise<void>;
   resetBarberBalance: (barberId: string) => Promise<void>;
@@ -363,6 +392,8 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   const [settlements, setSettlements] = useState<Settlement[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [deposits, setDeposits] = useState<Deposit[]>([]);
+  const [payrollRequests, setPayrollRequests] = useState<PayrollRequest[]>([]);
+  const [payrollPayments, setPayrollPayments] = useState<PayrollPayment[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -449,10 +480,21 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       markLoaded();
     }, () => markLoaded());
 
+    const unsubPayrollReqs = onSnapshot(query(collection(db, 'payroll_requests'), where('tenantId', '==', tenantId)), (snapshot) => {
+      setPayrollRequests(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as PayrollRequest)));
+      markLoaded();
+    }, () => markLoaded());
+
+    const unsubPayrollPays = onSnapshot(query(collection(db, 'payroll_payments'), where('tenantId', '==', tenantId)), (snapshot) => {
+      setPayrollPayments(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as PayrollPayment)));
+      markLoaded();
+    }, () => markLoaded());
+
     return () => {
       clearTimeout(timeout);
       unsubServices(); unsubBarbers(); unsubBookings(); unsubInfo();
       unsubGallery(); unsubProducts(); unsubSales(); unsubAttendance(); unsubSettlements(); unsubExpenses(); unsubDeposits();
+      unsubPayrollReqs(); unsubPayrollPays();
     };
   }, [tenantId]);
 
@@ -986,9 +1028,28 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     return completedBookings.reduce((sum, b) => sum + (b.tip || 0), 0);
   }, [completedBookings]);
 
+  const getBarberWalletBalance = (barberId: string): number => {
+    const barber = barbers.find(b => b.id === barberId);
+    const rate = (barber?.commissionRate || 50) / 100;
+    
+    const earned = (bookings || [])
+      .filter(b => b.barberId === barberId && b.status === 'completed')
+      .reduce((sum, b) => {
+        const commission = Number(b.pricePaid || 0) * rate;
+        const tip = Number(b.tip || 0);
+        return sum + commission + tip;
+      }, 0);
+
+    const paid = (payrollPayments || [])
+      .filter(p => p.barberId === barberId)
+      .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+    return earned - paid;
+  };
+
   const value = useMemo(() => ({
     services, barbers, bookings, businessInfo, gallery, products, sales,
-    attendance, settlements, expenses, deposits, loading,
+    attendance, settlements, expenses, deposits, payrollRequests, payrollPayments, loading,
     addService, updateService, deleteService,
     addBarber, updateBarber, deleteBarber,
     addBooking, updateBookingStatus, updateBooking, deleteBooking,
@@ -997,10 +1058,10 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     totalExpenses, totalDeposits, caisseBalance,
     addAttendance, addSettlement, resetBarberBalance, resetAllBalances, seedDatabase,
     updateBarberStatus,
-    getAvailableBarbers, getAvailableTimeSlots
+    getAvailableBarbers, getAvailableTimeSlots, getBarberWalletBalance
   }), [
     services, barbers, bookings, businessInfo, gallery, products, sales,
-    attendance, settlements, expenses, deposits, loading, totalExpenses, totalDeposits, caisseBalance
+    attendance, settlements, expenses, deposits, payrollRequests, payrollPayments, loading, totalExpenses, totalDeposits, caisseBalance
   ]);
 
   return (
