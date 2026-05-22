@@ -37,6 +37,7 @@ import {
   Share2,
   Copy,
   Euro,
+  Search,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useBusiness } from '../context/BusinessContext';
@@ -295,6 +296,34 @@ export default function AdminDashboard() {
 
   const depositsPagination = usePagination(finalDeposits, 10);
   useEffect(() => { depositsPagination.reset(); }, [depositSearchQuery]);
+
+  // Pagination and filtering for Paie tab
+  const [paiePendingSearch, setPaiePendingSearch] = useState('');
+  const [paieBalancesSearch, setPaieBalancesSearch] = useState('');
+  const [paieHistorySearch, setPaieHistorySearch] = useState('');
+  const [paieHistoryStartDate, setPaieHistoryStartDate] = useState(
+    new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+  );
+  const [paieHistoryEndDate, setPaieHistoryEndDate] = useState(
+    new Date().toISOString().split('T')[0]
+  );
+
+  const finalPaieHistory = useMemo(() => {
+    return (payrollPayments || []).filter(p => {
+      const matchSearch = p.barberName.toLowerCase().includes(paieHistorySearch.toLowerCase());
+      const pDate = new Date(p.paidAt);
+      const start = new Date(paieHistoryStartDate);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(paieHistoryEndDate);
+      end.setHours(23, 59, 59, 999);
+      const matchDate = pDate >= start && pDate <= end;
+      return matchSearch && matchDate;
+    }).sort((a, b) => b.paidAt - a.paidAt);
+  }, [payrollPayments, paieHistorySearch, paieHistoryStartDate, paieHistoryEndDate]);
+
+  const paieHistoryPagination = usePagination(finalPaieHistory, 10);
+  useEffect(() => { paieHistoryPagination.reset(); }, [paieHistorySearch, paieHistoryStartDate, paieHistoryEndDate]);
+
   const approvedBookings = useMemo(() => filteredBookings.filter(b => b.status === 'completed' || b.status === 'approved'), [filteredBookings]);
   const totalRevenue = useMemo(() => {
     const serviceRev = approvedBookings.reduce((sum, b) => sum + (b.pricePaid || 0), 0);
@@ -903,10 +932,22 @@ export default function AdminDashboard() {
                   
                   {/* Section A: Demandes en attente */}
                   <div className="bg-[#141414] rounded-3xl border border-[#D4AF37]/20 p-6 shadow-2xl">
-                    <h3 className="text-xl font-bold mb-6 flex items-center gap-3">
-                      Demandes en attente
-                      {(payrollRequests || []).filter(r => r.status === 'pending').length > 0 && <span className="bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full">{(payrollRequests || []).filter(r => r.status === 'pending').length}</span>}
-                    </h3>
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+                      <h3 className="text-xl font-bold flex items-center gap-3">
+                        Demandes en attente
+                        {(payrollRequests || []).filter(r => r.status === 'pending').length > 0 && <span className="bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full">{(payrollRequests || []).filter(r => r.status === 'pending').length}</span>}
+                      </h3>
+                      <div className="relative w-full sm:w-64">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
+                        <input 
+                          type="text"
+                          value={paiePendingSearch}
+                          onChange={(e) => setPaiePendingSearch(e.target.value)}
+                          placeholder="Rechercher un coiffeur..."
+                          className="w-full bg-black border border-white/10 rounded-xl py-2 pl-10 pr-4 text-sm text-white focus:border-[#D4AF37] outline-none"
+                        />
+                      </div>
+                    </div>
                     <div className="overflow-x-auto">
                       <table className="w-full text-left">
                         <thead>
@@ -918,7 +959,9 @@ export default function AdminDashboard() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-white/5">
-                          {(payrollRequests || []).filter(r => r.status === 'pending').map(req => (
+                          {(payrollRequests || [])
+                            .filter(r => r.status === 'pending' && r.barberName.toLowerCase().includes(paiePendingSearch.toLowerCase()))
+                            .map(req => (
                             <tr key={req.id} className="group">
                               <td className="py-4 font-bold">{req.barberName}</td>
                               <td className="py-4 text-white/60">{new Date(req.requestedAt).toLocaleDateString()}</td>
@@ -940,8 +983,8 @@ export default function AdminDashboard() {
                               </td>
                             </tr>
                           ))}
-                          {(payrollRequests || []).filter(r => r.status === 'pending').length === 0 && (
-                            <tr><td colSpan={4} className="py-8 text-center text-white/40">Aucune demande en attente</td></tr>
+                          {(payrollRequests || []).filter(r => r.status === 'pending' && r.barberName.toLowerCase().includes(paiePendingSearch.toLowerCase())).length === 0 && (
+                            <tr><td colSpan={4} className="py-8 text-center text-white/40">Aucune demande trouvée</td></tr>
                           )}
                         </tbody>
                       </table>
@@ -950,7 +993,19 @@ export default function AdminDashboard() {
 
                   {/* Section B: Soldes des coiffeurs */}
                   <div className="bg-[#141414] rounded-3xl border border-white/5 p-6">
-                    <h3 className="text-xl font-bold mb-6">Soldes des coiffeurs</h3>
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+                      <h3 className="text-xl font-bold">Soldes des coiffeurs</h3>
+                      <div className="relative w-full sm:w-64">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
+                        <input 
+                          type="text"
+                          value={paieBalancesSearch}
+                          onChange={(e) => setPaieBalancesSearch(e.target.value)}
+                          placeholder="Rechercher un coiffeur..."
+                          className="w-full bg-black border border-white/10 rounded-xl py-2 pl-10 pr-4 text-sm text-white focus:border-[#D4AF37] outline-none"
+                        />
+                      </div>
+                    </div>
                     <div className="overflow-x-auto">
                       <table className="w-full text-left">
                         <thead>
@@ -962,7 +1017,9 @@ export default function AdminDashboard() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-white/5">
-                          {barbers.filter(b => !b.archived).map(barber => {
+                          {barbers
+                            .filter(b => !b.archived && b.name.toLowerCase().includes(paieBalancesSearch.toLowerCase()))
+                            .map(barber => {
                             const balance = getBarberWalletBalance(barber.id);
                             
                             const rate = (barber.commissionRate || 50) / 100;
@@ -992,7 +1049,37 @@ export default function AdminDashboard() {
 
                   {/* Section C: Historique des paiements */}
                   <div className="bg-[#141414] rounded-3xl border border-white/5 p-6">
-                    <h3 className="text-xl font-bold mb-6">Historique des paiements</h3>
+                    <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6">
+                      <h3 className="text-xl font-bold">Historique des paiements</h3>
+                      <div className="flex flex-wrap gap-2 w-full lg:w-auto">
+                        <div className="flex items-center gap-2 bg-black border border-white/10 rounded-xl px-4 py-2">
+                          <span className="text-white/40 text-sm">Du</span>
+                          <input type="date" value={paieHistoryStartDate} onChange={e => setPaieHistoryStartDate(e.target.value)} className="bg-transparent text-white text-sm outline-none" />
+                          <span className="text-white/40 text-sm ml-2">Au</span>
+                          <input type="date" value={paieHistoryEndDate} onChange={e => setPaieHistoryEndDate(e.target.value)} className="bg-transparent text-white text-sm outline-none" />
+                        </div>
+                        <div className="relative flex-1 min-w-[200px]">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
+                          <input 
+                            type="text"
+                            value={paieHistorySearch}
+                            onChange={(e) => setPaieHistorySearch(e.target.value)}
+                            placeholder="Rechercher un coiffeur..."
+                            className="w-full bg-black border border-white/10 rounded-xl py-2 pl-10 pr-4 text-sm text-white focus:border-[#D4AF37] outline-none"
+                          />
+                        </div>
+                        <button 
+                          onClick={() => {
+                            setPaieHistorySearch('');
+                            setPaieHistoryStartDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
+                            setPaieHistoryEndDate(new Date().toISOString().split('T')[0]);
+                          }}
+                          className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white rounded-xl text-sm transition-colors"
+                        >
+                          Réinitialiser
+                        </button>
+                      </div>
+                    </div>
                     <div className="overflow-x-auto">
                       <table className="w-full text-left">
                         <thead>
@@ -1004,17 +1091,21 @@ export default function AdminDashboard() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-white/5">
-                          {[...(payrollPayments || [])].sort((a,b) => b.paidAt - a.paidAt).slice(0, 10).map(payment => (
+                          {paieHistoryPagination.paginated.length === 0 ? (
+                            <tr><td colSpan={4} className="py-8 text-center text-white/40">Aucun paiement trouvé</td></tr>
+                          ) : (
+                            paieHistoryPagination.paginated.map(payment => (
                             <tr key={payment.id}>
                               <td className="py-4 text-white/60">{new Date(payment.paidAt).toLocaleDateString()}</td>
                               <td className="py-4 font-bold">{payment.barberName}</td>
                               <td className="py-4 font-black text-[#D4AF37]">€{payment.amount.toFixed(2)}</td>
                               <td className="py-4"><span className="bg-green-500/10 text-green-400 px-2 py-1 rounded-lg text-xs font-bold">Payé</span></td>
                             </tr>
-                          ))}
+                          )))}
                         </tbody>
                       </table>
                     </div>
+                    <PaginationBar {...paieHistoryPagination} />
                   </div>
                 </motion.div>
               )}
