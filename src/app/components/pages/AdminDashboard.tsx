@@ -38,6 +38,8 @@ import {
   Copy,
   Euro,
   Search,
+  List,
+  CalendarDays,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useBusiness } from '../context/BusinessContext';
@@ -266,9 +268,61 @@ export default function AdminDashboard() {
     }
   }, [activeTab, bookings, updateBooking]);
 
-  // Pagination for reservations (15 per page) — must come AFTER finalBookings
   const bookingsPagination = usePagination(finalBookings, 15);
   useEffect(() => { bookingsPagination.reset(); }, [statusFilter, dateFilter, barberFilter]);
+
+  const [calendarView, setCalendarView] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(new Date());
+  const [calendarSelectedDate, setCalendarSelectedDate] = useState<string>('');
+
+  const calendarBookingsByDate = useMemo(() => {
+    return finalBookings.reduce((acc, b) => {
+      if (!b.date) return acc;
+      acc[b.date] = (acc[b.date] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+  }, [finalBookings]);
+
+  useEffect(() => {
+    if (calendarView && finalBookings.length > 0) {
+      const todayDateStr = new Date().toISOString().split('T')[0];
+      const hasToday = finalBookings.some(b => b.date === todayDateStr);
+      if (hasToday) {
+        setCalendarSelectedDate(todayDateStr);
+      } else {
+        const sortedDates = [...new Set(finalBookings.map(b => b.date))].sort();
+        const nextDate = sortedDates.find(d => d >= todayDateStr) || sortedDates[0];
+        setCalendarSelectedDate(nextDate || todayDateStr);
+      }
+    }
+  }, [calendarView, finalBookings]);
+
+  const selectedCalendarBookings = useMemo(() => {
+    return finalBookings.filter(b => b.date === calendarSelectedDate);
+  }, [finalBookings, calendarSelectedDate]);
+
+  const getMonthDates = () => {
+    const year = calendarMonth.getFullYear();
+    const month = calendarMonth.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    
+    const startDate = new Date(firstDay);
+    startDate.setDate(startDate.getDate() - (startDate.getDay() === 0 ? 6 : startDate.getDay() - 1));
+    
+    const endDate = new Date(lastDay);
+    if (endDate.getDay() !== 0) {
+      endDate.setDate(endDate.getDate() + (7 - endDate.getDay()));
+    }
+
+    const dates = [];
+    let current = new Date(startDate);
+    while (current <= endDate) {
+      dates.push(new Date(current));
+      current.setDate(current.getDate() + 1);
+    }
+    return dates;
+  };
 
   // Pagination and filtering for expenses and deposits
   const [expenseCategoryFilter, setExpenseCategoryFilter] = useState<string>('all');
@@ -554,6 +608,16 @@ export default function AdminDashboard() {
                   <div className="flex justify-between items-center flex-wrap gap-4">
                     <h2 className="text-3xl font-black">RÉSERVATIONS</h2>
                     <div className="flex items-center gap-3">
+                      <div className="flex gap-2">
+                        <button onClick={() => setCalendarView(false)}
+                          className={`p-2 rounded-lg ${!calendarView ? 'bg-[#D4AF37] text-black' : 'bg-white/10 text-white'}`}>
+                          <List className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => setCalendarView(true)}
+                          className={`p-2 rounded-lg ${calendarView ? 'bg-[#D4AF37] text-black' : 'bg-white/10 text-white'}`}>
+                          <CalendarDays className="w-4 h-4" />
+                        </button>
+                      </div>
                       <button 
                         onClick={() => setIsManualBookingOpen(true)} 
                         className="px-6 py-3 bg-[#D4AF37] text-black rounded-2xl font-black text-sm hover:scale-105 transition-all shadow-xl shadow-[#D4AF37]/20 uppercase"
@@ -593,11 +657,81 @@ export default function AdminDashboard() {
                   </div>
 
                   <div className="space-y-3">
-                    {finalBookings.length === 0 ? (
-                      <div className="text-center py-24 bg-[#141414] rounded-[2.5rem] border border-white/5 text-white/20 italic">Aucune réservation pour cette période.</div>
-                    ) : (
-                      <>
-                        {bookingsPagination.paginated.map(booking => (
+                    {calendarView ? (
+                      <div className="bg-[#141414] p-6 rounded-3xl border border-white/5 mb-6">
+                        <div className="flex justify-between items-center mb-6">
+                          <button 
+                            onClick={() => {
+                              const newMonth = new Date(calendarMonth);
+                              newMonth.setMonth(newMonth.getMonth() - 1);
+                              setCalendarMonth(newMonth);
+                            }} 
+                            className="text-[#D4AF37] hover:text-white transition-colors"
+                          >
+                            ←
+                          </button>
+                          <span className="text-white font-black text-lg uppercase tracking-widest">
+                            {calendarMonth.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}
+                          </span>
+                          <button 
+                            onClick={() => {
+                              const newMonth = new Date(calendarMonth);
+                              newMonth.setMonth(newMonth.getMonth() + 1);
+                              setCalendarMonth(newMonth);
+                            }} 
+                            className="text-[#D4AF37] hover:text-white transition-colors"
+                          >
+                            →
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-7 gap-2">
+                          {['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((day, i) => (
+                            <div key={i} className="text-center text-white/40 font-bold text-xs py-2 uppercase">{day}</div>
+                          ))}
+                          {getMonthDates().map((date, i) => {
+                            const dateStr = date.toISOString().split('T')[0];
+                            const isCurrentMonth = date.getMonth() === calendarMonth.getMonth();
+                            const isSelected = dateStr === calendarSelectedDate;
+                            const isToday = dateStr === new Date().toISOString().split('T')[0];
+                            const count = calendarBookingsByDate[dateStr] || 0;
+                            
+                            let badgeClass = '';
+                            if (count >= 6) badgeClass = 'bg-[#D4AF37] text-black';
+                            else if (count >= 3) badgeClass = 'bg-[#D4AF37]/30 text-[#D4AF37]';
+                            else if (count > 0) badgeClass = 'bg-yellow-900/50 text-yellow-400';
+
+                            return (
+                              <button
+                                key={i}
+                                onClick={() => setCalendarSelectedDate(dateStr)}
+                                className={`h-24 p-2 rounded-2xl flex flex-col items-center justify-center transition-all ${
+                                  !isCurrentMonth ? 'opacity-30' : ''
+                                } ${
+                                  isSelected 
+                                    ? 'bg-[#D4AF37] text-black shadow-lg shadow-[#D4AF37]/20' 
+                                    : 'bg-white/5 hover:bg-white/10 text-white'
+                                } ${isToday && !isSelected ? 'ring-2 ring-[#D4AF37]' : ''}`}
+                              >
+                                <span className="font-black text-lg">{date.getDate()}</span>
+                                {count > 0 && (
+                                  <span className={`mt-2 px-2 py-0.5 rounded-full text-[10px] font-black ${badgeClass}`}>
+                                    {count} rés.
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        
+                        <div className="mt-8 pt-8 border-t border-white/5">
+                          <h3 className="text-xl font-black text-white mb-6 uppercase tracking-wider">
+                            Réservations du {new Date(calendarSelectedDate).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+                          </h3>
+                          <div className="space-y-3">
+                            {selectedCalendarBookings.length === 0 ? (
+                              <div className="text-center py-12 bg-white/5 rounded-2xl text-white/40 italic">Aucune réservation ce jour</div>
+                            ) : (
+                              selectedCalendarBookings.map(booking => (
                       <div id={`booking-${booking.id}`} key={booking.id} className={`bg-[#141414] border border-white/5 p-6 rounded-[2rem] flex flex-col xl:flex-row xl:items-center justify-between gap-6 hover:border-[#D4AF37]/30 transition-all relative overflow-hidden group ${highlightedIds.has(booking.id) ? 'ring-2 ring-[#D4AF37] shadow-[0_0_30px_rgba(212,175,55,0.2)] bg-[#D4AF37]/5' : ''}`}>
                         {/* Background subtle glow effect */}
                         <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-[#D4AF37]/5 to-transparent rounded-full blur-2xl pointer-events-none group-hover:scale-150 transition-all duration-500" />
@@ -724,9 +858,113 @@ export default function AdminDashboard() {
                           </span>
                         </div>
                       </div>
-                        ))}
-                        <PaginationBar {...bookingsPagination} />
-                      </>
+
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      finalBookings.length === 0 ? (
+                        <div className="text-center py-24 bg-[#141414] rounded-[2.5rem] border border-white/5 text-white/20 italic">Aucune réservation pour cette période.</div>
+                      ) : (
+                        <>
+                          {bookingsPagination.paginated.map(booking => (
+                            <div id={`booking-${booking.id}`} key={booking.id} className={`bg-[#141414] border border-white/5 p-6 rounded-[2rem] flex flex-col xl:flex-row xl:items-center justify-between gap-6 hover:border-[#D4AF37]/30 transition-all relative overflow-hidden group ${highlightedIds.has(booking.id) ? 'ring-2 ring-[#D4AF37] shadow-[0_0_30px_rgba(212,175,55,0.2)] bg-[#D4AF37]/5' : ''}`}>
+                              {/* Background subtle glow effect */}
+                              <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-[#D4AF37]/5 to-transparent rounded-full blur-2xl pointer-events-none group-hover:scale-150 transition-all duration-500" />
+                              
+                              {/* Left column: Client Details */}
+                              <div className="flex gap-4 items-start min-w-[240px]">
+                                <div className="w-12 h-12 bg-gradient-to-br from-[#D4AF37] to-[#FFD700] rounded-2xl flex items-center justify-center font-black text-black text-lg shadow-lg shadow-[#D4AF37]/15 shrink-0 animate-pulse">
+                                  {booking.clientName ? booking.clientName[0].toUpperCase() : 'C'}
+                                </div>
+                                <div className="space-y-1">
+                                  <h4 className="font-bold text-lg text-white leading-tight flex items-center gap-2">
+                                    {booking.clientName}
+                                    {(booking.unreadAdmin || highlightedIds.has(booking.id)) && (
+                                      <span className="px-2 py-0.5 bg-red-500 text-white text-[10px] font-black uppercase rounded-lg shadow-[0_0_10px_rgba(239,68,68,0.5)] animate-pulse">Nouveau</span>
+                                    )}
+                                  </h4>
+                                  <div className="flex flex-col gap-1 text-xs text-white/50 font-medium">
+                                    {booking.clientEmail && (
+                                      <a href={`mailto:${booking.clientEmail}`} className="hover:text-[#D4AF37] flex items-center gap-1.5 transition-colors">
+                                        <span className="lowercase">{booking.clientEmail}</span>
+                                      </a>
+                                    )}
+                                    {booking.clientPhone && (
+                                      <a href={`tel:${booking.clientPhone}`} className="hover:text-[#D4AF37] flex items-center gap-1.5 transition-colors">
+                                        <span>{booking.clientPhone}</span>
+                                      </a>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+      
+                              {/* Mid-Left Column: Service details */}
+                              <div className="flex flex-col gap-1 justify-center min-w-[160px]">
+                                <span className="text-[10px] text-white/40 uppercase font-black tracking-widest">Service demandé</span>
+                                <span className="text-[#D4AF37] text-sm font-black uppercase tracking-wider">
+                                  {services.find(s => s.id === booking.serviceId)?.name || 'Service Personnalisé'}
+                                </span>
+                                <span className="text-white/60 text-xs font-semibold">
+                                  {services.find(s => s.id === booking.serviceId)?.price || '€20'} • {services.find(s => s.id === booking.serviceId)?.duration || '30 min'}
+                                </span>
+                              </div>
+      
+                              {/* Mid-Right Column: Barber Details */}
+                              <div className="flex flex-col gap-1 justify-center min-w-[160px]">
+                                <span className="text-[10px] text-white/40 uppercase font-black tracking-widest">Coiffeur assigné</span>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <div className="w-6 h-6 bg-white/10 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0">
+                                    {barbers.find(b => b.id === booking.barberId)?.name?.[0] || '?'}
+                                  </div>
+                                  <span className="text-white text-sm font-bold truncate">
+                                    {barbers.find(b => b.id === booking.barberId)?.name || 'Non assigné'}
+                                  </span>
+                                </div>
+                              </div>
+      
+                              {/* Right Column: Time & Status */}
+                              <div className="flex flex-col items-end gap-3 min-w-[140px]">
+                                <div className="text-right">
+                                  <p className="text-white font-black text-xl flex items-center gap-2">
+                                    <Clock className="w-4 h-4 text-[#D4AF37]" /> {booking.time}
+                                  </p>
+                                  <p className="text-[10px] text-[#D4AF37] font-black uppercase tracking-widest mt-1">
+                                    {new Date(booking.date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+                                  </p>
+                                </div>
+                                <div className="flex gap-2">
+                                  {booking.status === 'pending' && (
+                                    <>
+                                      <button onClick={() => updateBookingStatus(booking.id, 'approved', 'admin')} className="p-2 bg-green-500/10 text-green-500 hover:bg-green-500 hover:text-black rounded-xl transition-all shadow-lg" title="Approuver">
+                                        <CheckCircle className="w-4 h-4" />
+                                      </button>
+                                      <button onClick={() => setBookingToReject(booking.id)} className="p-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-black rounded-xl transition-all shadow-lg" title="Rejeter">
+                                        <X className="w-4 h-4" />
+                                      </button>
+                                    </>
+                                  )}
+                                  <span className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider flex items-center gap-1.5 border ${
+                                    booking.status === 'pending' ? 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20' :
+                                    booking.status === 'approved' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
+                                    booking.status === 'completed' ? 'bg-green-500/10 text-green-400 border-green-500/20' :
+                                    booking.status === 'rejected' ? 'bg-red-500/10 text-red-500 border-red-500/20' :
+                                    'bg-white/5 text-white/50 border-white/10'
+                                  }`}>
+                                    {booking.status === 'pending' && 'En attente'}
+                                    {booking.status === 'approved' && 'Approuvé'}
+                                    {booking.status === 'completed' && 'Terminé'}
+                                    {booking.status === 'rejected' && 'Rejeté'}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                          <PaginationBar {...bookingsPagination} />
+                        </>
+                      )
                     )}
                   </div>
                 </motion.div>
