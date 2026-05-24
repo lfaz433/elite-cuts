@@ -312,6 +312,50 @@ export default function BarberDashboard() {
     });
   }, [myBookings, today]);
   
+  const [selectedDate, setSelectedDate] = useState<string>('');
+  const [weekOffset, setWeekOffset] = useState(0);
+
+  useEffect(() => {
+    if (!selectedDate && upcomingBookings.length > 0) {
+      const todayDate = new Date();
+      // Calculate Monday of current week
+      const monday = new Date(todayDate);
+      const day = monday.getDay();
+      const diff = monday.getDate() - day + (day === 0 ? -6 : 1);
+      monday.setDate(diff);
+      
+      const weekDates = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(monday);
+        d.setDate(monday.getDate() + i);
+        return d.toISOString().split('T')[0];
+      });
+
+      const firstBookingDate = weekDates.find(date => upcomingBookings.some(b => b.date === date));
+      setSelectedDate(firstBookingDate || today);
+    } else if (!selectedDate) {
+      setSelectedDate(today);
+    }
+  }, [upcomingBookings, selectedDate, today]);
+
+  const getWeekDates = () => {
+    const todayDate = new Date();
+    const monday = new Date(todayDate);
+    const day = monday.getDay();
+    const diff = monday.getDate() - day + (day === 0 ? -6 : 1) + (weekOffset * 7);
+    monday.setDate(diff);
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + i);
+      return d.toISOString().split('T')[0];
+    });
+  };
+
+  const selectedDayBookings = upcomingBookings.filter(b => b.date === selectedDate);
+
+  const bookingsByDate = upcomingBookings.reduce((acc, b) => {
+    acc[b.date] = (acc[b.date] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
   const commissionRate = currentBarber?.commission || 50;
   
   // Memoize heavy calculations
@@ -695,12 +739,71 @@ export default function BarberDashboard() {
 
             {/* List */}
             <div className="space-y-4">
-              {((resSubTab === 'today' ? todayBookings : resSubTab === 'upcoming' ? upcomingBookings : historyBookings).length === 0) ? (
+              {resSubTab === 'upcoming' && (
+                <div className="bg-[#141414] p-4 rounded-2xl border border-white/5 mb-6">
+                  <div className="flex justify-between items-center mb-4 px-2">
+                    <button onClick={() => setWeekOffset(prev => prev - 1)} className="text-[#D4AF37] hover:text-white transition-colors">
+                      ←
+                    </button>
+                    <span className="text-white font-bold text-sm uppercase tracking-wider">
+                      {new Date(getWeekDates()[0]).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })} - {new Date(getWeekDates()[6]).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    </span>
+                    <button onClick={() => setWeekOffset(prev => prev + 1)} className="text-[#D4AF37] hover:text-white transition-colors">
+                      →
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-7 gap-2">
+                    {getWeekDates().map(dateStr => {
+                      const dateObj = new Date(dateStr);
+                      const dayLetters = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
+                      const dayLetter = dayLetters[dateObj.getDay()];
+                      const dayNumber = dateObj.getDate();
+                      const isSelected = dateStr === selectedDate;
+                      const isToday = dateStr === today;
+                      const count = bookingsByDate[dateStr] || 0;
+                      const isPast = dateStr < today;
+                      
+                      return (
+                        <button
+                          key={dateStr}
+                          onClick={() => setSelectedDate(dateStr)}
+                          className={`flex flex-col items-center justify-center p-2 rounded-2xl transition-all relative ${
+                            isSelected 
+                              ? 'bg-[#D4AF37] text-black shadow-[0_0_15px_rgba(212,175,55,0.3)]' 
+                              : isToday
+                                ? 'border border-[#D4AF37] text-white'
+                                : 'text-white/60 hover:bg-white/5'
+                          } ${isPast && !isSelected ? 'opacity-60' : ''}`}
+                        >
+                          <span className={`text-[10px] font-bold uppercase mb-1 ${isSelected ? 'text-black/60' : 'text-white/40'}`}>
+                            {dayLetter}
+                          </span>
+                          <span className="text-lg font-black leading-none mb-1">
+                            {dayNumber}
+                          </span>
+                          <div className="h-2 flex items-center justify-center mt-1">
+                            {count > 0 && (
+                              count > 1 ? (
+                                <span className={`text-[8px] font-black px-1.5 rounded-full ${isSelected ? 'bg-black text-[#D4AF37]' : 'bg-[#D4AF37] text-black'}`}>
+                                  {count}
+                                </span>
+                              ) : (
+                                <div className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-black' : 'bg-[#D4AF37]'}`} />
+                              )
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {((resSubTab === 'today' ? todayBookings : resSubTab === 'upcoming' ? selectedDayBookings : historyBookings).length === 0) ? (
                 <div className="text-center py-16 bg-[#141414] rounded-2xl border border-white/5 text-white/20 italic text-sm">
-                  Aucun rendez-vous dans cette catégorie.
+                  {resSubTab === 'upcoming' ? 'Aucune réservation ce jour' : 'Aucun rendez-vous dans cette catégorie.'}
                 </div>
               ) : (
-                (resSubTab === 'today' ? todayBookings : resSubTab === 'upcoming' ? upcomingBookings : historyBookings).map(b => (
+                (resSubTab === 'today' ? todayBookings : resSubTab === 'upcoming' ? selectedDayBookings : historyBookings).map(b => (
                   <div id={`booking-${b.id}`} key={b.id} className={`bg-[#141414] p-6 rounded-2xl border border-[#D4AF37]/20 flex flex-col gap-4 hover:border-[#D4AF37]/45 transition-all relative overflow-hidden group ${highlightedIds.has(b.id) ? 'ring-2 ring-[#D4AF37] shadow-[0_0_30px_rgba(212,175,55,0.2)] bg-[#D4AF37]/5' : ''}`}>
                     <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-[#D4AF37]/5 to-transparent rounded-full blur-xl pointer-events-none group-hover:scale-150 transition-all duration-300" />
                     
