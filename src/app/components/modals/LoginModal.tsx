@@ -101,7 +101,7 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
           {isLogin ? 'Connexion' : 'Inscription'}
         </h2>
         <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 14, marginBottom: 24 }}>
-          {isLogin ? 'Accédez à votre espace' : 'Rejoignez le salon Barbeboard'}
+          {isLogin ? 'Accédez à votre espace' : 'Rejoignez le salon Barberboard'}
         </p>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>

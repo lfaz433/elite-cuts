@@ -1,4 +1,4 @@
-# Barbeboard Demo System Implementation Plan
+# Barberboard Demo System Implementation Plan
 
 ## Steps
 1. Create scripts/seedDemo.ts (seed Firestore + Firebase Auth via Admin SDK)

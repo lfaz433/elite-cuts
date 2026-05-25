@@ -30,7 +30,7 @@ const db = new Firestore({
 const app = initializeApp(firebaseConfig);
 const clientAuth = getAuth(app);
 
-const TENANT_ID = 'barbeboard-demo';
+const TENANT_ID = 'barberboard-demo';
 const TODAY = new Date().toISOString().split('T')[0];
 const getDateOffset = (days) => {
   const d = new Date();
@@ -66,7 +66,7 @@ async function createAuthUser(email, password, displayName) {
 }
 
 async function main() {
-  console.log('\n🚀 Starting Barbeboard Demo Seed Script (REST/Auth Client)...\n');
+  console.log('\n🚀 Starting Barberboard Demo Seed Script (REST/Auth Client)...\n');
 
   // Create Auth Users first so we have their actual UIDs
   console.log('👤 Seeding Firebase Auth users...');
@@ -90,7 +90,7 @@ async function main() {
     isDemo: true,
     createdAt: Date.now(),
   });
-  console.log('✅ Tenant created: barbeboard-demo');
+  console.log('✅ Tenant created: barberboard-demo');
 
   // Create User Profiles in Firestore
   console.log('👤 Seeding user profiles in Firestore...');

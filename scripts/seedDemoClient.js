@@ -16,7 +16,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-const TENANT_ID = 'barbeboard-demo';
+const TENANT_ID = 'barberboard-demo';
 const TODAY = new Date().toISOString().split('T')[0];
 const getDateOffset = (days) => {
   const d = new Date();
@@ -67,7 +67,7 @@ async function createAuthUser(email, password) {
 }
 
 async function main() {
-  console.log('\n🚀 Starting Barbeboard Demo Seed Script (Web SDK)...\n');
+  console.log('\n🚀 Starting Barberboard Demo Seed Script (Web SDK)...\n');
 
   // 1. Authenticate as Super Admin to have full Firestore access
   console.log('🔑 Authenticating as super admin...');
@@ -101,7 +101,7 @@ async function main() {
     isDemo: true,
     createdAt: Date.now(),
   });
-  console.log('✅ Tenant created: barbeboard-demo');
+  console.log('✅ Tenant created: barberboard-demo');
 
   // 5. Create User Profiles in Firestore
   console.log('👤 Seeding user profiles in Firestore...');

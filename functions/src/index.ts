@@ -187,7 +187,7 @@ export const stripeWebhook = functions.https.onRequest(async (req, res) => {
 
 
 // ─── Demo Reset (runs every 24h) ───────────────────────────────────────────
-const DEMO_TENANT_ID = 'barbeboard-demo';
+const DEMO_TENANT_ID = 'barberboard-demo';
 
 async function deleteCollection(collectionPath: string, tenantId: string) {
   const snap = await db.collection(collectionPath)
@@ -318,7 +318,7 @@ export const resetDemoDataHttp = functions.https.onRequest(async (req, res) => {
   res.set('Access-Control-Allow-Origin', '*');
   if (req.method === 'OPTIONS') { res.status(204).send(''); return; }
   const secret = req.headers['x-reset-secret'] || req.query.secret;
-  if (secret !== 'barbeboard-demo-reset-2026') {
+  if (secret !== 'barberboard-demo-reset-2026') {
     res.status(401).send('Unauthorized');
     return;
   }

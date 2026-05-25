@@ -189,7 +189,7 @@ export default function BoutiquePage() {
             animate={{ opacity: 1, y: 0 }}
             className="text-4xl sm:text-5xl font-black tracking-tighter bg-gradient-to-r from-[#D4AF37] to-[#FFD700] bg-clip-text text-transparent"
           >
-            BOUTIQUE BARBEBOARD
+            BOUTIQUE BARBERBOARD
           </motion.h1>
           <p className="text-white/40 text-sm max-w-md mx-auto">
             Produits professionnels sélectionnés pour sublimer votre style

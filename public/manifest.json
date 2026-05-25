@@ -1,6 +1,6 @@
 {
-  "name": "Barbeboard",
-  "short_name": "Barbeboard",
+  "name": "Barberboard",
+  "short_name": "Barberboard",
   "description": "La plateforme de gestion pour barbershops modernes",
   "start_url": "/",
   "display": "standalone",

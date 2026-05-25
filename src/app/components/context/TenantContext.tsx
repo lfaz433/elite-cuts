@@ -71,8 +71,8 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         const fallbackTenant = {
           tenantId: 'default-tenant',
           subdomain: 'elite-cuts-default',
-          name: "Barbeboard",
-          branding: { primaryColor: "#D4AF37", logoUrl: "", businessName: "Barbeboard" },
+          name: "Barberboard",
+          branding: { primaryColor: "#D4AF37", logoUrl: "", businessName: "Barberboard" },
           subscription: { 
             status: "active" as const, 
             planId: "basic",

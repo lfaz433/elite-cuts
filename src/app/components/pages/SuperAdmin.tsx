@@ -18,7 +18,7 @@ export default function SuperAdmin() {
         <div className="text-center space-y-4">
           <AlertCircle className="w-16 h-16 text-rose-500 mx-auto" />
           <h1 className="text-2xl font-black">Accès non autorisé</h1>
-          <p className="text-white/50 text-sm">Seuls les super-administrateurs de Barbeboard peuvent accéder à cet espace.</p>
+          <p className="text-white/50 text-sm">Seuls les super-administrateurs de Barberboard peuvent accéder à cet espace.</p>
         </div>
       </div>
     );
@@ -1629,7 +1629,7 @@ export default function SuperAdmin() {
                   <form onSubmit={grantFreeAccessForm} className="bg-[#111] border border-white/10 p-8 rounded-3xl max-w-xl space-y-6">
                     <div>
                       <h3 className="text-xl font-bold mb-2">Accorder un accès gratuit</h3>
-                      <p className="text-sm text-white/50 mb-6">Permet à un salon d'utiliser Barbeboard gratuitement à vie avec le plan choisi.</p>
+                      <p className="text-sm text-white/50 mb-6">Permet à un salon d'utiliser Barberboard gratuitement à vie avec le plan choisi.</p>
                     </div>
                     
                     <div className="space-y-4">

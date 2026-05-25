@@ -1,7 +1,7 @@
-# Barbeboard Project Technical Documentation
+# Barberboard Project Technical Documentation
 
 ## 1. Project Overview
-Barbeboard is a multi-tenant SaaS application designed for barbershops. It provides a comprehensive suite of tools for managing bookings, staff (barbers), payroll, point-of-sale (POS) systems, and overall shop analytics. 
+Barberboard is a multi-tenant SaaS application designed for barbershops. It provides a comprehensive suite of tools for managing bookings, staff (barbers), payroll, point-of-sale (POS) systems, and overall shop analytics. 
 
 ## 2. File Structure & Purposes (`src/`)
 
@@ -110,7 +110,7 @@ Barbeboard is a multi-tenant SaaS application designed for barbershops. It provi
 Located in `functions/src/index.ts`:
 - `createCheckoutSession`: Creates a Stripe Checkout session for a tenant upgrading their plan.
 - `stripeWebhook`: Listens to Stripe events (`customer.subscription.created`, `updated`, `deleted`, `invoice.payment_failed`) and updates the tenant's subscription status in Firestore.
-- `resetDemoDataHttp` & `resetDemoDataScheduled`: Resets the data for the `barbeboard-demo` tenant (barbers, services, bookings) daily via Pub/Sub or manually via an HTTP trigger.
+- `resetDemoDataHttp` & `resetDemoDataScheduled`: Resets the data for the `barberboard-demo` tenant (barbers, services, bookings) daily via Pub/Sub or manually via an HTTP trigger.
 
 ## 8. Context Providers & State Management
 - **AuthContext**: Manages Firebase Auth. Intercepts hardcoded admin emails, checks Firestore for `users` roles, and provides `user`, `login()`, `logout()`, `signup()`.

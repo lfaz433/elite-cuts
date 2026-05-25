@@ -260,7 +260,7 @@ export default function Register() {
           <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#D4AF37]/20 to-[#FFD700]/20 flex items-center justify-center border border-[#D4AF37]/30 mb-4">
             <Scissors className="w-8 h-8 text-[#D4AF37] animate-pulse" />
           </div>
-          <h1 className="text-3xl md:text-4xl font-black bg-gradient-to-r from-[#D4AF37] to-[#FFD700] bg-clip-text text-transparent mb-2">Rejoignez Barbeboard</h1>
+          <h1 className="text-3xl md:text-4xl font-black bg-gradient-to-r from-[#D4AF37] to-[#FFD700] bg-clip-text text-transparent mb-2">Rejoignez Barberboard</h1>
           <p className="text-white/60">Configurez votre salon multi-utilisateur en quelques minutes.</p>
         </div>
 

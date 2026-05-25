@@ -10,7 +10,7 @@ type DocsLang = 'fr' | 'en';
 
 const CONTENT = {
   fr: {
-    title: "Documentation Barbeboard",
+    title: "Documentation Barberboard",
     backHome: "Retour à l'accueil",
     sections: [
       { id: 'demarrage', icon: <Rocket size={18} />, title: '🚀 Démarrage rapide' },
@@ -25,7 +25,7 @@ const CONTENT = {
     ],
     content: {
       demarrage: {
-        title: "Bienvenue sur Barbeboard",
+        title: "Bienvenue sur Barberboard",
         subtitle: "Configurez votre salon en moins de 5 minutes",
         steps: [
           { title: "Créez votre compte", desc: "Rendez-vous sur barberboard.pro et cliquez sur 'Essai gratuit 15 jours'. Entrez le nom de votre salon, choisissez votre sous-domaine et créez votre compte administrateur." },
@@ -125,7 +125,7 @@ const CONTENT = {
           { q: "Comment mes clients réservent-ils ?", a: "Ils se rendent sur votre sous-domaine (ex: salon.barberboard.pro) et réservent en 4 étapes simples sans avoir besoin de créer un compte." },
           { q: "Puis-je avoir plusieurs coiffeurs ?", a: "Oui, selon votre plan d'abonnement (jusqu'à l'illimité)." },
           { q: "Mes données sont-elles sécurisées ?", a: "Absolument. Les données de chaque salon sont complètement isolées et sécurisées." },
-          { q: "Comment installer l'app sur mon téléphone ?", a: "Barbeboard est une PWA. Sur iOS, ouvrez Safari, cliquez sur 'Partager' puis 'Sur l'écran d'accueil'. Sur Android, Chrome vous proposera de l'installer." },
+          { q: "Comment installer l'app sur mon téléphone ?", a: "Barberboard est une PWA. Sur iOS, ouvrez Safari, cliquez sur 'Partager' puis 'Sur l'écran d'accueil'. Sur Android, Chrome vous proposera de l'installer." },
           { q: "Puis-je annuler à tout moment ?", a: "Oui, nos abonnements sont sans engagement." },
           { q: "Comment changer mon sous-domaine ?", a: "Pour des raisons de sécurité, le changement de sous-domaine nécessite de contacter le support." },
           { q: "L'app fonctionne-t-elle hors ligne ?", a: "Les fonctionnalités de base (comme l'affichage du planning du jour) fonctionnent hors ligne grâce au cache PWA." },
@@ -135,7 +135,7 @@ const CONTENT = {
     }
   },
   en: {
-    title: "Barbeboard Documentation",
+    title: "Barberboard Documentation",
     backHome: "Back to Home",
     sections: [
       { id: 'demarrage', icon: <Rocket size={18} />, title: '🚀 Quick Start' },
@@ -150,7 +150,7 @@ const CONTENT = {
     ],
     content: {
       demarrage: {
-        title: "Welcome to Barbeboard",
+        title: "Welcome to Barberboard",
         subtitle: "Set up your barbershop in under 5 minutes",
         steps: [
           { title: "Create your account", desc: "Go to barberboard.pro and click '15-day free trial'. Enter your shop name, choose your subdomain, and create your admin account." },
@@ -250,7 +250,7 @@ const CONTENT = {
           { q: "How do my clients book?", a: "They go to your subdomain (e.g. shop.barberboard.pro) and book in 4 simple steps without creating an account." },
           { q: "Can I have multiple barbers?", a: "Yes, depending on your subscription plan (up to unlimited)." },
           { q: "Is my data secure?", a: "Absolutely. Each shop's data is completely isolated and secure." },
-          { q: "How do I install the app on my phone?", a: "Barbeboard is a PWA. On iOS, open Safari, click 'Share' then 'Add to Home Screen'. On Android, Chrome will prompt you to install it." },
+          { q: "How do I install the app on my phone?", a: "Barberboard is a PWA. On iOS, open Safari, click 'Share' then 'Add to Home Screen'. On Android, Chrome will prompt you to install it." },
           { q: "Can I cancel anytime?", a: "Yes, our subscriptions have no long-term commitment." },
           { q: "How do I change my subdomain?", a: "For security reasons, changing your subdomain requires contacting support." },
           { q: "Does the app work offline?", a: "Basic features (like viewing today's schedule) work offline thanks to the PWA cache." },
@@ -271,7 +271,7 @@ export default function DocsPage() {
   const c = content.content;
 
   useEffect(() => {
-    const saved = localStorage.getItem('barbeboard_docs_lang') as DocsLang;
+    const saved = localStorage.getItem('barberboard_docs_lang') as DocsLang;
     if (saved === 'fr' || saved === 'en') {
       setLang(saved);
     }
@@ -279,7 +279,7 @@ export default function DocsPage() {
 
   const handleLangChange = (newLang: DocsLang) => {
     setLang(newLang);
-    localStorage.setItem('barbeboard_docs_lang', newLang);
+    localStorage.setItem('barberboard_docs_lang', newLang);
   };
 
   useEffect(() => {
@@ -390,7 +390,7 @@ export default function DocsPage() {
           
           <div className="mb-16">
             <h1 className="text-4xl md:text-5xl font-black mb-4 tracking-tight">{content.title}</h1>
-            <p className="text-xl text-white/50">Le guide complet pour maîtriser votre outil de gestion Barbeboard.</p>
+            <p className="text-xl text-white/50">Le guide complet pour maîtriser votre outil de gestion Barberboard.</p>
           </div>
 
           {/* Section 1 */}

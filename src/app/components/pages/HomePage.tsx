@@ -40,7 +40,7 @@ const CONTENT = {
       grid: [
         { icon: Bell, title: 'Notifications push', desc: 'Alertes temps réel pour chaque réservation.' },
         { icon: Shield, title: 'Données 100% sécurisées', desc: 'Chaque salon est isolé. Vos données restent privées.' },
-        { icon: Smartphone, title: 'Application Mobile PWA', desc: "Installez Barbeboard sur votre iPhone ou Android en un clic. Fonctionne comme une vraie app — sans passer par l'App Store.", bullets: ['Notifications push natives', 'Fonctionne hors ligne', 'Icône sur l\'écran d\'accueil'] }
+        { icon: Smartphone, title: 'Application Mobile PWA', desc: "Installez Barberboard sur votre iPhone ou Android en un clic. Fonctionne comme une vraie app — sans passer par l'App Store.", bullets: ['Notifications push natives', 'Fonctionne hors ligne', 'Icône sur l\'écran d\'accueil'] }
       ]
     },
     howItWorks: {
@@ -60,7 +60,7 @@ const CONTENT = {
     testimonials: {
       title: 'Ce qu\'ils en pensent',
       items: [
-        { name: 'Karim B.', salon: 'Gold Cuts Paris', text: 'Barbeboard a transformé mon salon. En 3 mois, mes réservations ont augmenté de 40%.' },
+        { name: 'Karim B.', salon: 'Gold Cuts Paris', text: 'Barberboard a transformé mon salon. En 3 mois, mes réservations ont augmenté de 40%.' },
         { name: 'Yassine M.', salon: 'Fade Studio Lyon', text: 'La gestion de mon équipe de 5 coiffeurs est devenue simple. Je vois tout en temps réel.' },
         { name: 'Sofiane A.', salon: 'Classic Barber Marseille', text: "L'onboarding prend 5 minutes. J'étais opérationnel le jour même." },
         { name: 'Mehdi R.', salon: 'The Barber Shop Toulouse', text: 'Le lien de réservation dans ma bio Instagram a tout changé.' }
@@ -73,14 +73,14 @@ const CONTENT = {
         { q: 'Combien de temps prend l\'installation ?', a: 'Moins de 5 minutes. Notre assistant vous guide.' },
         { q: 'Mes données sont-elles sécurisées ?', a: 'Oui. Chaque salon a ses données isolées avec Firebase.' },
         { q: 'Puis-je changer de formule ?', a: 'Oui, à tout moment. Effet immédiat.' },
-        { q: 'Y a-t-il une application mobile ?', a: 'Barbeboard est une PWA — installez-la sur iOS et Android.' }
+        { q: 'Y a-t-il une application mobile ?', a: 'Barberboard est une PWA — installez-la sur iOS et Android.' }
       ]
     },
-    cta: { title: 'Rejoignez les barbershops qui utilisent Barbeboard', trust: '✓ 15 jours gratuits · ✓ Sans carte bancaire · ✓ Support inclus' },
+    cta: { title: 'Rejoignez les barbershops qui utilisent Barberboard', trust: '✓ 15 jours gratuits · ✓ Sans carte bancaire · ✓ Support inclus' },
     footer: {
       desc: 'La plateforme des barbershops modernes',
       product: 'Produit', company: 'Entreprise', legal: 'Légal',
-      copyright: '© 2026 Barbeboard. Tous droits réservés. Made with ❤️ for barbershops'
+      copyright: '© 2026 Barberboard. Tous droits réservés. Made with ❤️ for barbershops'
     },
     mockup: {
       dashboard: 'Dashboard',
@@ -127,7 +127,7 @@ const CONTENT = {
       grid: [
         { icon: Bell, title: 'Push Notifications', desc: 'Real-time alerts for every booking.' },
         { icon: Shield, title: '100% Secure Data', desc: 'Every shop is isolated. Your data stays private.' },
-        { icon: Smartphone, title: 'Mobile PWA App', desc: "Install Barbeboard on your iPhone or Android in one click. Works like a real app — without the App Store.", bullets: ['Native push notifications', 'Works offline', 'Home screen icon'] }
+        { icon: Smartphone, title: 'Mobile PWA App', desc: "Install Barberboard on your iPhone or Android in one click. Works like a real app — without the App Store.", bullets: ['Native push notifications', 'Works offline', 'Home screen icon'] }
       ]
     },
     howItWorks: {
@@ -147,7 +147,7 @@ const CONTENT = {
     testimonials: {
       title: 'What they say',
       items: [
-        { name: 'Karim B.', salon: 'Gold Cuts Paris', text: 'Barbeboard transformed my shop. In 3 months, my bookings increased by 40%.' },
+        { name: 'Karim B.', salon: 'Gold Cuts Paris', text: 'Barberboard transformed my shop. In 3 months, my bookings increased by 40%.' },
         { name: 'Yassine M.', salon: 'Fade Studio Lyon', text: 'Managing my team of 5 is finally simple. I see everything in real-time.' },
         { name: 'Sofiane A.', salon: 'Classic Barber Marseille', text: 'Onboarding took 5 minutes. I was up and running the same day.' },
         { name: 'Mehdi R.', salon: 'The Barber Shop Toulouse', text: 'The booking link in my Instagram bio changed everything.' }
@@ -160,14 +160,14 @@ const CONTENT = {
         { q: 'How long does setup take?', a: 'Under 5 minutes. Our wizard guides you.' },
         { q: 'Is my data secure?', a: 'Yes. Every shop has isolated data powered by Firebase.' },
         { q: 'Can I change plans?', a: 'Yes, anytime. Changes take effect immediately.' },
-        { q: 'Is there a mobile app?', a: 'Barbeboard is a PWA — install it on iOS and Android.' }
+        { q: 'Is there a mobile app?', a: 'Barberboard is a PWA — install it on iOS and Android.' }
       ]
     },
-    cta: { title: 'Join the barbershops using Barbeboard', trust: '✓ 15 days free · ✓ No credit card · ✓ Support included' },
+    cta: { title: 'Join the barbershops using Barberboard', trust: '✓ 15 days free · ✓ No credit card · ✓ Support included' },
     footer: {
       desc: 'The platform for modern barbershops',
       product: 'Product', company: 'Company', legal: 'Legal',
-      copyright: '© 2026 Barbeboard. All rights reserved. Made with ❤️ for barbershops'
+      copyright: '© 2026 Barberboard. All rights reserved. Made with ❤️ for barbershops'
     },
     mockup: {
       dashboard: 'Dashboard',
@@ -233,7 +233,7 @@ const CONTENT = {
       grid: [
         { icon: Bell, title: 'إشعارات فورية', desc: 'تنبيهات فورية لكل حجز جديد.' },
         { icon: Shield, title: 'بيانات آمنة 100%', desc: 'كل صالون معزول تماماً. بياناتك تظل خاصة.' },
-        { icon: Smartphone, title: 'تطبيق ويب PWA للموبايل', desc: 'ثبت Barbeboard على هاتف آيفون أو أندرويد بنقرة واحدة. يعمل كتطبيق حقيقي دون الحاجة لمتجر التطبيقات.', bullets: ['إشعارات دفع أصلية', 'يعمل بدون اتصال بالإنترنت', 'أيقونة على الشاشة الرئيسية'] }
+        { icon: Smartphone, title: 'تطبيق ويب PWA للموبايل', desc: 'ثبت Barberboard على هاتف آيفون أو أندرويد بنقرة واحدة. يعمل كتطبيق حقيقي دون الحاجة لمتجر التطبيقات.', bullets: ['إشعارات دفع أصلية', 'يعمل بدون اتصال بالإنترنت', 'أيقونة على الشاشة الرئيسية'] }
       ]
     },
     howItWorks: {
@@ -253,7 +253,7 @@ const CONTENT = {
     testimonials: {
       title: 'ماذا يقول عملاؤنا',
       items: [
-        { name: 'كريم ب.', salon: 'جولد كاتس باريس', text: 'Barbeboard غيّر صالوني تماماً. زادت حجوزاتي بنسبة 40% خلال 3 أشهر.' },
+        { name: 'كريم ب.', salon: 'جولد كاتس باريس', text: 'Barberboard غيّر صالوني تماماً. زادت حجوزاتي بنسبة 40% خلال 3 أشهر.' },
         { name: 'ياسين م.', salon: 'فيد ستوديو ليون', text: 'إدارة فريقي المكون من 5 حلاقين أصبحت بسيطة جداً. أرى كل شيء بشكل فوري.' },
         { name: 'سفيان أ.', salon: 'كلاسيك باربر مارسيليا', text: 'التسجيل لم يستغرق سوى 5 دقائق. بدأت العمل في نفس اليوم.' },
         { name: 'مهدي ر.', salon: 'ذا باربر شوب تولوز', text: 'رابط الحجز في حسابي على إنستغرام غيّر كل شيء.' }
@@ -266,14 +266,14 @@ const CONTENT = {
         { q: 'كم يستغرق الإعداد؟', a: 'أقل من 5 دقائق. سيقوم مساعدنا بإرشادك خطوة بخطوة.' },
         { q: 'هل بياناتي آمنة؟', a: 'نعم، كل صالون معزول تماماً ومدعوم بتقنيات Firebase الآمنة.' },
         { q: 'هل يمكنني تغيير خطتي؟', a: 'نعم، في أي وقت. يتم تطبيق التغييرات فوراً.' },
-        { q: 'هل يوجد تطبيق للموبايل؟', a: 'Barbeboard هو تطبيق PWA — يمكنك تثبيته على آيفون وأندرويد.' }
+        { q: 'هل يوجد تطبيق للموبايل؟', a: 'Barberboard هو تطبيق PWA — يمكنك تثبيته على آيفون وأندرويد.' }
       ]
     },
-    cta: { title: 'انضم إلى صالونات الحلاقة التي تثق في Barbeboard', trust: '✓ 15 يوماً مجاناً · ✓ بدون بطاقة بنكية · ✓ الدعم مشمول' },
+    cta: { title: 'انضم إلى صالونات الحلاقة التي تثق في Barberboard', trust: '✓ 15 يوماً مجاناً · ✓ بدون بطاقة بنكية · ✓ الدعم مشمول' },
     footer: {
       desc: 'المنصة المتكاملة لصالونات الحلاقة الحديثة',
       product: 'المنتج', company: 'الشركة', legal: 'قانوني',
-      copyright: '© 2025 Barbeboard. جميع الحقوق محفوظة.'
+      copyright: '© 2025 Barberboard. جميع الحقوق محفوظة.'
     },
     mockup: {
       dashboard: 'لوحة التحكم',

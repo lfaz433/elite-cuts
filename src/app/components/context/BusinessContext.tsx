@@ -314,7 +314,7 @@ const defaultBarbers: Barber[] = [
 
 
 const defaultBusinessInfo: BusinessInfo = {
-  name: 'Barbeboard',
+  name: 'Barberboard',
   address: '123 Rue Premium, Centre Ville, 12345',
   phone: '+33 1 23 45 67 89',
   email: 'info@elitecuts.fr',

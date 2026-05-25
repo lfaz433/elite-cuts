@@ -115,7 +115,7 @@ export default function Billing() {
             </div>
             <div>
               <h3 className="font-extrabold text-lg">Abonnement activé ! 🎉</h3>
-              <p className="text-sm text-green-400/80">Merci pour votre confiance. Votre salon Barbeboard est maintenant entièrement opérationnel.</p>
+              <p className="text-sm text-green-400/80">Merci pour votre confiance. Votre salon Barberboard est maintenant entièrement opérationnel.</p>
             </div>
           </motion.div>
         )}
@@ -216,7 +216,7 @@ export default function Billing() {
                 </li>
                 <li className="flex items-center gap-2.5 text-sm text-white/60">
                   <Check className="w-4 h-4 text-[#D4AF37]" />
-                  <span>Widget de réservation Barbeboard</span>
+                  <span>Widget de réservation Barberboard</span>
                 </li>
                 <li className="flex items-center gap-2.5 text-sm text-white/60">
                   <Check className="w-4 h-4 text-[#D4AF37]" />

@@ -71,7 +71,7 @@ export default function MapComponent({ latitude, longitude, address }: MapCompon
         <Marker position={position} icon={customIcon}>
           <Popup>
             <div className="text-center min-w-[120px]">
-              <h3 className="font-black text-[#141414] uppercase tracking-widest text-sm mb-1">Barbeboard</h3>
+              <h3 className="font-black text-[#141414] uppercase tracking-widest text-sm mb-1">Barberboard</h3>
               <p className="text-gray-500 text-xs font-medium leading-tight">{address}</p>
             </div>
           </Popup>
