@@ -322,7 +322,7 @@ export default function DocsPage() {
           <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-[#D4AF37]">
             <Scissors className="w-4 h-4 text-black" />
           </div>
-          <span className="text-xl font-bold text-white tracking-tight leading-none">Barbe<span className="text-[#D4AF37]">board</span></span>
+          <span className="text-xl font-bold text-white tracking-tight leading-none">Barber<span className="text-[#D4AF37]">board</span></span>
         </div>
         <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="text-[#D4AF37] p-2">
           {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
@@ -336,7 +336,7 @@ export default function DocsPage() {
           <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 bg-[#D4AF37]">
             <Scissors className="w-4 h-4 text-black" />
           </div>
-          <span className="text-xl font-bold text-white tracking-tight leading-none">Barbe<span className="text-[#D4AF37]">board</span></span>
+          <span className="text-xl font-bold text-white tracking-tight leading-none">Barber<span className="text-[#D4AF37]">board</span></span>
         </div>
 
         <div className="flex-1 overflow-y-auto py-4 px-4 scrollbar-hide">

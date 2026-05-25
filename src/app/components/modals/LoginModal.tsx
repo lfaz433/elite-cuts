@@ -90,7 +90,7 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
             <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'var(--primary-color)' }}>
               <Scissors className="w-3.5 h-3.5 text-black" />
             </div>
-            <span className="text-lg font-bold text-white">Barbe<span style={{ color: 'var(--primary-color)' }}>board</span></span>
+            <span className="text-lg font-bold text-white">Barber<span style={{ color: 'var(--primary-color)' }}>board</span></span>
           </div>
           <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.05)', border: 'none', borderRadius: 8, padding: 8, cursor: 'pointer', color: 'rgba(255,255,255,0.5)', display: 'flex' }}>
             <X style={{ width: 18, height: 18 }} />

@@ -386,7 +386,7 @@ export default function HomePage() {
             <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'var(--primary-color)' }}>
               <Scissors className="w-4 h-4 text-black" />
             </div>
-            <span className="text-xl font-bold text-white tracking-tight leading-none">Barbe<span style={{ color: 'var(--primary-color)' }}>board</span></span>
+            <span className="text-xl font-bold text-white tracking-tight leading-none">Barber<span style={{ color: 'var(--primary-color)' }}>board</span></span>
           </div>
 
           <div className="hidden md:flex items-center gap-8">
@@ -910,7 +910,7 @@ export default function HomePage() {
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'var(--primary-color)' }}>
                   <Scissors className="w-4 h-4 text-black" />
                 </div>
-                <span className="text-xl font-bold text-white tracking-tight leading-none">Barbe<span style={{ color: 'var(--primary-color)' }}>board</span></span>
+                <span className="text-xl font-bold text-white tracking-tight leading-none">Barber<span style={{ color: 'var(--primary-color)' }}>board</span></span>
               </div>
               <p className="text-white/40 text-sm leading-relaxed">{t.footer.desc}</p>
             </div>
