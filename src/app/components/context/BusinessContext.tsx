@@ -406,7 +406,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer internal'
         },
-        body: JSON.stringify({ recipientId, title, message, redirectUrl })
+        body: JSON.stringify({ recipientId, title, body: message, data: { url: redirectUrl } })
       });
     } catch (e) {
       console.error('Push failed silently:', e);
