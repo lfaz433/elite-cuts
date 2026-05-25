@@ -38,15 +38,15 @@ function extractSubdomain(hostname: string): string {
     hostname === 'localhost' ||
     hostname === '127.0.0.1' ||
     hostname.endsWith('.vercel.app') ||
-    hostname === 'barbeboard.pro' ||
-    hostname === 'www.barbeboard.pro'
+    hostname === 'barberboard.pro' ||
+    hostname === 'www.barberboard.pro'
   ) {
     return 'elite-cuts-default';
   }
-  if (hostname === 'demo.barbeboard.pro') {
+  if (hostname === 'demo.barberboard.pro') {
     return 'demo';
   }
-  if (hostname.endsWith('.barbeboard.pro')) {
+  if (hostname.endsWith('.barberboard.pro')) {
     return hostname.split('.')[0];
   }
   return 'elite-cuts-default';

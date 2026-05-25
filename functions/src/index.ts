@@ -219,7 +219,7 @@ async function reseedDemo() {
   // Seed barbers
   const barberRefs: string[] = [];
   const barbersData = [
-    { name: 'Karim B.', specialty: 'Spécialiste Dégradé', status: 'available', commission: 50, email: 'demo-barber@barbeboard.pro' },
+    { name: 'Karim B.', specialty: 'Spécialiste Dégradé', status: 'available', commission: 50, email: 'demo-barber@barberboard.pro' },
     { name: 'Yassine M.', specialty: 'Expert Barbe & Rasage', status: 'available', commission: 55 },
     { name: 'Marcus J.', specialty: 'Coloriste & Styling', status: 'available', commission: 60 },
   ];

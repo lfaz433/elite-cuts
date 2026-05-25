@@ -357,13 +357,13 @@ export default function Register() {
                       className="flex-1 px-5 py-4 bg-white/5 border border-white/10 rounded-xl focus:border-[#D4AF37] outline-none text-white transition-all placeholder:text-white/20 text-right font-mono"
                     />
                     <div className="px-5 bg-white/10 border border-white/10 rounded-xl flex items-center justify-center text-white/60 font-mono text-sm">
-                      .barbeboard.pro
+                      .barberboard.pro
                     </div>
                   </div>
 
                   {subdomain && (
                     <p className="text-xs text-white/40 mt-1 font-mono">
-                      Aperçu : <span className="text-[#D4AF37]">{subdomain}.barbeboard.pro</span>
+                      Aperçu : <span className="text-[#D4AF37]">{subdomain}.barberboard.pro</span>
                     </p>
                   )}
                 </div>

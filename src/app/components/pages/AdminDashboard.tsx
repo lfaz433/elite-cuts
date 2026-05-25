@@ -534,7 +534,7 @@ export default function AdminDashboard() {
         <div style={{ background: 'rgba(212,175,55,0.15)', borderBottom: '1px solid rgba(212,175,55,0.3)' }}
           className="w-full px-4 py-2 flex items-center justify-between text-sm">
           <span className="text-yellow-400 font-medium">🎮 Mode Démo — données fictives, réinitialisées toutes les 24h</span>
-          <a href="https://barbeboard.pro/register"
+          <a href="https://barberboard.pro/register"
             className="text-yellow-400 font-bold hover:text-yellow-300 underline text-xs">
             Créer votre salon gratuit →
           </a>

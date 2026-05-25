@@ -131,9 +131,9 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
               </p>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
                 {[
-                  { role: 'admin', emoji: '👑', label: 'Admin', email: 'demo-admin@barbeboard.pro' },
-                  { role: 'barber', emoji: '✂️', label: 'Coiffeur', email: 'demo-barber@barbeboard.pro' },
-                  { role: 'client', emoji: '👤', label: 'Client', email: 'demo-client@barbeboard.pro' },
+                  { role: 'admin', emoji: '👑', label: 'Admin', email: 'demo-admin@barberboard.pro' },
+                  { role: 'barber', emoji: '✂️', label: 'Coiffeur', email: 'demo-barber@barberboard.pro' },
+                  { role: 'client', emoji: '👤', label: 'Client', email: 'demo-client@barberboard.pro' },
                 ].map(demo => (
                   <button
                     key={demo.role}

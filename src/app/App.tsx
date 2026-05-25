@@ -81,8 +81,8 @@ function HomeRouter() {
 
   const hostname = window.location.hostname;
   
-  // demo.barbeboard.pro → always show LandingPage (the booking portal)
-  if (hostname === 'demo.barbeboard.pro') {
+  // demo.barberboard.pro → always show LandingPage (the booking portal)
+  if (hostname === 'demo.barberboard.pro') {
     return <LandingPage />;
   }
 
@@ -91,14 +91,14 @@ function HomeRouter() {
     hostname === 'localhost' ||
     hostname === '127.0.0.1' ||
     hostname.endsWith('.vercel.app') ||
-    hostname === 'barbeboard.pro' ||
-    hostname === 'www.barbeboard.pro';
+    hostname === 'barberboard.pro' ||
+    hostname === 'www.barberboard.pro';
   
   if (isMainDomain) {
     return <HomePage />;
   }
   
-  // Show LandingPage only for tenant subdomains (e.g. mysalon.barbeboard.pro)
+  // Show LandingPage only for tenant subdomains (e.g. mysalon.barberboard.pro)
   return <LandingPage />;
 }
 

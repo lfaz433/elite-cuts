@@ -28,11 +28,11 @@ const CONTENT = {
         title: "Bienvenue sur Barbeboard",
         subtitle: "Configurez votre salon en moins de 5 minutes",
         steps: [
-          { title: "Créez votre compte", desc: "Rendez-vous sur barbeboard.pro et cliquez sur 'Essai gratuit 15 jours'. Entrez le nom de votre salon, choisissez votre sous-domaine et créez votre compte administrateur." },
+          { title: "Créez votre compte", desc: "Rendez-vous sur barberboard.pro et cliquez sur 'Essai gratuit 15 jours'. Entrez le nom de votre salon, choisissez votre sous-domaine et créez votre compte administrateur." },
           { title: "Configurez votre salon", desc: "Ajoutez vos coiffeurs, définissez vos services et horaires d'ouverture grâce à notre assistant d'onboarding." },
           { title: "Acceptez vos premiers clients", desc: "Partagez votre lien de réservation avec vos clients. Ils peuvent réserver en ligne sans créer de compte." }
         ],
-        tip: "💡 Astuce: Votre lien de réservation est disponible sur votre tableau de bord sous la forme monSalon.barbeboard.pro"
+        tip: "💡 Astuce: Votre lien de réservation est disponible sur votre tableau de bord sous la forme monSalon.barberboard.pro"
       },
       reservations: {
         title: "Gestion des réservations",
@@ -117,19 +117,19 @@ const CONTENT = {
         sub2: "Essai gratuit",
         sub2desc: "Vous bénéficiez de 15 jours d'essai gratuit sur le plan de votre choix, sans carte bancaire requise.",
         sub3: "Paiement manuel",
-        sub3desc: "Vous pouvez payer par virement bancaire ou en espèces pour un abonnement annuel. Contactez-nous à contact@barbeboard.pro."
+        sub3desc: "Vous pouvez payer par virement bancaire ou en espèces pour un abonnement annuel. Contactez-nous à contact@barberboard.pro."
       },
       faq: {
         title: "Foire aux questions (FAQ)",
         questions: [
-          { q: "Comment mes clients réservent-ils ?", a: "Ils se rendent sur votre sous-domaine (ex: salon.barbeboard.pro) et réservent en 4 étapes simples sans avoir besoin de créer un compte." },
+          { q: "Comment mes clients réservent-ils ?", a: "Ils se rendent sur votre sous-domaine (ex: salon.barberboard.pro) et réservent en 4 étapes simples sans avoir besoin de créer un compte." },
           { q: "Puis-je avoir plusieurs coiffeurs ?", a: "Oui, selon votre plan d'abonnement (jusqu'à l'illimité)." },
           { q: "Mes données sont-elles sécurisées ?", a: "Absolument. Les données de chaque salon sont complètement isolées et sécurisées." },
           { q: "Comment installer l'app sur mon téléphone ?", a: "Barbeboard est une PWA. Sur iOS, ouvrez Safari, cliquez sur 'Partager' puis 'Sur l'écran d'accueil'. Sur Android, Chrome vous proposera de l'installer." },
           { q: "Puis-je annuler à tout moment ?", a: "Oui, nos abonnements sont sans engagement." },
           { q: "Comment changer mon sous-domaine ?", a: "Pour des raisons de sécurité, le changement de sous-domaine nécessite de contacter le support." },
           { q: "L'app fonctionne-t-elle hors ligne ?", a: "Les fonctionnalités de base (comme l'affichage du planning du jour) fonctionnent hors ligne grâce au cache PWA." },
-          { q: "Comment contacter le support ?", a: "Envoyez-nous un email à contact@barbeboard.pro." }
+          { q: "Comment contacter le support ?", a: "Envoyez-nous un email à contact@barberboard.pro." }
         ]
       }
     }
@@ -153,11 +153,11 @@ const CONTENT = {
         title: "Welcome to Barbeboard",
         subtitle: "Set up your barbershop in under 5 minutes",
         steps: [
-          { title: "Create your account", desc: "Go to barbeboard.pro and click '15-day free trial'. Enter your shop name, choose your subdomain, and create your admin account." },
+          { title: "Create your account", desc: "Go to barberboard.pro and click '15-day free trial'. Enter your shop name, choose your subdomain, and create your admin account." },
           { title: "Configure your shop", desc: "Add your barbers, define your services and opening hours using our onboarding wizard." },
           { title: "Accept your first clients", desc: "Share your booking link with your clients. They can book online without creating an account." }
         ],
-        tip: "💡 Tip: Your booking link is available on your dashboard in the format myShop.barbeboard.pro"
+        tip: "💡 Tip: Your booking link is available on your dashboard in the format myShop.barberboard.pro"
       },
       reservations: {
         title: "Booking Management",
@@ -242,19 +242,19 @@ const CONTENT = {
         sub2: "Free Trial",
         sub2desc: "You get a 15-day free trial on the plan of your choice, no credit card required.",
         sub3: "Manual Payment",
-        sub3desc: "You can pay by bank transfer or cash for an annual subscription. Contact us at contact@barbeboard.pro."
+        sub3desc: "You can pay by bank transfer or cash for an annual subscription. Contact us at contact@barberboard.pro."
       },
       faq: {
         title: "Frequently Asked Questions (FAQ)",
         questions: [
-          { q: "How do my clients book?", a: "They go to your subdomain (e.g. shop.barbeboard.pro) and book in 4 simple steps without creating an account." },
+          { q: "How do my clients book?", a: "They go to your subdomain (e.g. shop.barberboard.pro) and book in 4 simple steps without creating an account." },
           { q: "Can I have multiple barbers?", a: "Yes, depending on your subscription plan (up to unlimited)." },
           { q: "Is my data secure?", a: "Absolutely. Each shop's data is completely isolated and secure." },
           { q: "How do I install the app on my phone?", a: "Barbeboard is a PWA. On iOS, open Safari, click 'Share' then 'Add to Home Screen'. On Android, Chrome will prompt you to install it." },
           { q: "Can I cancel anytime?", a: "Yes, our subscriptions have no long-term commitment." },
           { q: "How do I change my subdomain?", a: "For security reasons, changing your subdomain requires contacting support." },
           { q: "Does the app work offline?", a: "Basic features (like viewing today's schedule) work offline thanks to the PWA cache." },
-          { q: "How do I contact support?", a: "Email us at contact@barbeboard.pro." }
+          { q: "How do I contact support?", a: "Email us at contact@barberboard.pro." }
         ]
       }
     }

@@ -70,9 +70,9 @@ async function main() {
 
   // Create Auth Users first so we have their actual UIDs
   console.log('👤 Seeding Firebase Auth users...');
-  const adminUid = await createAuthUser('demo-admin@barbeboard.pro', 'Demo1234!', 'Admin Demo');
-  const barberUid = await createAuthUser('demo-barber@barbeboard.pro', 'Demo1234!', 'Karim B.');
-  const clientUid = await createAuthUser('demo-client@barbeboard.pro', 'Demo1234!', 'Client Demo');
+  const adminUid = await createAuthUser('demo-admin@barberboard.pro', 'Demo1234!', 'Admin Demo');
+  const barberUid = await createAuthUser('demo-barber@barberboard.pro', 'Demo1234!', 'Karim B.');
+  const clientUid = await createAuthUser('demo-client@barberboard.pro', 'Demo1234!', 'Client Demo');
 
   // Clear Firestore demo data
   await clearDemoData();
@@ -95,9 +95,9 @@ async function main() {
   // Create User Profiles in Firestore
   console.log('👤 Seeding user profiles in Firestore...');
   const usersToSeed = [
-    { uid: adminUid, email: 'demo-admin@barbeboard.pro', name: 'Admin Demo', role: 'admin' },
-    { uid: barberUid, email: 'demo-barber@barbeboard.pro', name: 'Karim B.', role: 'barber' },
-    { uid: clientUid, email: 'demo-client@barbeboard.pro', name: 'Client Demo', role: 'client' },
+    { uid: adminUid, email: 'demo-admin@barberboard.pro', name: 'Admin Demo', role: 'admin' },
+    { uid: barberUid, email: 'demo-barber@barberboard.pro', name: 'Karim B.', role: 'barber' },
+    { uid: clientUid, email: 'demo-client@barberboard.pro', name: 'Client Demo', role: 'client' },
   ];
   for (const u of usersToSeed) {
     await db.collection('users').doc(u.uid).set({
@@ -113,7 +113,7 @@ async function main() {
   // Seed barbers
   console.log('💈 Seeding barbers...');
   const barbersData = [
-    { name: 'Karim B.', specialty: 'Spécialiste Dégradé', status: 'available', commission: 50, email: 'demo-barber@barbeboard.pro' },
+    { name: 'Karim B.', specialty: 'Spécialiste Dégradé', status: 'available', commission: 50, email: 'demo-barber@barberboard.pro' },
     { name: 'Yassine M.', specialty: 'Expert Barbe & Rasage', status: 'available', commission: 55, email: 'yassine@demo.local' },
     { name: 'Marcus J.', specialty: 'Coloriste & Styling', status: 'available', commission: 60, email: 'marcus@demo.local' },
   ];
@@ -248,9 +248,9 @@ async function main() {
 
   console.log('\n✅ Demo seed complete!\n');
   console.log('Login credentials:');
-  console.log('  Admin:  demo-admin@barbeboard.pro / Demo1234!');
-  console.log('  Barber: demo-barber@barbeboard.pro / Demo1234!');
-  console.log('  Client: demo-client@barbeboard.pro / Demo1234!\n');
+  console.log('  Admin:  demo-admin@barberboard.pro / Demo1234!');
+  console.log('  Barber: demo-barber@barberboard.pro / Demo1234!');
+  console.log('  Client: demo-client@barberboard.pro / Demo1234!\n');
   process.exit(0);
 }
 
