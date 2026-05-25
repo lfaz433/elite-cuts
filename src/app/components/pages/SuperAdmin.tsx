@@ -641,7 +641,7 @@ export default function SuperAdmin() {
   const pendingPaymentsCount = manualPayments
     .filter(p => p.status === 'pending').length;
 
-  const activeManualClients = new Set(
+  const activeManualTenantsCount = new Set(
     manualPayments
       .filter(p => p.status === 'paid')
       .map(p => p.tenantId)
