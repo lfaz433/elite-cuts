@@ -248,6 +248,7 @@ interface BusinessContextType {
   totalDeposits: number;
   caisseBalance: number;
   seedDatabase: () => Promise<void>;
+  sendPush: (recipientId: string, title: string, message: string, redirectUrl: string) => Promise<void>;
   updateBarberStatus: (id: string, status: Barber['status']) => Promise<void>;
   getAvailableBarbers: (date: string, time: string) => Barber[];
   getAvailableTimeSlots: (date: string, barberId: string) => string[];
@@ -395,6 +396,23 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   const [payrollRequests, setPayrollRequests] = useState<PayrollRequest[]>([]);
   const [payrollPayments, setPayrollPayments] = useState<PayrollPayment[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const sendPush = async (recipientId: string, title: string, message: string, redirectUrl: string) => {
+    if (!recipientId) return;
+    try {
+      await fetch('/api/send-push', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer internal'
+        },
+        body: JSON.stringify({ recipientId, title, message, redirectUrl })
+      });
+    } catch (e) {
+      console.error('Push failed silently:', e);
+      // Never throw — push failures must never break main flow
+    }
+  };
 
   useEffect(() => {
     if (!tenantId) return;
@@ -586,22 +604,15 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       tenantId
     });
 
-    // Notify Admin and Barber via UI and Push
     try {
-      const payload = {
-        title: 'Nouvelle Réservation',
-        body: `${booking.clientName} a réservé pour le ${booking.date} à ${booking.time}`,
-        data: { url: `/?highlight=${docRef.id}` },
-        notificationId: docRef.id,
-        type: 'NEW_RESERVATION'
-      };
-
+      const targetService = services.find(s => s.id === booking.serviceId);
+      
       // 1. Write to Admin UI Notifications
       await addDoc(collection(db, 'notifications'), {
         recipientId: 'admin',
-        type: payload.type,
-        title: payload.title,
-        message: payload.body,
+        type: 'NEW_RESERVATION',
+        title: 'Nouvelle Réservation',
+        message: `${booking.clientName} a réservé pour le ${booking.date} à ${booking.time}`,
         reservationId: docRef.id,
         read: false,
         createdAt: Date.now(),
@@ -613,9 +624,9 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       if (booking.barberId) {
         await addDoc(collection(db, 'notifications'), {
           recipientId: booking.barberId,
-          type: payload.type,
-          title: payload.title,
-          message: payload.body,
+          type: 'NEW_RESERVATION',
+          title: 'Nouvelle Réservation',
+          message: `${booking.clientName} a réservé pour le ${booking.date} à ${booking.time}`,
           reservationId: docRef.id,
           read: false,
           createdAt: Date.now(),
@@ -624,42 +635,24 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
         });
       }
 
-      // 3. Send Push via Vercel Backend
-      const notifyBackend = async (recId: string) => {
-        try {
-          const url = recId === 'admin'
-            ? `/admin/bookings?highlight=${docRef.id}`
-            : `/barber/reservations?highlight=${docRef.id}`;
-
-          console.log('Sending push notification to:', recId, 'message:', payload.body);
-          const response = await fetch('/api/send-push', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer placeholder_token' },
-            body: JSON.stringify({ 
-              ...payload, 
-              recipientId: recId,
-              data: { ...payload.data, url }
-            })
-          });
-          const data = await response.json();
-          console.log('Push API response:', response.status, data);
-          if (!response.ok) {
-            toast.error(`Push API Error (${recId}): ` + (data.error || 'Unknown'));
-            console.error('Push Error data:', data);
-          } else {
-            console.log(`Push sent to ${recId}:`, data);
-          }
-        } catch (err: any) {
-          toast.error(`Push Network Error (${recId}): ` + err.message);
-        }
-      };
-
-      notifyBackend('admin');
-      if (booking.barberId) {
-        notifyBackend(booking.barberId);
+      // 3. Send Push
+      await sendPush(
+        'admin',
+        '📅 Nouvelle réservation',
+        `${booking.clientName} — ${targetService?.name || 'Service'} le ${booking.date} à ${booking.time}`,
+        `/admin/bookings`
+      );
+      
+      if (booking.barberId && booking.barberId !== 'any') {
+        await sendPush(
+          booking.barberId,
+          '📅 Nouveau rendez-vous',
+          `${booking.clientName} — ${targetService?.name || 'Service'} le ${booking.date} à ${booking.time}`,
+          `/barber/reservations`
+        );
       }
-    } catch (e) {
-      console.error('Failed to trigger push notification:', e);
+    } catch (error) {
+      console.error("Error creating booking notifications:", error);
     }
   };
 
@@ -671,51 +664,16 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
 
     try {
       const booking = bookings.find(b => b.id === id);
-      if (booking && (status === 'approved' || status === 'rejected')) {
+      if (booking && (status === 'approved' || status === 'rejected' || status === 'completed')) {
         const clientAlias = booking.clientId || booking.clientEmail || booking.clientPhone;
         
-        const payload = {
-          recipientId: clientAlias,
-          title: status === 'approved' ? 'Réservation Confirmée' : 'Réservation Rejetée',
-          body: status === 'approved' ? `Votre rdv du ${booking.date} est confirmé!` : `Désolé, votre rdv a été rejeté.`,
-          data: { url: `/client?highlight=${id}` },
-          notificationId: id + status,
-          type: status === 'approved' ? 'APPROVED' : 'REJECTED'
-        };
-
-        // Write to Client UI Notifications (if they are logged in and looking at dashboard)
-        await addDoc(collection(db, 'notifications'), {
-          recipientId: clientAlias,
-          type: payload.type,
-          title: payload.title,
-          message: payload.body,
-          reservationId: id,
-          read: false,
-          createdAt: Date.now(),
-          expiresAt: Date.now() + (30 * 24 * 60 * 60 * 1000),
-          tenantId
-        });
-
-        // Write to Admin UI Notifications
-        await addDoc(collection(db, 'notifications'), {
-          recipientId: 'admin',
-          type: payload.type,
-          title: payload.title,
-          message: payload.body,
-          reservationId: id,
-          read: false,
-          createdAt: Date.now(),
-          expiresAt: Date.now() + (30 * 24 * 60 * 60 * 1000),
-          tenantId
-        });
-
-        // Write to Barber UI Notifications
-        if (booking.barberId) {
+        // Write to Notifications
+        if (clientAlias) {
           await addDoc(collection(db, 'notifications'), {
-            recipientId: booking.barberId,
-            type: payload.type,
-            title: payload.title,
-            message: payload.body,
+            recipientId: clientAlias,
+            type: status.toUpperCase(),
+            title: status === 'approved' ? 'Réservation Confirmée' : 'Réservation Rejetée',
+            message: status === 'approved' ? `Votre rdv du ${booking.date} est confirmé!` : `Désolé, votre rdv a été rejeté.`,
             reservationId: id,
             read: false,
             createdAt: Date.now(),
@@ -723,15 +681,34 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
             tenantId
           });
         }
-        
-        console.log('Sending push notification to:', payload.recipientId, 'message:', payload.body);
-        const response = await fetch('/api/send-push', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer placeholder_token' },
-          body: JSON.stringify(payload)
-        });
-        const result = await response.json();
-        console.log('Push API response:', response.status, result);
+
+        // Push Notifications
+        try {
+          if (status === 'approved' && booking.clientId) {
+            await sendPush(
+              booking.clientId,
+              '✅ Réservation confirmée',
+              `Votre réservation est confirmée pour le ${booking.date} à ${booking.time}`,
+              `/client`
+            );
+          } else if (status === 'rejected' && booking.clientId) {
+            await sendPush(
+              booking.clientId,
+              '❌ Réservation annulée',
+              `Votre réservation du ${booking.date} à ${booking.time} a été annulée`,
+              `/client`
+            );
+          } else if (status === 'completed') {
+            await sendPush(
+              booking.barberId,
+              '💰 Service enregistré',
+              `Service ${booking.pricePaid ? `€${booking.pricePaid}` : ''} ajouté à votre portefeuille`,
+              `/barber/gains`
+            );
+          }
+        } catch (e) {
+          console.error("Error sending push on status update:", e);
+        }
       }
     } catch (e) {
       console.error('Failed to trigger push notification:', e);
@@ -1054,9 +1031,11 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     addBarber, updateBarber, deleteBarber,
     addBooking, updateBookingStatus, updateBooking, deleteBooking,
     updateBusinessInfo, addToGallery, removeFromGallery,
-    addProduct, updateProduct, deleteProduct, addSale, addExpense, addDeposit,
-    totalExpenses, totalDeposits, caisseBalance,
-    addAttendance, addSettlement, resetBarberBalance, resetAllBalances, seedDatabase,
+    addProduct, updateProduct, deleteProduct,
+    addSale, addExpense, addDeposit,
+    totalExpenses, totalDeposits, caisseBalance, seedDatabase,
+    sendPush,
+    addAttendance, addSettlement, resetBarberBalance, resetAllBalances,
     updateBarberStatus,
     getAvailableBarbers, getAvailableTimeSlots, getBarberWalletBalance
   }), [

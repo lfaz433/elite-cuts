@@ -15,7 +15,7 @@ interface WalletModalProps {
 
 const WalletModal: React.FC<WalletModalProps> = ({ onClose, currentBarber }) => {
   const { tenantId } = useTenant();
-  const { bookings, payrollPayments, payrollRequests, getBarberWalletBalance } = useBusiness();
+  const { bookings, payrollPayments, payrollRequests, getBarberWalletBalance, sendPush } = useBusiness();
   const [requestAmount, setRequestAmount] = useState<number | ''>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -54,7 +54,7 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, currentBarber }) => 
         requestedAt: Date.now()
       });
       
-      // Notify admin
+      // Notify admin UI
       await addDoc(collection(db, 'notifications'), {
         tenantId,
         recipientId: 'admin',
@@ -64,6 +64,14 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, currentBarber }) => 
         createdAt: new Date().toISOString(),
         read: false
       });
+
+      // Notify via Push
+      await sendPush(
+        'admin',
+        '💰 Demande de paiement',
+        `${currentBarber.name} demande un paiement de €${requestAmount}`,
+        `/admin/paie`
+      );
 
       toast.success('Demande envoyée ✓');
       setRequestAmount('');

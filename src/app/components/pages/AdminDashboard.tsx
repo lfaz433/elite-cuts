@@ -114,7 +114,7 @@ export default function AdminDashboard() {
     deleteProduct, addSale, attendance, settlements, addSettlement,
     resetBarberBalance, seedDatabase, gallery,
     expenses, caisseBalance, totalExpenses, deposits, totalDeposits,
-    payrollRequests, payrollPayments, getBarberWalletBalance
+    payrollRequests, payrollPayments, getBarberWalletBalance, sendPush
   } = useBusiness();
   
   const navigate = useNavigate();
@@ -465,6 +465,14 @@ export default function AdminDashboard() {
       });
       console.log('Step 3 done - expense created');
       
+      // Step 4: Notify barber
+      await sendPush(
+        request.barberId,
+        '✅ Paiement approuvé',
+        `Votre demande de €${approvedAmount} a été approuvée`,
+        `/barber/gains`
+      );
+
       toast.success('Paiement approuvé');
     } catch (error: any) {
       console.error('APPROVAL ERROR:', error.code, error.message);
@@ -489,6 +497,14 @@ export default function AdminDashboard() {
         createdAt: new Date().toISOString(),
         read: false
       });
+      
+      await sendPush(
+        request.barberId,
+        '❌ Paiement refusé',
+        `Votre demande de €${request.amount} a été refusée`,
+        `/barber/gains`
+      );
+
       toast.success('Paiement rejeté');
     } catch (err) {
       console.error(err);
