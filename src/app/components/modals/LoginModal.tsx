@@ -70,6 +70,10 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
         message = 'Cet email est déjà utilisé';
       } else if (error.code === 'auth/weak-password') {
         message = 'Le mot de passe est trop faible';
+      } else if (error.code === 'auth/too-many-requests') {
+        message = 'Trop de tentatives (sécurité Firebase). Réessayez dans 5 minutes.';
+      } else if (error.code === 'auth/invalid-credential') {
+        message = 'Identifiants incorrects';
       }
       toast.error(message);
     } finally {
@@ -145,7 +149,11 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
                         await signInWithEmailAndPassword(auth, demo.email, 'Demo1234!');
                         toast.success(`Connecté en mode démo (${demo.label})`);
                       } catch (e: any) {
-                        toast.error(`Erreur démo: ${e.message}`);
+                        if (e.code === 'auth/too-many-requests') {
+                          toast.error('Trop de tentatives sur la démo. Réessayez dans 5 min.');
+                        } else {
+                          toast.error(`Erreur démo: ${e.message}`);
+                        }
                       } finally {
                         setIsSubmitting(false);
                       }
