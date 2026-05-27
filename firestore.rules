@@ -16,27 +16,46 @@ service cloud.firestore {
     }
 
     // 1. Tenants Collection (Public reads for domain resolution, admin write controls)
-    match /tenants/{tenantDocId} {
+    match /tenants/{tenantId} {
       allow read: if true;
-      allow create: if isSuperAdmin() || (request.auth != null && request.auth.uid == request.resource.data.ownerUid);
-      allow update, delete: if isSuperAdmin() || (request.auth != null && request.auth.uid == resource.data.ownerUid);
+      allow write: if isSuperAdmin() || 
+        isMemberOfTenant(tenantId);
     }
 
     // 2. Scoped Business Operations Collections
     match /bookings/{bookingId} {
-      allow read: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId) || resource.data.tenantId == 'barberboard-demo';
-      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId) || request.resource.data.tenantId == 'barberboard-demo';
-      allow update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow read: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow create: if true; // guests can create bookings
+      allow update, delete: if isSuperAdmin() || 
+        isMemberOfTenant(resource.data.tenantId);
     }
 
     match /barbers/{barberId} {
-      allow read: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId) || resource.data.tenantId == 'barberboard-demo';
-      allow create, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow read: if true;
+      allow write: if isSuperAdmin() || 
+        isMemberOfTenant(resource.data.tenantId) ||
+        isMemberOfTenant(request.resource.data.tenantId);
     }
 
     match /services/{serviceId} {
-      allow read: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId) || resource.data.tenantId == 'barberboard-demo';
-      allow create, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow read: if true;
+      allow write: if isSuperAdmin() || 
+        isMemberOfTenant(resource.data.tenantId) ||
+        isMemberOfTenant(request.resource.data.tenantId);
+    }
+
+    match /products/{productId} {
+      allow read: if true;
+      allow write: if isSuperAdmin() || 
+        isMemberOfTenant(resource.data.tenantId) ||
+        isMemberOfTenant(request.resource.data.tenantId);
+    }
+
+    match /gallery/{galleryId} {
+      allow read: if true;
+      allow write: if isSuperAdmin() || 
+        isMemberOfTenant(resource.data.tenantId) ||
+        isMemberOfTenant(request.resource.data.tenantId);
     }
 
     match /sales/{saleId} {
@@ -107,16 +126,6 @@ service cloud.firestore {
 
     match /manual_payments/{paymentId} {
       allow read, write: if isSuperAdmin();
-    }
-
-    // 5. Products collection (demo open)
-    match /products/{productId} {
-      allow read, write: if true;
-    }
-
-    // Updated gallery rules (demo open)
-    match /gallery/{galleryId} {
-      allow read, write: if true;
     }
 
     // 6. Unmigrated / Legacy Collections (Locked to prevent data leaks until migrated)
