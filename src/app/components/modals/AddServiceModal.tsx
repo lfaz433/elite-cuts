@@ -33,7 +33,8 @@ export default function AddServiceModal({ bookingId, onClose }: AddServiceModalP
         pricePaid: finalPrice, 
         tip: parseFloat(tip) || 0, 
         paymentMethod,
-        paymentStatus: 'paid'
+        paymentStatus: 'paid',
+        completedAt: new Date().toISOString()
       });
       toast.custom((t) => (
         <motion.div 

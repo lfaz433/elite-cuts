@@ -440,22 +440,30 @@ export default function AdminDashboard() {
 
   const serviceRevenue = useMemo(() => completedBookings.reduce((sum, b) => sum + Number(b.pricePaid || 0), 0), [completedBookings]);
 
-  const totalReceived = serviceRevenue + productRevenue;
+  // Total encaissé (everything that entered the caisse: services + tips + products)
+  const totalEncaisse = useMemo(() => completedBookings.reduce((sum, b) => sum + Number(b.pricePaid || 0) + Number(b.tip || 0), 0) + productRevenue, [completedBookings, productRevenue]);
+  const totalReceived = totalEncaisse; // Alias for compatibility
   const totalRevenue = totalReceived; // Alias for compatibility
 
+  // Total tips (paid to barbers from caisse)
+  const totalTips = useMemo(() => completedBookings.reduce((sum, b) => sum + Number(b.tip || 0), 0), [completedBookings]);
+
+  // Barber commissions (% of service price only — NOT tips)
   const totalBarberCommissions = useMemo(() => completedBookings.reduce((sum, b) => {
     const barber = barbers.find(bar => bar.id === b.barberId);
     const rate = (barber?.commissionRate || barber?.commission || 50) / 100;
     return sum + (Number(b.pricePaid || 0) * rate);
   }, 0), [completedBookings, barbers]);
 
-  const totalTips = useMemo(() => completedBookings.reduce((sum, b) => sum + Number(b.tip || 0), 0), [completedBookings]);
+  // Total owed to barbers = commissions + tips
+  const totalOwedToBarbers = useMemo(() => totalBarberCommissions + totalTips, [totalBarberCommissions, totalTips]);
 
-  const beneficeSalon = totalReceived - totalBarberCommissions;
+  // Salon profit = total received - barber commissions - tips (which means totalEncaisse - totalOwedToBarbers)
+  const beneficeSalon = useMemo(() => totalEncaisse - totalOwedToBarbers, [totalEncaisse, totalOwedToBarbers]);
 
   const filteredExpensesTotal = useMemo(() => (expenses || []).filter(e => isDateInRange(getLocalDateStringFromTimestamp(e.createdAt))).reduce((sum, e) => sum + Number(e.amount || 0), 0), [expenses, dateFilter, customDateRange]);
   const filteredDepositsTotal = useMemo(() => (deposits || []).filter(d => isDateInRange(getLocalDateStringFromTimestamp(d.createdAt))).reduce((sum, d) => sum + Number(d.amount || 0), 0), [deposits, dateFilter, customDateRange]);
-  const netAfterExpenses = beneficeSalon - filteredExpensesTotal + filteredDepositsTotal;
+  const netAfterExpenses = useMemo(() => beneficeSalon - filteredExpensesTotal + filteredDepositsTotal, [beneficeSalon, filteredExpensesTotal, filteredDepositsTotal]);
 
   const revenueTrend = useMemo(() => {
     const last7Days = Array.from({ length: 7 }, (_, i) => {
@@ -652,38 +660,38 @@ export default function AdminDashboard() {
 
                   {/* ── VUE D'ENSEMBLE KPI Cards ── */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    {/* Card 1 — Chiffre d'Affaires */}
+                    {/* Card 1 — TOTAL ENCAISSÉ */}
                     <div className="bg-[#141414] border border-white/5 p-6 rounded-[2rem] hover:border-green-500/20 transition-all group relative overflow-hidden">
                       <div className="p-3 rounded-2xl bg-green-500/10 text-green-400 w-fit mb-4 group-hover:scale-110 transition-transform"><DollarSign className="w-6 h-6" /></div>
-                      <p className="text-white/30 text-[10px] font-black uppercase tracking-widest">Chiffre d'Affaires</p>
-                      <p className="text-3xl font-black mt-1 text-green-400">€{totalReceived.toFixed(2)}</p>
-                      <p className="text-white/40 text-[10px] mt-1">Total encaissé (hors pourboires)</p>
+                      <p className="text-white/30 text-[10px] font-black uppercase tracking-widest">TOTAL ENCAISSÉ</p>
+                      <p className="text-3xl font-black mt-1 text-green-400">€{totalEncaisse.toFixed(2)}</p>
+                      <p className="text-white/40 text-[10px] mt-1">Services + pourboires + produits</p>
                       <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-green-500/[0.03] to-transparent rounded-full -mr-10 -mt-10" />
                     </div>
 
-                    {/* Card 2 — Part Coiffeurs */}
+                    {/* Card 2 — PART COIFFEURS */}
                     <div className="bg-[#141414] border border-white/5 p-6 rounded-[2rem] hover:border-blue-500/20 transition-all group relative overflow-hidden">
                       <div className="p-3 rounded-2xl bg-blue-500/10 text-blue-400 w-fit mb-4 group-hover:scale-110 transition-transform"><Users className="w-6 h-6" /></div>
-                      <p className="text-white/30 text-[10px] font-black uppercase tracking-widest">Part Coiffeurs</p>
-                      <p className="text-3xl font-black mt-1 text-orange-400">-€{totalBarberCommissions.toFixed(2)}</p>
-                      <p className="text-white/40 text-[10px] mt-1">Commissions dues à l'équipe</p>
+                      <p className="text-white/30 text-[10px] font-black uppercase tracking-widest">PART COIFFEURS</p>
+                      <p className="text-3xl font-black mt-1 text-red-500">-€{totalOwedToBarbers.toFixed(2)}</p>
+                      <p className="text-white/40 text-[10px] mt-1">Commissions + pourboires</p>
                       <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-blue-500/[0.03] to-transparent rounded-full -mr-10 -mt-10" />
                     </div>
 
-                    {/* Card 3 — Bénéfice Salon */}
+                    {/* Card 3 — BÉNÉFICE SALON */}
                     <div className="bg-[#141414] border border-white/5 p-6 rounded-[2rem] hover:border-[#D4AF37]/20 transition-all group relative overflow-hidden">
                       <div className="p-3 rounded-2xl bg-[#D4AF37]/10 text-[#D4AF37] w-fit mb-4 group-hover:scale-110 transition-transform"><TrendingUp className="w-6 h-6" /></div>
-                      <p className="text-white/30 text-[10px] font-black uppercase tracking-widest">Bénéfice Salon</p>
+                      <p className="text-white/30 text-[10px] font-black uppercase tracking-widest">BÉNÉFICE SALON</p>
                       <p className="text-3xl font-black mt-1 text-[#D4AF37]">€{beneficeSalon.toFixed(2)}</p>
-                      <p className="text-white/40 text-[10px] mt-1">Après commissions coiffeurs</p>
+                      <p className="text-white/40 text-[10px] mt-1">Votre part après commissions</p>
                       <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-[#D4AF37]/[0.03] to-transparent rounded-full -mr-10 -mt-10" />
                     </div>
 
-                    {/* Card 4 — Solde Net */}
+                    {/* Card 4 — SOLDE NET */}
                     <div className={`bg-[#141414] border border-white/5 p-6 rounded-[2rem] transition-all group relative overflow-hidden ${netAfterExpenses >= 0 ? 'hover:border-green-500/20' : 'hover:border-red-500/20'}`}>
                       <div className={`p-3 rounded-2xl w-fit mb-4 group-hover:scale-110 transition-transform ${netAfterExpenses >= 0 ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}><Wallet className="w-6 h-6" /></div>
-                      <p className="text-white/30 text-[10px] font-black uppercase tracking-widest">Solde Net</p>
-                      <p className={`text-3xl font-black mt-1 ${netAfterExpenses >= 0 ? 'text-green-400' : 'text-red-400'}`}>€{netAfterExpenses.toFixed(2)}</p>
+                      <p className="text-white/30 text-[10px] font-black uppercase tracking-widest">SOLDE NET</p>
+                      <p className={`text-3xl font-black mt-1 ${netAfterExpenses >= 0 ? 'text-green-400' : 'text-red-500'}`}>€{netAfterExpenses.toFixed(2)}</p>
                       <p className="text-white/40 text-[10px] mt-1">Après dépenses et charges</p>
                       <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-white/[0.02] to-transparent rounded-full -mr-10 -mt-10" />
                     </div>
@@ -1279,7 +1287,7 @@ export default function AdminDashboard() {
 
               {activeTab === 'reports' && (
                 <motion.div key="reports" className="space-y-8">
-                  <BarberAnalytics bookings={bookings} barbers={barbers} services={services} attendance={attendance} sales={sales} expenses={expenses} />
+                  <BarberAnalytics bookings={bookings} barbers={barbers} services={services} attendance={attendance} sales={sales} expenses={expenses} deposits={deposits} />
                 </motion.div>
               )}
 
@@ -1471,23 +1479,11 @@ export default function AdminDashboard() {
 
               {activeTab === 'depenses' && (() => {
                 // Revenue calculations for dépenses tab
-                const depServiceRev = completedBookings.reduce((sum, b) => sum + Number(b.pricePaid || 0), 0);
-                const depProductRev = (sales || []).filter(s => isDateInRange(s.date)).reduce((sum, s) => {
-                  const price = s.amount != null ? s.amount : (s.customPrice != null ? s.customPrice : (s.sellPrice || 0));
-                  const qty = s.quantity || 1;
-                  const disc = s.discount || 0;
-                  return sum + (price * qty * (1 - disc / 100));
-                }, 0);
-                const depTotalReceived = depServiceRev + depProductRev;
-                const depBarberComm = completedBookings.reduce((sum, b) => {
-                  const barber = barbers.find(bar => bar.id === b.barberId);
-                  const rate = (barber?.commissionRate || barber?.commission || 50) / 100;
-                  return sum + (Number(b.pricePaid || 0) * rate);
-                }, 0);
-                const depBenefice = depTotalReceived - depBarberComm;
-                const depTotalExp = (expenses || []).filter(e => isDateInRange(getLocalDateStringFromTimestamp(e.createdAt))).reduce((sum, e) => sum + Number(e.amount || 0), 0);
-                const depFilteredDeposits = (deposits || []).filter(d => isDateInRange(getLocalDateStringFromTimestamp(d.createdAt))).reduce((sum, d) => sum + Number(d.amount || 0), 0);
-                const depSoldeNet = depBenefice - depTotalExp + depFilteredDeposits;
+                const depTotalReceived = totalEncaisse;
+                const depBenefice = beneficeSalon;
+                const depTotalExp = filteredExpensesTotal;
+                const depFilteredDeposits = filteredDepositsTotal;
+                const depSoldeNet = netAfterExpenses;
 
                 return (
                   <motion.div key="depenses" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">

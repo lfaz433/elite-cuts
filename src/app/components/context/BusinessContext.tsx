@@ -982,12 +982,22 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   }, [deposits]);
 
   const totalRevenus = useMemo(() => {
-    return (sales || []).reduce((sum, s) => {
-      const amount = Number(s.amount || s.pricePaid || 0);
-      const tips = Number(s.tips || 0);
-      return sum + amount + tips;
+    // Service revenue (pricePaid + tips — all goes to caisse)
+    const serviceRev = (bookings || [])
+      .filter(b => b.status === 'completed')
+      .reduce((sum, b) => sum + Number(b.pricePaid || 0) + Number(b.tip || 0), 0);
+    
+    // Product revenue (100% to salon)
+    const productRev = (sales || []).reduce((sum, s) => {
+      const price = s.amount != null ? s.amount : 
+                    (s.customPrice != null ? s.customPrice : (s.sellPrice || 0));
+      const qty = Number(s.quantity || 1);
+      const disc = Number(s.discount || 0);
+      return sum + (price * qty * (1 - disc / 100));
     }, 0);
-  }, [sales]);
+    
+    return serviceRev + productRev;
+  }, [bookings, sales]);
 
   const totalDepenses = useMemo(() => {
     return (expenses || []).reduce((sum, e) => {
@@ -996,8 +1006,9 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   }, [expenses]);
 
   const caisseBalance = useMemo(() => {
-    return totalRevenus + totalDeposits - totalDepenses;
-  }, [totalRevenus, totalDeposits, totalDepenses]);
+    const totalPaidPayroll = (payrollPayments || []).reduce((sum, p) => sum + Number(p.amount || 0), 0);
+    return totalRevenus + totalDeposits - totalDepenses - totalPaidPayroll;
+  }, [totalRevenus, totalDeposits, totalDepenses, payrollPayments]);
 
   const completedBookings = useMemo(() => {
     return bookings.filter(b => b.status === 'completed' || b.status === 'approved');

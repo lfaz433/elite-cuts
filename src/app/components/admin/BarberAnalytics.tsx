@@ -34,6 +34,7 @@ interface Props {
   isBarberView?: boolean;
   sales?: any[];
   expenses?: any[];
+  deposits?: any[];
 }
 
 const GOLD_COLORS = ['#D4AF37', '#FFD700', '#B8960C', '#F5E050', '#C8A415', '#EAC730', '#A0830A'];
@@ -84,7 +85,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   return null;
 };
 
-export function BarberAnalytics({ bookings, barbers, services, attendance, isBarberView, sales = [], expenses = [] }: Props) {
+export function BarberAnalytics({ bookings, barbers, services, attendance, isBarberView, sales = [], expenses = [], deposits = [] }: Props) {
   const [periodFilter, setPeriodFilter] = useState<'day' | 'week' | 'month' | 'custom'>('month');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
@@ -207,6 +208,31 @@ export function BarberAnalytics({ bookings, barbers, services, attendance, isBar
     };
   }, [filtered, bookings, services, isBarberView, barbers]);
 
+  const productRevenue = useMemo(() => {
+    return (sales || [])
+      .filter(s => s.date >= periodRange.start && s.date <= periodRange.end)
+      .reduce((sum, s) => {
+        const price = s.amount != null ? s.amount : (s.customPrice != null ? s.customPrice : (s.sellPrice || 0));
+        const qty = s.quantity || 1;
+        const disc = s.discount || 0;
+        return sum + (price * qty * (1 - disc / 100));
+      }, 0);
+  }, [sales, periodRange]);
+
+  const totalDeposits = useMemo(() => {
+    return (deposits || [])
+      .filter(d => {
+        if (!d.createdAt) return false;
+        try {
+          const dateStr = new Date(d.createdAt).toISOString().split('T')[0];
+          return dateStr >= periodRange.start && dateStr <= periodRange.end;
+        } catch (err) {
+          return false;
+        }
+      })
+      .reduce((sum, d) => sum + Number(d.amount || 0), 0);
+  }, [deposits, periodRange]);
+
   const totalDepenses = useMemo(() => {
     return (expenses || [])
       .filter(e => {
@@ -221,7 +247,25 @@ export function BarberAnalytics({ bookings, barbers, services, attendance, isBar
       .reduce((sum, e) => sum + Number(e.amount || 0), 0);
   }, [expenses, periodRange]);
 
-  const soldeNet = kpis.revenue + kpis.tips - totalDepenses;
+  const totalEncaisseAnalytics = useMemo(() => {
+    return filtered.reduce((sum, b) => sum + Number(b.pricePaid || 0) + Number(b.tip || 0), 0) + productRevenue;
+  }, [filtered, productRevenue]);
+
+  const totalOwedAnalytics = useMemo(() => {
+    return filtered.reduce((sum, b) => {
+      const barber = barbers.find(bar => bar.id === b.barberId);
+      const rate = (barber?.commissionRate || barber?.commission || 50) / 100;
+      return sum + (Number(b.pricePaid || 0) * rate) + Number(b.tip || 0);
+    }, 0);
+  }, [filtered, barbers]);
+
+  const beneficeSalonAnalytics = useMemo(() => {
+    return totalEncaisseAnalytics - totalOwedAnalytics;
+  }, [totalEncaisseAnalytics, totalOwedAnalytics]);
+
+  const soldeNet = useMemo(() => {
+    return beneficeSalonAnalytics - totalDepenses + totalDeposits;
+  }, [beneficeSalonAnalytics, totalDepenses, totalDeposits]);
 
 
   // ── Per-barber analytics ────────────────────────────────────────────────────
@@ -388,23 +432,13 @@ export function BarberAnalytics({ bookings, barbers, services, attendance, isBar
 
       {/* ── Répartition Financière ── */}
       {(() => {
-        const finServiceRev = filtered.reduce((s, b) => s + Number(b.pricePaid || 0), 0);
-        const finBarberComm = filtered.reduce((s, b) => {
-          const barber = barbers.find(bb => bb.id === b.barberId);
-          const rate = (barber?.commissionRate || barber?.commission || 50) / 100;
-          return s + (Number(b.pricePaid || 0) * rate);
-        }, 0);
-        const finTips = filtered.reduce((s, b) => s + Number(b.tip || 0), 0);
-        const finBeneficeBrut = finServiceRev - finBarberComm;
-        const finNet = finBeneficeBrut - totalDepenses;
-
         const rows = [
-          { label: 'Total encaissé (services)', value: finServiceRev, positive: true },
-          { label: 'Part coiffeurs', value: -finBarberComm, positive: false },
-          { label: 'Pourboires (équipe)', value: -finTips, positive: false },
-          { label: 'Bénéfice brut salon', value: finBeneficeBrut, positive: finBeneficeBrut >= 0 },
+          { label: 'Total encaissé (services + pourboires + produits)', value: totalEncaisseAnalytics, positive: true },
+          { label: 'Part coiffeurs (commissions + pourboires)', value: -totalOwedAnalytics, positive: false },
+          { label: 'Bénéfice brut salon', value: beneficeSalonAnalytics, positive: beneficeSalonAnalytics >= 0 },
           { label: 'Dépenses', value: -totalDepenses, positive: false },
-          { label: 'Bénéfice net salon', value: finNet, positive: finNet >= 0, isBold: true },
+          { label: 'Dépôts', value: totalDeposits, positive: true },
+          { label: 'Bénéfice net salon', value: soldeNet, positive: soldeNet >= 0, isBold: true },
         ];
 
         return (
