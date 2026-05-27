@@ -110,7 +110,7 @@ export default function BookingModal({ onClose }: { onClose: () => void }) {
     try {
       let finalBarberId = selectedBarberId;
       if (selectedBarberId === 'any') {
-        const candidates = getAvailableBarbers(selectedDate, selectedTime);
+        const candidates = getAvailableBarbers(selectedDate, selectedTime, selectedServiceId);
         if (candidates.length > 0) {
           finalBarberId = candidates.reduce((prev, curr) => {
             const pc = bookings.filter(b => b.barberId === prev.id && b.date === selectedDate).length;
@@ -263,7 +263,7 @@ export default function BookingModal({ onClose }: { onClose: () => void }) {
                     <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>Attribution automatique équilibrée</div>
                   </div>
                 </button>
-                {barbers.filter(b => !b.archived && b.status !== 'offline').map(barber => (
+                {barbers.filter(b => !b.archived && b.status !== 'offline' && b.status !== 'break').map(barber => (
                   <button
                     key={barber.id}
                     type="button"
