@@ -442,7 +442,15 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     }, () => markLoaded('services'));
 
     const unsubBarbers = onSnapshot(query(collection(db, 'barbers'), where('tenantId', '==', tenantId)), (snapshot) => {
-      setBarbers(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Barber)));
+      setBarbers(snapshot.docs.map(d => {
+        const data = d.data() as any;
+        return {
+          id: d.id,
+          ...data,
+          commissionRate: Number(data.commissionRate || data.commission || 50),
+          commission: Number(data.commissionRate || data.commission || 50),
+        } as Barber;
+      }));
       markLoaded('barbers');
     }, () => markLoaded('barbers'));
 

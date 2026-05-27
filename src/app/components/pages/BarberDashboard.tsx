@@ -356,7 +356,7 @@ export default function BarberDashboard() {
     acc[b.date] = (acc[b.date] || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
-  const commissionRate = currentBarber?.commission || 50;
+  const commissionRate = currentBarber?.commissionRate || currentBarber?.commission || 50;
   
   // Memoize heavy calculations
   const stats = useMemo(() => {

@@ -205,7 +205,7 @@ async function reseedDemo() {
   functions.logger.info('🔄 Resetting demo data...');
 
   // Delete old data
-  for (const col of ['barbers', 'services', 'bookings', 'sales', 'expenses']) {
+  for (const col of ['barbers', 'services', 'bookings', 'sales', 'expenses', 'deposits', 'payroll_requests', 'payroll_payments', 'notifications']) {
     await deleteCollection(col, DEMO_TENANT_ID);
   }
 

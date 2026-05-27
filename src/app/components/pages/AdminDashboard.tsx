@@ -114,7 +114,8 @@ export default function AdminDashboard() {
     deleteProduct, addSale, attendance, settlements, addSettlement,
     resetBarberBalance, seedDatabase, gallery,
     expenses, caisseBalance, totalExpenses, deposits, totalDeposits,
-    payrollRequests, payrollPayments, getBarberWalletBalance, sendPush
+    payrollRequests, payrollPayments, getBarberWalletBalance, sendPush,
+    resetAllBalances
   } = useBusiness();
   
   const navigate = useNavigate();
@@ -1033,7 +1034,7 @@ export default function AdminDashboard() {
                           </div>
 
                           <div className="flex flex-wrap justify-center sm:justify-start items-center gap-3 text-xs text-white/40 pt-1">
-                            <span className="font-bold">Commission: {barber.commission || 50}%</span>
+                            <span className="font-bold">Commission: {barber.commissionRate || barber.commission || 50}%</span>
                             <span className={`px-2 py-0.5 rounded-lg font-black uppercase text-[9px] ${
                               barber.status === 'available' ? 'bg-green-500/10 text-green-400' :
                               barber.status === 'busy' ? 'bg-red-500/10 text-red-400' : 'bg-amber-500/10 text-amber-400'
@@ -1276,7 +1277,7 @@ export default function AdminDashboard() {
                             .map(barber => {
                             const balance = getBarberWalletBalance(barber.id);
                             
-                            const rate = (barber.commissionRate || 50) / 100;
+                            const rate = (barber.commissionRate || barber.commission || 50) / 100;
                             const earned = (bookings || [])
                               .filter(b => b.barberId === barber.id && b.status === 'completed')
                               .reduce((sum, b) => sum + (Number(b.pricePaid || 0) * rate) + Number(b.tip || 0), 0);

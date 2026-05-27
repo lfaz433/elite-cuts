@@ -12,18 +12,6 @@ export default function SuperAdmin() {
   const { user, logout: signOut } = useAuth();
   const navigate = useNavigate();
 
-  if (user?.role !== 'superadmin') {
-    return (
-      <div className="min-h-screen bg-[#0a0a0a] text-white flex items-center justify-center p-8">
-        <div className="text-center space-y-4">
-          <AlertCircle className="w-16 h-16 text-rose-500 mx-auto" />
-          <h1 className="text-2xl font-black">Accès non autorisé</h1>
-          <p className="text-white/50 text-sm">Seuls les super-administrateurs de Barberboard peuvent accéder à cet espace.</p>
-        </div>
-      </div>
-    );
-  }
-
   const [activeTab, setActiveTab] = useState('dashboard');
   const [tenants, setTenants] = useState<any[]>([]);
   const [bookings, setBookings] = useState<any[]>([]);
@@ -506,6 +494,18 @@ export default function SuperAdmin() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  if (user?.role !== 'superadmin') {
+    return (
+      <div className="min-h-screen bg-[#0a0a0a] text-white flex items-center justify-center p-8">
+        <div className="text-center space-y-4">
+          <AlertCircle className="w-16 h-16 text-rose-500 mx-auto" />
+          <h1 className="text-2xl font-black">Accès non autorisé</h1>
+          <p className="text-white/50 text-sm">Seuls les super-administrateurs de Barberboard peuvent accéder à cet espace.</p>
+        </div>
+      </div>
+    );
+  }
 
   // Actions
   const handleFreeAccess = async (tenantId: string) => {

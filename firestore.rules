@@ -24,18 +24,18 @@ service cloud.firestore {
 
     // 2. Scoped Business Operations Collections
     match /bookings/{bookingId} {
-      allow read: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId) || resource.data.tenantId == 'barbeboard-demo';
-      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId) || request.resource.data.tenantId == 'barbeboard-demo';
+      allow read: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId) || resource.data.tenantId == 'barberboard-demo';
+      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId) || request.resource.data.tenantId == 'barberboard-demo';
       allow update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
     }
 
     match /barbers/{barberId} {
-      allow read: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId) || resource.data.tenantId == 'barbeboard-demo';
+      allow read: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId) || resource.data.tenantId == 'barberboard-demo';
       allow create, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
     }
 
     match /services/{serviceId} {
-      allow read: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId) || resource.data.tenantId == 'barbeboard-demo';
+      allow read: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId) || resource.data.tenantId == 'barberboard-demo';
       allow create, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
     }
 
