@@ -107,10 +107,10 @@ function AppRoutes() {
     <Routes>
       <Route path="/" element={<PublicLayout />}>
         <Route index element={<HomeRouter />} />
-        <Route path="boutique" element={<BoutiquePage />} />
         <Route path="register" element={<Register />} />
         <Route path="docs" element={<DocsPage />} />
       </Route>
+      <Route path="/boutique" element={<Navigate to="/" replace />} />
       <Route path="/login" element={<Navigate to="/?login=true" replace />} />
       <Route path="/onboarding" element={<Onboarding />} />
       <Route path="/billing" element={<AuthRequired><Billing /></AuthRequired>} />
@@ -118,8 +118,17 @@ function AppRoutes() {
       <Route path="/client/*" element={<ProtectedRoute role="client"><ClientDashboard /></ProtectedRoute>} />
       <Route path="/admin/*" element={<ProtectedRoute role="admin"><SubscriptionGuard><AdminDashboard /></SubscriptionGuard></ProtectedRoute>} />
       <Route path="/barber/*" element={<ProtectedRoute role="barber"><SubscriptionGuard><BarberDashboard /></SubscriptionGuard></ProtectedRoute>} />
-      {/* Catch-all: redirect to home */}
-      <Route path="*" element={<Navigate to="/" replace />} />
+      {/* Catch-all 404 page */}
+      <Route path="*" element={
+        <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0a0a0a' }}>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: '80px', marginBottom: '16px' }}>✂️</div>
+            <h1 style={{ fontSize: '48px', fontWeight: 'bold', color: '#D4AF37', marginBottom: '16px' }}>404</h1>
+            <p style={{ color: '#9ca3af', marginBottom: '24px' }}>Page introuvable</p>
+            <a href="/" style={{ color: '#D4AF37', textDecoration: 'underline' }}>← Retour à l'accueil</a>
+          </div>
+        </div>
+      } />
     </Routes>
   );
 }

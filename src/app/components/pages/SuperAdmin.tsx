@@ -1850,7 +1850,7 @@ export default function SuperAdmin() {
                                   </span>
                                 </td>
                                 <td className="p-4">
-                                  <div className="font-bold text-[#D4AF37]">€{p.amount.toFixed(2)}</div>
+                                  <div className="font-bold text-[#D4AF37]">€{Number(p.amount || 0).toFixed(2)}</div>
                                   {p.originalCurrency && p.originalCurrency !== 'EUR' && (
                                     <div className="text-xs text-white/40 mt-0.5">
                                       {p.originalAmount?.toFixed(2)} {p.originalCurrency}
@@ -2725,7 +2725,7 @@ export default function SuperAdmin() {
                       <div className="flex justify-between"><span className="text-white/40">Propriétaire:</span> <span className="font-bold">{selectedPayment.clientName}</span></div>
                       <div className="flex justify-between">
                         <span className="text-white/40">Montant en EUR:</span> 
-                        <span className="font-black text-[#D4AF37]">€{selectedPayment.amount.toFixed(2)}</span>
+                        <span className="font-black text-[#D4AF37]">€{Number(selectedPayment.amount || 0).toFixed(2)}</span>
                       </div>
                       {selectedPayment.originalCurrency && selectedPayment.originalCurrency !== 'EUR' && (
                         <>

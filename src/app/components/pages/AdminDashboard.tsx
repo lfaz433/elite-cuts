@@ -1353,7 +1353,7 @@ export default function AdminDashboard() {
                             <tr key={payment.id}>
                               <td className="py-4 text-white/60">{new Date(payment.paidAt).toLocaleDateString()}</td>
                               <td className="py-4 font-bold">{payment.barberName}</td>
-                              <td className="py-4 font-black text-[#D4AF37]">€{payment.amount.toFixed(2)}</td>
+                              <td className="py-4 font-black text-[#D4AF37]">€{Number(payment.amount || 0).toFixed(2)}</td>
                               <td className="py-4"><span className="bg-green-500/10 text-green-400 px-2 py-1 rounded-lg text-xs font-bold">Payé</span></td>
                             </tr>
                           )))}
@@ -1522,7 +1522,7 @@ export default function AdminDashboard() {
                                         {expense.description || '—'}
                                       </td>
                                       <td className="px-8 py-4 font-black text-red-500 text-sm">
-                                        -€{expense.amount.toFixed(2)}
+                                        -€{Number(expense.amount || 0).toFixed(2)}
                                       </td>
                                       <td className="px-8 py-4 text-white/60 text-xs">
                                         {expense.createdByName || 'Administrateur'}
@@ -1606,7 +1606,7 @@ export default function AdminDashboard() {
                                         {deposit.description || '—'}
                                       </td>
                                       <td className="px-8 py-4 font-black text-green-400 text-sm">
-                                        +€{deposit.amount.toFixed(2)}
+                                        +€{Number(deposit.amount || 0).toFixed(2)}
                                       </td>
                                       <td className="px-8 py-4 text-white/60 text-xs">
                                         {deposit.createdByName || 'Administrateur'}
