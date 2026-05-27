@@ -209,9 +209,38 @@ export default function AdminDashboard() {
     return await compressImage(file);
   };
 
+  // Returns a local YYYY-MM-DD string for today (avoids UTC offset bug)
+  const getTodayStr = () => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  };
+
   const isDateInRange = (dateStr: string) => {
     if (dateFilter === 'all') return true;
     if (!dateStr) return false;
+    // For YYYY-MM-DD strings, compare as strings to avoid UTC timezone offset bug
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      const now = new Date();
+      const todayStr = getTodayStr();
+      if (dateFilter === 'day') {
+        return dateStr === todayStr;
+      } else if (dateFilter === 'week') {
+        const first = now.getDate() - now.getDay() + (now.getDay() === 0 ? -6 : 1);
+        const weekStart = new Date(now.getFullYear(), now.getMonth(), first);
+        const weekEnd = new Date(weekStart); weekEnd.setDate(weekStart.getDate() + 6);
+        const startStr = `${weekStart.getFullYear()}-${String(weekStart.getMonth() + 1).padStart(2, '0')}-${String(weekStart.getDate()).padStart(2, '0')}`;
+        const endStr = `${weekEnd.getFullYear()}-${String(weekEnd.getMonth() + 1).padStart(2, '0')}-${String(weekEnd.getDate()).padStart(2, '0')}`;
+        return dateStr >= startStr && dateStr <= endStr;
+      } else if (dateFilter === 'month') {
+        const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        return dateStr.startsWith(monthStr);
+      } else if (dateFilter === 'custom') {
+        const start = customDateRange.start || '';
+        const end = customDateRange.end || '';
+        return (!start || dateStr >= start) && (!end || dateStr <= end);
+      }
+    }
+    // Fallback for ISO timestamp strings
     const date = new Date(dateStr);
     if (isNaN(date.getTime())) return false;
     const now = new Date();
@@ -220,10 +249,6 @@ export default function AdminDashboard() {
     if (dateFilter === 'day') {
       start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
       end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-    } else if (dateFilter === 'week') {
-      const first = now.getDate() - now.getDay() + (now.getDay() === 0 ? -6 : 1);
-      start = new Date(now.getFullYear(), now.getMonth(), first, 0, 0, 0, 0);
-      end = new Date(start.getTime()); end.setDate(start.getDate() + 6); end.setHours(23, 59, 59, 999);
     } else if (dateFilter === 'month') {
       start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
       end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
@@ -379,28 +404,37 @@ export default function AdminDashboard() {
   const paieHistoryPagination = usePagination(finalPaieHistory, 10);
   useEffect(() => { paieHistoryPagination.reset(); }, [paieHistorySearch, paieHistoryStartDate, paieHistoryEndDate]);
 
+  // Only count COMPLETED bookings (approved bookings have no pricePaid yet)
+  const completedBookings = useMemo(() => filteredBookings.filter(b => b.status === 'completed'), [filteredBookings]);
+  // Keep approvedBookings for charts/performance (approved + completed)
   const approvedBookings = useMemo(() => filteredBookings.filter(b => b.status === 'completed' || b.status === 'approved'), [filteredBookings]);
   const totalRevenue = useMemo(() => {
-    const serviceRev = approvedBookings.reduce((sum, b) => sum + (b.pricePaid || 0), 0);
-    const productRev = (sales || []).reduce((sum, s) => {
+    // Sum pricePaid from completed bookings only
+    const serviceRev = completedBookings.reduce((sum, b) => sum + Number(b.pricePaid || 0), 0);
+    // Filter product sales by the same date range
+    const filteredSales = (sales || []).filter(s => isDateInRange(s.date));
+    const productRev = filteredSales.reduce((sum, s) => {
       const price = s.amount != null ? s.amount : (s.customPrice != null ? s.customPrice : (s.sellPrice || 0));
       const qty = s.quantity || 1;
       const disc = s.discount || 0;
       return sum + (price * qty * (1 - disc / 100));
     }, 0);
     return serviceRev + productRev;
-  }, [approvedBookings, sales]);
+  }, [completedBookings, sales, dateFilter, customDateRange]);
 
   const revenueTrend = useMemo(() => {
     const last7Days = Array.from({ length: 7 }, (_, i) => {
       const d = new Date(); d.setDate(d.getDate() - i);
-      return d.toISOString().split('T')[0];
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
     }).reverse();
     return last7Days.map(date => ({
       name: date.split('-').slice(1).join('/'),
-      revenue: approvedBookings.filter(b => b.date === date).reduce((sum, b) => sum + (b.pricePaid || 0), 0)
+      revenue: completedBookings.filter(b => b.date === date).reduce((sum, b) => sum + Number(b.pricePaid || 0), 0)
     }));
-  }, [approvedBookings]);
+  }, [completedBookings]);
 
   const barberPerformance = useMemo(() => barbers.map(barber => ({
     name: String(barber.name || ''),
