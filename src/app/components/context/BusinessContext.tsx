@@ -460,7 +460,12 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     }, () => markLoaded('businessInfo'));
 
     const unsubBookings = onSnapshot(query(collection(db, 'bookings'), where('tenantId', '==', tenantId)), (snapshot) => {
-      setBookings(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Booking)));
+      console.log('=== BOOKINGS SNAPSHOT ===');
+      console.log('Total docs:', snapshot.docs.length);
+      console.log('Completed docs:', snapshot.docs.filter(d => d.data().status === 'completed').length);
+      console.log('TenantId filter:', tenantId);
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Booking));
+      setBookings(data);
       markLoaded();
     }, () => markLoaded());
 

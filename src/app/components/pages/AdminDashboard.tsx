@@ -216,6 +216,7 @@ export default function AdminDashboard() {
   };
 
   const isDateInRange = (dateStr: string) => {
+    console.log('isDateInRange check:', dateStr, 'filter:', dateFilter, 'today:', getTodayStr());
     if (dateFilter === 'all') return true;
     if (!dateStr) return false;
     // For YYYY-MM-DD strings, compare as strings to avoid UTC timezone offset bug
@@ -416,7 +417,17 @@ export default function AdminDashboard() {
   useEffect(() => { paieHistoryPagination.reset(); }, [paieHistorySearch, paieHistoryStartDate, paieHistoryEndDate]);
 
   // Only count COMPLETED bookings (approved bookings have no pricePaid yet)
-  const completedBookings = useMemo(() => filteredBookings.filter(b => b.status === 'completed'), [filteredBookings]);
+  const completedBookings = useMemo(() => {
+    const completed = filteredBookings.filter(b => b.status === 'completed');
+    console.log('=== ADMIN REVENUE DEBUG ===');
+    console.log('Total bookings in context:', (bookings || []).length);
+    console.log('Completed bookings:', completed.length);
+    console.log('Completed booking sample:', completed[0]);
+    console.log('tenantId:', tenant?.tenantId);
+    console.log('All booking statuses:', (bookings || []).map(b => b.status));
+    return completed;
+  }, [bookings, filteredBookings, tenant]);
+
   // Keep approvedBookings for charts/performance (approved + completed)
   const approvedBookings = useMemo(() => filteredBookings.filter(b => b.status === 'completed' || b.status === 'approved'), [filteredBookings]);
 
@@ -444,6 +455,12 @@ export default function AdminDashboard() {
   const totalEncaisse = useMemo(() => completedBookings.reduce((sum, b) => sum + Number(b.pricePaid || 0) + Number(b.tip || 0), 0) + productRevenue, [completedBookings, productRevenue]);
   const totalReceived = totalEncaisse; // Alias for compatibility
   const totalRevenue = totalReceived; // Alias for compatibility
+
+  useEffect(() => {
+    console.log('serviceRevenue:', serviceRevenue);
+    console.log('productRevenue:', productRevenue);
+    console.log('totalEncaisse:', totalEncaisse);
+  }, [serviceRevenue, productRevenue, totalEncaisse]);
 
   // Total tips (paid to barbers from caisse)
   const totalTips = useMemo(() => completedBookings.reduce((sum, b) => sum + Number(b.tip || 0), 0), [completedBookings]);

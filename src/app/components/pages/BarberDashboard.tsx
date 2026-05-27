@@ -82,6 +82,9 @@ const WalkInModal = ({ onClose, services, currentBarber, commissionRate, addBook
       paymentStatus: 'paid' as const,
     };
     
+    console.log('Walk-in tenantId:', currentBarber?.tenantId);
+    console.log('Walk-in booking:', newBooking);
+    
     try {
       addBooking(newBooking);
       toast.custom((t) => (
