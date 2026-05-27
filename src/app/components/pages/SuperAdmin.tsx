@@ -889,7 +889,7 @@ export default function SuperAdmin() {
   const topTenants = getTopTenants();
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white font-sans p-8">
+    <div className="min-h-screen bg-[#0a0a0a] text-white font-sans p-4 md:p-8">
       <div className="max-w-7xl mx-auto space-y-8">
         
         <div className="flex items-center justify-between border-b border-white/10 pb-6">
@@ -942,7 +942,7 @@ export default function SuperAdmin() {
 
         <main className="min-h-[500px]">
           {loading ? (
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 animate-pulse">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 animate-pulse">
               {[1, 2, 3, 4, 5, 6].map(i => (
                 <div key={i} className="h-28 bg-white/5 border border-white/10 rounded-2xl"></div>
               ))}
@@ -976,7 +976,7 @@ export default function SuperAdmin() {
                   {/* Section 2 — KPI cards row */}
                   <div className="space-y-4">
                     <h3 className="text-sm font-bold uppercase tracking-widest text-[#D4AF37]">Vue d'ensemble</h3>
-                    <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                       {/* Total Salons */}
                       <div className="bg-[#111]/80 backdrop-blur border border-white/10 hover:border-[#D4AF37]/45 p-6 rounded-2xl transition-all duration-300 shadow-xl group hover:shadow-[#D4AF37]/5">
                         <div className="flex items-center justify-between mb-4">
@@ -1251,7 +1251,7 @@ export default function SuperAdmin() {
                   {/* Section 5 — Performance metrics row */}
                   <div className="space-y-4">
                     <h3 className="text-sm font-bold uppercase tracking-widest text-[#D4AF37]">Indicateurs de performance</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
                       
                       {/* Taux de conversion */}
                       <div className="bg-[#111]/80 backdrop-blur border border-white/10 p-6 rounded-2xl shadow-xl flex items-center justify-between gap-4 hover:border-[#D4AF37]/35 transition-all duration-300">
@@ -1298,7 +1298,7 @@ export default function SuperAdmin() {
                     <h3 className="text-sm font-bold uppercase tracking-widest text-[#D4AF37]">Salons les plus actifs</h3>
                     <div className="bg-[#111]/80 backdrop-blur border border-white/10 rounded-2xl overflow-hidden shadow-xl">
                       <div className="overflow-x-auto w-full">
-                      <table className="w-full text-left text-sm">
+                      <table className="min-w-[600px] w-full text-left text-sm">
                         <thead className="bg-white/5 border-b border-white/10 text-white/50 text-xs font-bold uppercase tracking-wider">
                           <tr>
                             <th className="p-4 w-20">Rang</th>
@@ -1409,7 +1409,7 @@ export default function SuperAdmin() {
 
                   <div className="bg-[#111] border border-white/10 rounded-2xl overflow-hidden">
                     <div className="overflow-x-auto w-full">
-                    <table className="w-full text-left text-sm">
+                    <table className="min-w-[600px] w-full text-left text-sm">
                       <thead className="bg-white/5 border-b border-white/10 text-white/50">
                         <tr>
                           <th 
@@ -1499,7 +1499,7 @@ export default function SuperAdmin() {
 
               {activeTab === 'revenue' && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div className="bg-[#111] border border-white/10 p-6 rounded-2xl">
                       <div className="text-white/50 text-xs font-bold uppercase tracking-widest mb-2">Total Salons</div>
                       <div className="text-4xl font-black">{tenants.length}</div>
@@ -1707,7 +1707,7 @@ export default function SuperAdmin() {
               {activeTab === 'payments' && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
                   {/* Top section — 4 metric cards */}
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div className="bg-[#111] border border-white/10 p-6 rounded-3xl space-y-2">
                       <div className="text-white/50 text-xs font-bold uppercase tracking-wider">Total encaissé</div>
                       <div className="text-3xl font-black text-[#D4AF37]">€{totalManualEncaisse.toFixed(2)}</div>
@@ -2284,7 +2284,7 @@ export default function SuperAdmin() {
                 </div>
               </div>
 
-              <div className="grid md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 <div className="flex flex-col gap-2">
                   <label className="text-xs font-bold uppercase text-white/50 tracking-wider">Montant payé</label>
                   <input
@@ -2385,7 +2385,7 @@ export default function SuperAdmin() {
                 </div>
               </div>
 
-              <div className="grid md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 <div className="flex flex-col gap-2">
                   <label className="text-xs font-bold uppercase text-white/50 tracking-wider">Plan souscrit</label>
                   <select
@@ -2517,7 +2517,7 @@ export default function SuperAdmin() {
                   </div>
                 </div>
 
-                <div className="grid md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                   <div className="flex flex-col gap-2">
                     <label className="text-xs font-bold uppercase text-white/50 tracking-wider">Montant payé</label>
                     <input
@@ -2616,7 +2616,7 @@ export default function SuperAdmin() {
                   </div>
                 </div>
 
-                <div className="grid md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                   <div className="flex flex-col gap-2">
                     <label className="text-xs font-bold uppercase text-white/50 tracking-wider">Plan souscrit</label>
                     <select

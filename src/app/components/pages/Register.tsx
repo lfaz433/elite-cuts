@@ -347,7 +347,7 @@ export default function Register() {
 
                 <div className="flex flex-col gap-2">
                   <label className="text-xs font-bold uppercase text-white/60 tracking-wider">Sous-domaine personnalisé *</label>
-                  <div className="flex gap-2">
+                  <div className="flex flex-col sm:flex-row gap-2">
                     <input
                       type="text"
                       value={subdomain}
@@ -356,7 +356,7 @@ export default function Register() {
                       placeholder="mon-salon"
                       className="flex-1 px-5 py-4 bg-white/5 border border-white/10 rounded-xl focus:border-[#D4AF37] outline-none text-white transition-all placeholder:text-white/20 text-right font-mono"
                     />
-                    <div className="px-5 bg-white/10 border border-white/10 rounded-xl flex items-center justify-center text-white/60 font-mono text-sm">
+                    <div className="px-5 py-4 sm:py-0 bg-white/10 border border-white/10 rounded-xl flex items-center justify-center text-white/60 font-mono text-xs sm:text-sm">
                       .barberboard.pro
                     </div>
                   </div>
@@ -520,7 +520,7 @@ export default function Register() {
         </div>
 
         {/* Footer Navigation Buttons */}
-        <div className="flex justify-between items-center border-t border-[#D4AF37]/10 pt-8 mt-10">
+        <div className="flex flex-col-reverse sm:flex-row justify-between items-center gap-3 border-t border-[#D4AF37]/10 pt-8 mt-10">
           {step > 1 ? (
             <button
               onClick={handlePrev}

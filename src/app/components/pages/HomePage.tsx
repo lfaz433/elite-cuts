@@ -451,7 +451,7 @@ export default function HomePage() {
 
       <AnimatePresence>
         {mobileMenuOpen && (
-          <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="fixed inset-0 z-40 bg-[#0a0a0a] pt-24 px-6 flex flex-col md:hidden">
+          <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="fixed inset-0 z-40 bg-[#0a0a0a] pt-24 px-6 flex flex-col md:hidden overflow-y-auto">
             <div className="flex flex-col gap-6 text-xl font-bold">
               <a href="#fonctionnalites" onClick={() => setMobileMenuOpen(false)}>{t.nav.features}</a>
               <a href="#tarifs" onClick={() => setMobileMenuOpen(false)}>{t.nav.pricing}</a>
@@ -588,7 +588,7 @@ export default function HomePage() {
       </div>
 
       <div className="border-y border-white/5 bg-[#111]/50 backdrop-blur-sm py-10">
-        <div className={`max-w-7xl mx-auto px-6 grid grid-cols-2 md:grid-cols-4 gap-8 divide-white/5 ${lang === 'ar' ? 'divide-x-reverse' : 'divide-x'}`}>
+        <div className={`max-w-7xl mx-auto px-6 grid grid-cols-2 md:grid-cols-4 gap-8 divide-white/5 ${lang === 'ar' ? 'divide-x-0 sm:divide-x-reverse' : 'divide-x-0 sm:divide-x'}`}>
           {[
             { v: t.stats.shops, l: t.stats.shopsLabel },
             { v: t.stats.revenue, l: t.stats.revenueLabel },

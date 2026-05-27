@@ -98,7 +98,7 @@ const WalkInModal = ({ onClose, services, currentBarber, commissionRate, addBook
       <motion.div
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="relative w-full max-w-md bg-gradient-to-br from-[#141414] to-[#1a1a1a] rounded-2xl border border-[#D4AF37]/30 p-8"
+        className="relative w-full max-w-md bg-gradient-to-br from-[#141414] to-[#1a1a1a] rounded-2xl border border-[#D4AF37]/30 p-8 overflow-y-auto max-h-[90vh]"
       >
         <h3 className="text-2xl font-bold text-white mb-6">Nouveau Service (Sans RDV)</h3>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -752,8 +752,9 @@ export default function BarberDashboard() {
                       →
                     </button>
                   </div>
-                  <div className="grid grid-cols-7 gap-2">
-                    {getWeekDates().map(dateStr => {
+                  <div className="overflow-x-auto">
+                    <div className="grid grid-cols-7 gap-2 min-w-[500px]">
+                      {getWeekDates().map(dateStr => {
                       const dateObj = new Date(dateStr);
                       const dayLetters = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
                       const dayLetter = dayLetters[dateObj.getDay()];
@@ -767,7 +768,7 @@ export default function BarberDashboard() {
                         <button
                           key={dateStr}
                           onClick={() => setSelectedDate(dateStr)}
-                          className={`flex flex-col items-center justify-center p-2 rounded-2xl transition-all relative ${
+                          className={`flex flex-col items-center justify-center p-1 sm:p-2 rounded-2xl transition-all relative ${
                             isSelected 
                               ? 'bg-[#D4AF37] text-black shadow-[0_0_15px_rgba(212,175,55,0.3)]' 
                               : isToday
@@ -795,6 +796,7 @@ export default function BarberDashboard() {
                         </button>
                       );
                     })}
+                    </div>
                   </div>
                 </div>
               )}
@@ -835,7 +837,7 @@ export default function BarberDashboard() {
 
                     {/* Details Panel: Contacts, Price & Barber */}
                     <div className="grid grid-cols-2 gap-4 py-3 border-y border-white/5 text-xs">
-                      <div className="space-y-1">
+                      <div className="space-y-1 min-w-0">
                         <p className="text-[10px] text-white/35 font-bold uppercase tracking-wider">Contact Client</p>
                         {b.clientEmail && (
                           <a href={`mailto:${b.clientEmail}`} className="text-white/60 hover:text-[#D4AF37] truncate font-medium lowercase block transition-colors">
@@ -1112,11 +1114,11 @@ export default function BarberDashboard() {
       </div>
 
       <div className="fixed bottom-0 left-0 right-0 bg-[#0f0f0f] border-t border-white/5 flex z-40 overflow-x-auto pb-safe">
-        <button onClick={() => setActiveTab('dashboard')} className={`min-w-[70px] flex-1 p-3 flex flex-col items-center gap-1 ${activeTab === 'dashboard' ? 'text-[#D4AF37]' : 'text-white/20'} hover:text-[#D4AF37] transition-colors`}><BarChart3 className="w-5 h-5" /><span className="text-[10px] font-bold">Gains</span></button>
-        <button onClick={() => setActiveTab('rapports')} className={`min-w-[70px] flex-1 p-3 flex flex-col items-center gap-1 ${activeTab === 'rapports' ? 'text-[#D4AF37]' : 'text-white/20'} hover:text-[#D4AF37] transition-colors`}><TrendingUp className="w-5 h-5" /><span className="text-[10px] font-bold">Rapports</span></button>
-        <button onClick={() => setActiveTab('reservations')} className={`min-w-[70px] flex-1 p-3 flex flex-col items-center gap-1 relative ${activeTab === 'reservations' ? 'text-[#D4AF37]' : 'text-white/20'} hover:text-[#D4AF37] transition-colors`}><Calendar className="w-5 h-5" /><span className="text-[10px] font-bold">Agenda</span>{hasUnreadBookings && <div className="absolute top-2 right-[30%] w-2 h-2 bg-red-500 rounded-full animate-pulse" />}</button>
-        <button onClick={() => setActiveTab('boutique')} className={`min-w-[70px] flex-1 p-3 flex flex-col items-center gap-1 ${activeTab === 'boutique' ? 'text-[#D4AF37]' : 'text-white/20'} hover:text-[#D4AF37] transition-colors`}><ShoppingBag className="w-5 h-5" /><span className="text-[10px] font-bold">Boutique</span></button>
-        <button onClick={() => setActiveTab('horaires')} className={`min-w-[70px] flex-1 p-3 flex flex-col items-center gap-1 ${activeTab === 'horaires' ? 'text-[#D4AF37]' : 'text-white/20'} hover:text-[#D4AF37] transition-colors`}><Clock className="w-5 h-5" /><span className="text-[10px] font-bold">Horaires</span></button>
+        <button onClick={() => setActiveTab('dashboard')} className={`min-w-0 flex-1 p-3 flex flex-col items-center gap-1 ${activeTab === 'dashboard' ? 'text-[#D4AF37]' : 'text-white/20'} hover:text-[#D4AF37] transition-colors`}><BarChart3 className="w-5 h-5" /><span className="text-[10px] font-bold">Gains</span></button>
+        <button onClick={() => setActiveTab('rapports')} className={`min-w-0 flex-1 p-3 flex flex-col items-center gap-1 ${activeTab === 'rapports' ? 'text-[#D4AF37]' : 'text-white/20'} hover:text-[#D4AF37] transition-colors`}><TrendingUp className="w-5 h-5" /><span className="text-[10px] font-bold">Rapports</span></button>
+        <button onClick={() => setActiveTab('reservations')} className={`min-w-0 flex-1 p-3 flex flex-col items-center gap-1 relative ${activeTab === 'reservations' ? 'text-[#D4AF37]' : 'text-white/20'} hover:text-[#D4AF37] transition-colors`}><Calendar className="w-5 h-5" /><span className="text-[10px] font-bold">Agenda</span>{hasUnreadBookings && <div className="absolute top-2 right-[30%] w-2 h-2 bg-red-500 rounded-full animate-pulse" />}</button>
+        <button onClick={() => setActiveTab('boutique')} className={`min-w-0 flex-1 p-3 flex flex-col items-center gap-1 ${activeTab === 'boutique' ? 'text-[#D4AF37]' : 'text-white/20'} hover:text-[#D4AF37] transition-colors`}><ShoppingBag className="w-5 h-5" /><span className="text-[10px] font-bold">Boutique</span></button>
+        <button onClick={() => setActiveTab('horaires')} className={`min-w-0 flex-1 p-3 flex flex-col items-center gap-1 ${activeTab === 'horaires' ? 'text-[#D4AF37]' : 'text-white/20'} hover:text-[#D4AF37] transition-colors`}><Clock className="w-5 h-5" /><span className="text-[10px] font-bold">Horaires</span></button>
       </div>
 
       {/* Rejection Confirmation Modal */}

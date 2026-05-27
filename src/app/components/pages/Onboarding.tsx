@@ -149,12 +149,12 @@ export default function Onboarding() {
   };
 
   return (
-    <div className="min-h-screen bg-black flex flex-col justify-center items-center py-16 px-4 relative overflow-hidden text-white">
+    <div className="min-h-screen bg-black flex flex-col justify-center items-center py-8 px-4 relative overflow-hidden text-white">
       {/* Background decoration */}
       <div className="absolute top-[-20%] right-[-10%] w-[50%] h-[50%] bg-[#D4AF37]/10 rounded-full blur-[120px]" />
       <div className="absolute bottom-[-20%] left-[-10%] w-[50%] h-[50%] bg-[#D4AF37]/5 rounded-full blur-[120px]" />
 
-      <div className="w-full max-w-2xl bg-gradient-to-br from-[#141414] to-[#0a0a0a] border border-[#D4AF37]/20 rounded-3xl p-8 md:p-12 shadow-2xl relative z-10 backdrop-blur-md">
+      <div className="w-full max-w-2xl bg-gradient-to-br from-[#141414] to-[#0a0a0a] border border-[#D4AF37]/20 rounded-3xl p-4 md:p-8 shadow-2xl relative z-10 backdrop-blur-md">
         
         {/* Progress Bar (Only visible steps 1 to 3) */}
         {step < 4 && (
@@ -307,7 +307,7 @@ export default function Onboarding() {
                   {DAYS_OF_WEEK.map(({ key, label }) => {
                     const dayConf = weeklyHours[key];
                     return (
-                      <div key={key} className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5 gap-4">
+                      <div key={key} className="flex flex-wrap gap-2 items-center p-3 rounded-xl bg-white/5 border border-white/5">
                         <div className="flex items-center gap-3">
                           <input
                             type="checkbox"
@@ -318,13 +318,13 @@ export default function Onboarding() {
                           <span className="text-sm font-bold">{label}</span>
                         </div>
                         {dayConf.active ? (
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 min-w-0 flex-1 justify-end">
                             <input
                               type="text"
                               value={dayConf.start}
                               onChange={(e) => handleTimeChange(key, 'start', e.target.value)}
                               placeholder="09:00"
-                              className="w-20 px-3 py-1.5 bg-black/40 border border-white/10 rounded-lg text-center font-mono text-xs text-white focus:border-[#D4AF37] outline-none"
+                              className="w-20 min-w-0 flex-1 px-3 py-1.5 bg-black/40 border border-white/10 rounded-lg text-center font-mono text-xs text-white focus:border-[#D4AF37] outline-none"
                             />
                             <span className="text-white/40 text-xs">-</span>
                             <input
@@ -332,7 +332,7 @@ export default function Onboarding() {
                               value={dayConf.end}
                               onChange={(e) => handleTimeChange(key, 'end', e.target.value)}
                               placeholder="19:00"
-                              className="w-20 px-3 py-1.5 bg-black/40 border border-white/10 rounded-lg text-center font-mono text-xs text-white focus:border-[#D4AF37] outline-none"
+                              className="w-20 min-w-0 flex-1 px-3 py-1.5 bg-black/40 border border-white/10 rounded-lg text-center font-mono text-xs text-white focus:border-[#D4AF37] outline-none"
                             />
                           </div>
                         ) : (

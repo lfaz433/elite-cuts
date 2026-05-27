@@ -419,7 +419,7 @@ export default function AdminDashboard() {
         ))}
       </div>
       {dateFilter === 'custom' && (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <input type="date" value={customDateRange.start} onChange={(e) => setCustomDateRange(prev => ({ ...prev, start: e.target.value }))} className="bg-[#141414] border border-[#D4AF37]/20 text-white text-xs rounded-lg px-2 py-1.5 outline-none" />
           <input type="date" value={customDateRange.end} onChange={(e) => setCustomDateRange(prev => ({ ...prev, end: e.target.value }))} className="bg-[#141414] border border-[#D4AF37]/20 text-white text-xs rounded-lg px-2 py-1.5 outline-none" />
         </div>
@@ -559,7 +559,7 @@ export default function AdminDashboard() {
         </div>
       </nav>
 
-      <div className="max-w-[1600px] mx-auto flex flex-col md:flex-row gap-8 p-6 pb-24 md:pb-8">
+      <div className="max-w-[1600px] mx-auto flex flex-col md:flex-row gap-8 p-3 sm:p-6 pb-24 md:pb-8">
         <aside className="md:w-64 space-y-1 hidden md:block">
           {sidebarTabs.map(tab => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === tab.id ? 'bg-[#D4AF37] text-black font-bold shadow-2xl shadow-[#D4AF37]/30 scale-[1.02]' : 'text-white/40 hover:bg-white/5 hover:text-white'}`}>
@@ -701,11 +701,12 @@ export default function AdminDashboard() {
                             →
                           </button>
                         </div>
-                        <div className="grid grid-cols-7 gap-2">
-                          {['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((day, i) => (
-                            <div key={i} className="text-center text-white/40 font-bold text-xs py-2 uppercase">{day}</div>
-                          ))}
-                          {getMonthDates().map((date, i) => {
+                        <div className="overflow-x-auto">
+                          <div className="grid grid-cols-7 gap-2 min-w-[600px]">
+                            {['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((day, i) => (
+                              <div key={i} className="text-center text-white/40 font-bold text-xs py-2 uppercase">{day}</div>
+                            ))}
+                            {getMonthDates().map((date, i) => {
                             const dateStr = date.toISOString().split('T')[0];
                             const isCurrentMonth = date.getMonth() === calendarMonth.getMonth();
                             const isSelected = dateStr === calendarSelectedDate;
@@ -721,7 +722,7 @@ export default function AdminDashboard() {
                               <button
                                 key={i}
                                 onClick={() => setCalendarSelectedDate(dateStr)}
-                                className={`h-24 p-2 rounded-2xl flex flex-col items-center justify-center transition-all ${
+                                className={`h-16 sm:h-24 p-2 rounded-2xl flex flex-col items-center justify-center transition-all ${
                                   !isCurrentMonth ? 'opacity-30' : ''
                                 } ${
                                   isSelected 
@@ -738,6 +739,7 @@ export default function AdminDashboard() {
                               </button>
                             );
                           })}
+                          </div>
                         </div>
                         
                         <div className="mt-8 pt-8 border-t border-white/5">
@@ -767,8 +769,8 @@ export default function AdminDashboard() {
                             </h4>
                             <div className="flex flex-col gap-1 text-xs text-white/50 font-medium">
                               {booking.clientEmail && (
-                                <a href={`mailto:${booking.clientEmail}`} className="hover:text-[#D4AF37] flex items-center gap-1.5 transition-colors">
-                                  <span className="lowercase">{booking.clientEmail}</span>
+                                <a href={`mailto:${booking.clientEmail}`} className="hover:text-[#D4AF37] flex items-center gap-1.5 transition-colors min-w-0">
+                                  <span className="lowercase truncate">{booking.clientEmail}</span>
                                 </a>
                               )}
                               {booking.clientPhone && (
@@ -905,8 +907,8 @@ export default function AdminDashboard() {
                                   </h4>
                                   <div className="flex flex-col gap-1 text-xs text-white/50 font-medium">
                                     {booking.clientEmail && (
-                                      <a href={`mailto:${booking.clientEmail}`} className="hover:text-[#D4AF37] flex items-center gap-1.5 transition-colors">
-                                        <span className="lowercase">{booking.clientEmail}</span>
+                                      <a href={`mailto:${booking.clientEmail}`} className="hover:text-[#D4AF37] flex items-center gap-1.5 transition-colors min-w-0">
+                                        <span className="lowercase truncate">{booking.clientEmail}</span>
                                       </a>
                                     )}
                                     {booking.clientPhone && (
@@ -1307,7 +1309,7 @@ export default function AdminDashboard() {
                     <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6">
                       <h3 className="text-xl font-bold">Historique des paiements</h3>
                       <div className="flex flex-wrap gap-2 w-full lg:w-auto">
-                        <div className="flex items-center gap-2 bg-black border border-white/10 rounded-xl px-4 py-2">
+                        <div className="flex flex-wrap items-center gap-2 bg-black border border-white/10 rounded-xl px-4 py-2">
                           <span className="text-white/40 text-sm">Du</span>
                           <input type="date" value={paieHistoryStartDate} onChange={e => setPaieHistoryStartDate(e.target.value)} className="bg-transparent text-white text-sm outline-none" />
                           <span className="text-white/40 text-sm ml-2">Au</span>

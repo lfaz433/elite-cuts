@@ -155,7 +155,7 @@ export default function LandingPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8 }}
           >
-            <h1 className="text-6xl md:text-8xl font-black text-white mb-6 tracking-tighter leading-none">
+            <h1 className="text-3xl sm:text-5xl md:text-8xl font-black text-white mb-6 tracking-tighter leading-none">
               {heroTitle.split(' ').map((word, i) => (
                 <span key={i} className={i === 1 ? "text-[#D4AF37]" : ""}>{word} </span>
               ))}
@@ -260,7 +260,7 @@ export default function LandingPage() {
               {[1, 2, 3, 4].map(i => <Skeleton key={i} className="aspect-square" />)}
             </div>
           ) : barbers.filter(b => !b.archived).length > 0 ? (
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-8">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
               {barbers.filter(b => !b.archived).map((barber, index) => (
                 <motion.div key={barber.id} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: index * 0.1 }} className="group relative bg-gradient-to-br from-[#141414] to-[#1a1a1a] rounded-2xl overflow-hidden border border-[#D4AF37]/20 hover:border-[#D4AF37]/50 transition-all hover:shadow-xl hover:shadow-[#D4AF37]/20">
                   <div className="aspect-square overflow-hidden">

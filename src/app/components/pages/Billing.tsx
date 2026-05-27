@@ -110,7 +110,7 @@ export default function Billing() {
             animate={{ opacity: 1, y: 0 }}
             className="mb-8 p-6 rounded-2xl bg-green-500/10 border border-green-500/30 text-green-400 flex items-center gap-4 shadow-lg shadow-green-500/5"
           >
-            <div className="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center border border-green-500/30">
+            <div className="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center border border-green-500/30 flex-shrink-0">
               <Check className="w-6 h-6" />
             </div>
             <div>
@@ -127,7 +127,7 @@ export default function Billing() {
             animate={{ opacity: 1, y: 0 }}
             className="mb-8 p-6 rounded-2xl bg-orange-500/10 border border-orange-500/30 text-orange-400 flex items-center gap-4 shadow-lg shadow-orange-500/5"
           >
-            <div className="w-12 h-12 rounded-full bg-orange-500/20 flex items-center justify-center border border-orange-500/30">
+            <div className="w-12 h-12 rounded-full bg-orange-500/20 flex items-center justify-center border border-orange-500/30 flex-shrink-0">
               <ShieldAlert className="w-6 h-6" />
             </div>
             <div>
@@ -167,7 +167,7 @@ export default function Billing() {
 
         {/* Trial info badge */}
         {status === 'trialing' && (
-          <div className="mb-10 p-5 rounded-2xl bg-blue-500/5 border border-blue-500/20 text-blue-400 flex items-center justify-between">
+          <div className="mb-10 p-5 rounded-2xl bg-blue-500/5 border border-blue-500/20 text-blue-400 flex flex-col sm:flex-row items-start sm:items-center gap-3">
             <div className="flex items-center gap-3">
               <Calendar className="w-5 h-5" />
               <span className="text-sm font-semibold">Période d'essai gratuite en cours</span>

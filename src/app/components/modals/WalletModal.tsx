@@ -86,7 +86,7 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, currentBarber }) => 
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
-      <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="relative w-full max-w-lg bg-[#141414] rounded-[2.5rem] border border-[#D4AF37]/30 p-8 shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto custom-scrollbar">
+      <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="relative w-full max-w-lg bg-[#141414] rounded-2xl border border-[#D4AF37]/30 p-4 md:p-6 shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto custom-scrollbar">
         <button onClick={onClose} className="absolute top-6 right-6 p-2 text-white/40 hover:text-white transition-colors">
           <X className="w-6 h-6" />
         </button>
@@ -96,7 +96,7 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, currentBarber }) => 
             <Wallet className="w-8 h-8 text-[#D4AF37]" />
           </div>
           <h2 className="text-xl font-bold text-white/80">Mon Portefeuille</h2>
-          <div className={`text-5xl font-black mt-2 ${balance < 0 ? 'text-red-500' : 'text-[#D4AF37]'}`}>
+          <div className={`text-3xl sm:text-5xl font-black mt-2 ${balance < 0 ? 'text-red-500' : 'text-[#D4AF37]'}`}>
             €{balance.toFixed(2)}
           </div>
           <p className="text-white/40 text-sm mt-2">{commissionRate}% de vos services + 100% de vos pourboires</p>
@@ -128,8 +128,8 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, currentBarber }) => 
         {/* Request Form */}
         <form onSubmit={handleRequest} className="mb-8">
           <label className="block text-sm font-bold text-white/60 mb-2">Montant à demander (€)</label>
-          <div className="flex gap-4">
-            <div className="relative flex-1">
+          <div className="flex flex-col sm:flex-row gap-3">
+            <div className="relative min-w-0 flex-1">
               <Euro className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/40" />
               <input
                 type="number"
@@ -146,7 +146,7 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, currentBarber }) => 
             <button
               type="submit"
               disabled={isSubmitting || balance <= 0 || !requestAmount || requestAmount > balance}
-              className="bg-[#D4AF37] hover:bg-[#FFD700] text-black font-black px-6 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+              className="bg-[#D4AF37] hover:bg-[#FFD700] text-black font-black px-6 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap flex-shrink-0"
             >
               {isSubmitting ? '...' : 'Demander →'}
             </button>
