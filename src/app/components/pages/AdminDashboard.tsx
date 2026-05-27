@@ -259,7 +259,18 @@ export default function AdminDashboard() {
     return date >= start && date <= end;
   };
 
-  const filteredBookings = useMemo(() => bookings.filter(b => isDateInRange(b.date) && (barberFilter === 'all' || b.barberId === barberFilter)), [bookings, dateFilter, customDateRange, barberFilter]);
+  // Helper: get the effective date for a booking (handles legacy walk-ins without date field)
+  const getBookingDate = (b: any): string => {
+    if (b.date) return b.date;
+    // Fallback: derive date from completedAt timestamp
+    if (b.completedAt) {
+      const d = new Date(b.completedAt);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+    return '';
+  };
+
+  const filteredBookings = useMemo(() => bookings.filter(b => isDateInRange(getBookingDate(b)) && (barberFilter === 'all' || b.barberId === barberFilter)), [bookings, dateFilter, customDateRange, barberFilter]);
   const finalBookings = useMemo(() => {
     const filtered = filteredBookings.filter(b => statusFilter === 'all' || b.status === statusFilter);
     return filtered.sort((a, b) => {

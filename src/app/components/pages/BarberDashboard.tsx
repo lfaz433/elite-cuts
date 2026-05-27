@@ -59,20 +59,27 @@ const WalkInModal = ({ onClose, services, currentBarber, commissionRate, addBook
     e.preventDefault();
     if (!selectedServiceId) return;
 
+    // Build local YYYY-MM-DD date string to avoid UTC midnight timezone bug
+    const _now = new Date();
+    const _todayStr = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`;
+    const _timeStr = `${String(_now.getHours()).padStart(2, '0')}:${String(_now.getMinutes()).padStart(2, '0')}`;
+
     // Create a completed booking automatically
     const newBooking = {
-      id: Date.now().toString(),
       clientId: 'walk-in',
       clientName: 'Client sans RDV',
       clientPhone: 'N/A',
       serviceId: selectedServiceId,
       barberId: currentBarber.id,
-      date: new Date().toISOString().split('T')[0],
-      time: new Date().toTimeString().split(' ')[0].substring(0, 5),
-      status: 'completed',
+      date: _todayStr,
+      time: _timeStr,
+      status: 'completed' as const,
       pricePaid: parseFloat(pricePaid) || 0,
       tip: parseFloat(tipAmount) || 0,
-      paymentMethod
+      paymentMethod,
+      type: 'sans-rdv' as const,
+      completedAt: _now.toISOString(),
+      paymentStatus: 'paid' as const,
     };
     
     try {
@@ -260,7 +267,10 @@ export default function BarberDashboard() {
   // Strictly match barber using the barberId from the authenticated profile
   const currentBarber = barbers.find(b => b.id === user?.barberId) || barbers.find(b => b.email === user?.email);
 
-  const today = new Date().toISOString().split('T')[0];
+  // Build local YYYY-MM-DD string to avoid UTC timezone offset bug
+  const localDateStr = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const today = localDateStr(new Date());
 
   const myBookings = bookings.filter(b => b.barberId === currentBarber?.id);
   const todayCompleted = myBookings.filter(b => b.status === 'completed' && b.date === today);
@@ -363,8 +373,8 @@ export default function BarberDashboard() {
     const getPeriodEarnings = (daysAgoStart: number, daysAgoEnd: number) => {
       const start = new Date(); start.setDate(start.getDate() - daysAgoStart);
       const end = new Date(); end.setDate(end.getDate() - daysAgoEnd);
-      const sDate = start.toISOString().split('T')[0];
-      const eDate = end.toISOString().split('T')[0];
+      const sDate = localDateStr(start);
+      const eDate = localDateStr(end);
       const periodBookings = myBookings.filter(b => b.status === 'completed' && b.date >= sDate && b.date <= eDate);
       return periodBookings.reduce((sum, b) => sum + ((b.pricePaid || 0) * commissionRate / 100) + (b.tip || 0), 0);
     };
@@ -372,8 +382,8 @@ export default function BarberDashboard() {
     const getPeriodServices = (daysAgoStart: number, daysAgoEnd: number) => {
       const start = new Date(); start.setDate(start.getDate() - daysAgoStart);
       const end = new Date(); end.setDate(end.getDate() - daysAgoEnd);
-      const sDate = start.toISOString().split('T')[0];
-      const eDate = end.toISOString().split('T')[0];
+      const sDate = localDateStr(start);
+      const eDate = localDateStr(end);
       return myBookings.filter(b => b.status === 'completed' && b.date >= sDate && b.date <= eDate).length;
     };
 
@@ -394,7 +404,7 @@ export default function BarberDashboard() {
       return Array.from({ length: days }).map((_, i) => {
         const d = new Date();
         d.setDate(d.getDate() - (days - 1 - i));
-        return d.toISOString().split('T')[0];
+        return localDateStr(d);
       });
     };
     return getPastDays(7).map(date => {
@@ -409,8 +419,8 @@ export default function BarberDashboard() {
     const getPeriodEarnings = (daysAgoStart: number, daysAgoEnd: number) => {
       const start = new Date(); start.setDate(start.getDate() - daysAgoStart);
       const end = new Date(); end.setDate(end.getDate() - daysAgoEnd);
-      const sDate = start.toISOString().split('T')[0];
-      const eDate = end.toISOString().split('T')[0];
+      const sDate = localDateStr(start);
+      const eDate = localDateStr(end);
       const periodBookings = myBookings.filter(b => b.status === 'completed' && b.date >= sDate && b.date <= eDate);
       return periodBookings.reduce((sum, b) => sum + ((b.pricePaid || 0) * commissionRate / 100) + (b.tip || 0), 0);
     };

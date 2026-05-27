@@ -109,15 +109,15 @@ export function BarberAnalytics({ bookings, barbers, services, attendance, isBar
     setHistPage(1);
   }, [histStartDate, histEndDate, histBarberId, histServiceId, histPaymentMethod, histSearch]);
 
-  // Use local date to avoid UTC-midnight timezone mismatch
-  const today = useMemo(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  }, []);
+  // Build local date strings to avoid UTC-midnight timezone mismatch
+  const localDateStr = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+  const today = useMemo(() => localDateStr(new Date()), []);
 
   const histFiltered = useMemo(() => {
     return bookings
-      .filter(b => b.status === 'completed' || b.status === 'approved')
+      .filter(b => b.status === 'completed') // only completed have pricePaid
       .filter(b => {
         if (histStartDate && b.date < histStartDate) return false;
         if (histEndDate && b.date > histEndDate) return false;
@@ -157,16 +157,16 @@ export function BarberAnalytics({ bookings, barbers, services, attendance, isBar
   // ── Period filter ──────────────────────────────────────────────────────────
   const periodRange = useMemo(() => {
     const now = new Date();
-    const todayStr = now.toISOString().split('T')[0];
+    const todayStr = localDateStr(now);
     if (periodFilter === 'day') { return { start: todayStr, end: todayStr }; }
-    if (periodFilter === 'week') { const d = new Date(now); d.setDate(d.getDate() - 7); return { start: d.toISOString().split('T')[0], end: todayStr }; }
-    if (periodFilter === 'month') { const d = new Date(now); d.setDate(d.getDate() - 30); return { start: d.toISOString().split('T')[0], end: todayStr }; }
+    if (periodFilter === 'week') { const d = new Date(now); d.setDate(d.getDate() - 7); return { start: localDateStr(d), end: todayStr }; }
+    if (periodFilter === 'month') { const d = new Date(now); d.setDate(d.getDate() - 30); return { start: localDateStr(d), end: todayStr }; }
     if (periodFilter === 'custom') { return { start: customStart || '2000-01-01', end: customEnd || '2099-12-31' }; }
     return { start: '2000-01-01', end: '2099-12-31' };
   }, [periodFilter, customStart, customEnd]);
 
   const filtered = useMemo(
-    () => bookings.filter(b => b.date >= periodRange.start && b.date <= periodRange.end && (b.status === 'completed' || b.status === 'approved')),
+    () => bookings.filter(b => b.date >= periodRange.start && b.date <= periodRange.end && b.status === 'completed'),
     [bookings, periodRange]
   );
 
@@ -188,11 +188,10 @@ export function BarberAnalytics({ bookings, barbers, services, attendance, isBar
       return s + mins;
     }, 0) / (services.length || 1);
 
-    // month-over-month
-    const now = new Date().toISOString().split('T')[0];
-    const monthAgoStart = (() => { const d = new Date(); d.setDate(d.getDate() - 60); return d.toISOString().split('T')[0]; })();
-    const monthAgoEnd   = (() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().split('T')[0]; })();
-    const prevMonthBookings = bookings.filter(b => b.date >= monthAgoStart && b.date <= monthAgoEnd && (b.status === 'completed' || b.status === 'approved'));
+    // month-over-month (use local date strings to avoid UTC offset bug)
+    const monthAgoStart = (() => { const d = new Date(); d.setDate(d.getDate() - 60); return localDateStr(d); })();
+    const monthAgoEnd   = (() => { const d = new Date(); d.setDate(d.getDate() - 30); return localDateStr(d); })();
+    const prevMonthBookings = bookings.filter(b => b.date >= monthAgoStart && b.date <= monthAgoEnd && b.status === 'completed');
     const prevRev = prevMonthBookings.reduce((s, b) => s + calculateValue(b), 0);
     const revTrend = prevRev > 0 ? ((revenue - prevRev) / prevRev) * 100 : 0;
 
@@ -273,13 +272,13 @@ export function BarberAnalytics({ bookings, barbers, services, attendance, isBar
   const revenueTrend = useMemo(() => {
     const days = Array.from({ length: 14 }, (_, i) => {
       const d = new Date(); d.setDate(d.getDate() - (13 - i));
-      return d.toISOString().split('T')[0];
+      return localDateStr(d);
     });
     return days.map(date => {
       const dayBks = filtered.filter(b => b.date === date);
       return {
         date: String(date.slice(5)),
-        'Revenus €': dayBks.reduce((s, b) => s + (b.pricePaid || 0), 0),
+        'Revenus €': dayBks.reduce((s, b) => s + Number(b.pricePaid || 0), 0),
         Services: dayBks.length,
       };
     });
@@ -289,7 +288,7 @@ export function BarberAnalytics({ bookings, barbers, services, attendance, isBar
   const weeklyByBarber = useMemo(() => {
     const days = Array.from({ length: 7 }, (_, i) => {
       const d = new Date(); d.setDate(d.getDate() - (6 - i));
-      return d.toISOString().split('T')[0];
+      return localDateStr(d);
     });
     return days.map(date => {
       // Only use primitive-safe keys: String(name). Never spread barber objects.
