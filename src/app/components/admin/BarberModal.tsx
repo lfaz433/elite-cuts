@@ -3,6 +3,8 @@ import { motion } from 'motion/react';
 import { X, Image as ImageIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Barber, Service } from '../context/BusinessContext';
+import PhoneInput from 'react-phone-input-2';
+import 'react-phone-input-2/lib/style.css';
 
 const BarberModal = ({ 
   barber, 
@@ -102,7 +104,40 @@ const BarberModal = ({
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-white/60 text-sm mb-2">Téléphone</label>
-                  <input type="text" value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-[#D4AF37] outline-none transition-colors" placeholder="06..." />
+                  <PhoneInput
+                    country={'fr'}
+                    preferredCountries={['fr', 'dz', 'ma', 'tn', 'sa', 'ae', 'qa', 'kw', 'bh', 'jo', 'be', 'ch', 'gb']}
+                    value={formData.phone}
+                    onChange={(value) => setFormData({ ...formData, phone: '+' + value })}
+                    inputStyle={{
+                      width: '100%',
+                      background: 'rgba(255,255,255,0.05)',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      borderRadius: '12px',
+                      color: 'white',
+                      height: '48px',
+                      fontSize: '14px',
+                      paddingLeft: '58px',
+                    }}
+                    buttonStyle={{
+                      background: 'rgba(255,255,255,0.05)',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      borderRadius: '12px 0 0 12px',
+                    }}
+                    dropdownStyle={{
+                      background: '#1a1a1a',
+                      color: 'white',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      borderRadius: '12px',
+                    }}
+                    searchStyle={{
+                      background: '#1a1a1a',
+                      color: 'white',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                    }}
+                    enableSearch={true}
+                    searchPlaceholder="Rechercher un pays..."
+                  />
                 </div>
                 <div>
                   <label className="block text-white/30 text-sm mb-2 font-bold text-[#D4AF37]">E-mail (Login)</label>

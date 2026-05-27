@@ -3,6 +3,8 @@ import { X, Calendar, User, Phone, Mail, CheckCircle2, ChevronRight, ChevronLeft
 import { useBusiness } from '../context/BusinessContext';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'sonner';
+import PhoneInput from 'react-phone-input-2';
+import 'react-phone-input-2/lib/style.css';
 
 export default function BookingModal({ onClose }: { onClose: () => void }) {
   const { services, barbers, bookings, addBooking, getAvailableTimeSlots, getAvailableBarbers } = useBusiness();
@@ -472,7 +474,6 @@ export default function BookingModal({ onClose }: { onClose: () => void }) {
               {[
                 { label: 'Nom complet', key: 'name', type: 'text', placeholder: 'Votre nom', Icon: User },
                 { label: 'Email', key: 'email', type: 'email', placeholder: 'votre@email.com', Icon: Mail },
-                { label: 'Téléphone', key: 'phone', type: 'tel', placeholder: '+33 6 ...' , Icon: Phone },
               ].map(({ label, key, type, placeholder, Icon }) => (
                 <div key={key}>
                   <label style={{ display: 'block', color: 'rgba(255,255,255,0.6)', fontSize: 13, marginBottom: 6 }}>{label}</label>
@@ -489,6 +490,45 @@ export default function BookingModal({ onClose }: { onClose: () => void }) {
                   </div>
                 </div>
               ))}
+              <div>
+                <label style={{ display: 'block', color: 'rgba(255,255,255,0.6)', fontSize: 13, marginBottom: 6 }}>Téléphone</label>
+                <div style={{ position: 'relative' }}>
+                  <PhoneInput
+                    country={'fr'}
+                    preferredCountries={['fr', 'dz', 'ma', 'tn', 'sa', 'ae', 'qa', 'kw', 'bh', 'jo', 'be', 'ch', 'gb']}
+                    value={clientInfo.phone}
+                    onChange={(value) => setClientInfo({ ...clientInfo, phone: '+' + value })}
+                    inputStyle={{
+                      width: '100%',
+                      background: 'rgba(255,255,255,0.05)',
+                      border: '1px solid rgba(212,175,55,0.2)',
+                      borderRadius: '10px',
+                      color: 'white',
+                      height: '45px',
+                      fontSize: '15px',
+                      paddingLeft: '58px',
+                    }}
+                    buttonStyle={{
+                      background: 'rgba(255,255,255,0.05)',
+                      border: '1px solid rgba(212,175,55,0.2)',
+                      borderRadius: '10px 0 0 10px',
+                    }}
+                    dropdownStyle={{
+                      background: '#1a1a1a',
+                      color: 'white',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      borderRadius: '12px',
+                    }}
+                    searchStyle={{
+                      background: '#1a1a1a',
+                      color: 'white',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                    }}
+                    enableSearch={true}
+                    searchPlaceholder="Rechercher un pays..."
+                  />
+                </div>
+              </div>
               {/* Summary */}
               <div style={{ marginTop: 8, padding: '16px', background: 'rgba(255,255,255,0.04)', borderRadius: 12, border: '1px solid rgba(212,175,55,0.15)' }}>
                 <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, lineHeight: 2 }}>

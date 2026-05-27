@@ -7,6 +7,8 @@ import { auth, db, functions } from '../../lib/firebase';
 import { httpsCallable } from 'firebase/functions';
 import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
+import PhoneInput from 'react-phone-input-2';
+import 'react-phone-input-2/lib/style.css';
 
 type PlanId = 'basic' | 'pro' | 'enterprise';
 
@@ -309,12 +311,39 @@ export default function Register() {
                   </div>
                   <div className="flex flex-col gap-2">
                     <label className="text-xs font-bold uppercase text-white/60 tracking-wider">Téléphone *</label>
-                    <input
-                      type="tel"
+                    <PhoneInput
+                      country={'fr'}
+                      preferredCountries={['fr', 'dz', 'ma', 'tn', 'sa', 'ae', 'qa', 'kw', 'bh', 'jo', 'be', 'ch', 'gb']}
                       value={shopPhone}
-                      onChange={(e) => setShopPhone(e.target.value)}
-                      placeholder="Ex: 06 12 34 56 78"
-                      className="px-5 py-4 bg-white/5 border border-white/10 rounded-xl focus:border-[#D4AF37] outline-none text-white transition-all placeholder:text-white/20"
+                      onChange={(value) => setShopPhone('+' + value)}
+                      inputStyle={{
+                        width: '100%',
+                        background: 'rgba(255,255,255,0.05)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '12px',
+                        color: 'white',
+                        height: '48px',
+                        fontSize: '14px',
+                        paddingLeft: '58px',
+                      }}
+                      buttonStyle={{
+                        background: 'rgba(255,255,255,0.05)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '12px 0 0 12px',
+                      }}
+                      dropdownStyle={{
+                        background: '#1a1a1a',
+                        color: 'white',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '12px',
+                      }}
+                      searchStyle={{
+                        background: '#1a1a1a',
+                        color: 'white',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                      }}
+                      enableSearch={true}
+                      searchPlaceholder="Rechercher un pays..."
                     />
                   </div>
                 </div>
