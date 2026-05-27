@@ -419,19 +419,43 @@ export default function AdminDashboard() {
   const completedBookings = useMemo(() => filteredBookings.filter(b => b.status === 'completed'), [filteredBookings]);
   // Keep approvedBookings for charts/performance (approved + completed)
   const approvedBookings = useMemo(() => filteredBookings.filter(b => b.status === 'completed' || b.status === 'approved'), [filteredBookings]);
-  const totalRevenue = useMemo(() => {
-    // Sum pricePaid from completed bookings only
-    const serviceRev = completedBookings.reduce((sum, b) => sum + Number(b.pricePaid || 0), 0);
-    // Filter product sales by the same date range
+
+  // Helper to convert createdAt to local YYYY-MM-DD string
+  const getLocalDateStringFromTimestamp = (ts: any) => {
+    if (!ts) return '';
+    const d = new Date(typeof ts === 'number' ? ts : (ts.seconds ? ts.seconds * 1000 : ts));
+    if (isNaN(d.getTime())) return '';
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
+  const productRevenue = useMemo(() => {
     const filteredSales = (sales || []).filter(s => isDateInRange(s.date));
-    const productRev = filteredSales.reduce((sum, s) => {
+    return filteredSales.reduce((sum, s) => {
       const price = s.amount != null ? s.amount : (s.customPrice != null ? s.customPrice : (s.sellPrice || 0));
       const qty = s.quantity || 1;
       const disc = s.discount || 0;
       return sum + (price * qty * (1 - disc / 100));
     }, 0);
-    return serviceRev + productRev;
-  }, [completedBookings, sales, dateFilter, customDateRange]);
+  }, [sales, dateFilter, customDateRange]);
+
+  const serviceRevenue = useMemo(() => completedBookings.reduce((sum, b) => sum + Number(b.pricePaid || 0), 0), [completedBookings]);
+
+  const totalReceived = serviceRevenue + productRevenue;
+  const totalRevenue = totalReceived; // Alias for compatibility
+
+  const totalBarberCommissions = useMemo(() => completedBookings.reduce((sum, b) => {
+    const barber = barbers.find(bar => bar.id === b.barberId);
+    const rate = (barber?.commissionRate || barber?.commission || 50) / 100;
+    return sum + (Number(b.pricePaid || 0) * rate);
+  }, 0), [completedBookings, barbers]);
+
+  const totalTips = useMemo(() => completedBookings.reduce((sum, b) => sum + Number(b.tip || 0), 0), [completedBookings]);
+
+  const beneficeSalon = totalReceived - totalBarberCommissions;
+
+  const filteredExpensesTotal = useMemo(() => (expenses || []).filter(e => isDateInRange(getLocalDateStringFromTimestamp(e.createdAt))).reduce((sum, e) => sum + Number(e.amount || 0), 0), [expenses, dateFilter, customDateRange]);
+  const filteredDepositsTotal = useMemo(() => (deposits || []).filter(d => isDateInRange(getLocalDateStringFromTimestamp(d.createdAt))).reduce((sum, d) => sum + Number(d.amount || 0), 0), [deposits, dateFilter, customDateRange]);
+  const netAfterExpenses = beneficeSalon - filteredExpensesTotal + filteredDepositsTotal;
 
   const revenueTrend = useMemo(() => {
     const last7Days = Array.from({ length: 7 }, (_, i) => {
@@ -446,6 +470,7 @@ export default function AdminDashboard() {
       revenue: completedBookings.filter(b => b.date === date).reduce((sum, b) => sum + Number(b.pricePaid || 0), 0)
     }));
   }, [completedBookings]);
+
 
   const barberPerformance = useMemo(() => barbers.map(barber => ({
     name: String(barber.name || ''),
@@ -626,31 +651,63 @@ export default function AdminDashboard() {
                   </div>
 
                   {/* ── VUE D'ENSEMBLE KPI Cards ── */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    {/* Card 1 — Revenu Total */}
-                    <div className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem] hover:border-[#D4AF37]/20 transition-all group relative overflow-hidden">
-                      <div className="p-4 rounded-3xl bg-green-500/10 text-green-400 w-fit mb-6 group-hover:scale-110 transition-transform"><DollarSign className="w-7 h-7" /></div>
-                      <p className="text-white/30 text-xs font-bold uppercase tracking-widest">Revenu Total</p>
-                      <p className="text-4xl font-black mt-2">€{totalRevenue.toFixed(0)}</p>
-                      <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-white/[0.02] to-transparent rounded-full -mr-16 -mt-16" />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    {/* Card 1 — Chiffre d'Affaires */}
+                    <div className="bg-[#141414] border border-white/5 p-6 rounded-[2rem] hover:border-green-500/20 transition-all group relative overflow-hidden">
+                      <div className="p-3 rounded-2xl bg-green-500/10 text-green-400 w-fit mb-4 group-hover:scale-110 transition-transform"><DollarSign className="w-6 h-6" /></div>
+                      <p className="text-white/30 text-[10px] font-black uppercase tracking-widest">Chiffre d'Affaires</p>
+                      <p className="text-3xl font-black mt-1 text-green-400">€{totalReceived.toFixed(2)}</p>
+                      <p className="text-white/40 text-[10px] mt-1">Total encaissé (hors pourboires)</p>
+                      <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-green-500/[0.03] to-transparent rounded-full -mr-10 -mt-10" />
                     </div>
 
-                        {/* Card 3 — Réservations */}
-                        <div className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem] hover:border-[#D4AF37]/20 transition-all group relative overflow-hidden">
-                          <div className="p-4 rounded-3xl bg-blue-500/10 text-blue-400 w-fit mb-6 group-hover:scale-110 transition-transform"><Calendar className="w-7 h-7" /></div>
-                          <p className="text-white/30 text-xs font-bold uppercase tracking-widest">Réservations</p>
-                          <p className="text-4xl font-black mt-2">{filteredBookings.length}</p>
-                          <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-white/[0.02] to-transparent rounded-full -mr-16 -mt-16" />
-                        </div>
+                    {/* Card 2 — Part Coiffeurs */}
+                    <div className="bg-[#141414] border border-white/5 p-6 rounded-[2rem] hover:border-blue-500/20 transition-all group relative overflow-hidden">
+                      <div className="p-3 rounded-2xl bg-blue-500/10 text-blue-400 w-fit mb-4 group-hover:scale-110 transition-transform"><Users className="w-6 h-6" /></div>
+                      <p className="text-white/30 text-[10px] font-black uppercase tracking-widest">Part Coiffeurs</p>
+                      <p className="text-3xl font-black mt-1 text-orange-400">-€{totalBarberCommissions.toFixed(2)}</p>
+                      <p className="text-white/40 text-[10px] mt-1">Commissions dues à l'équipe</p>
+                      <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-blue-500/[0.03] to-transparent rounded-full -mr-10 -mt-10" />
+                    </div>
 
-                        {/* Card 4 — Services Prévus */}
-                        <div className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem] hover:border-[#D4AF37]/20 transition-all group relative overflow-hidden">
-                          <div className="p-4 rounded-3xl bg-[#D4AF37]/10 text-[#D4AF37] w-fit mb-6 group-hover:scale-110 transition-transform"><Scissors className="w-7 h-7" /></div>
-                          <p className="text-white/30 text-xs font-bold uppercase tracking-widest">Services Prévus</p>
-                          <p className="text-4xl font-black mt-2">{bookings.filter(b => b.status === 'approved').length}</p>
-                          <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-white/[0.02] to-transparent rounded-full -mr-16 -mt-16" />
-                        </div>
-                      </div>
+                    {/* Card 3 — Bénéfice Salon */}
+                    <div className="bg-[#141414] border border-white/5 p-6 rounded-[2rem] hover:border-[#D4AF37]/20 transition-all group relative overflow-hidden">
+                      <div className="p-3 rounded-2xl bg-[#D4AF37]/10 text-[#D4AF37] w-fit mb-4 group-hover:scale-110 transition-transform"><TrendingUp className="w-6 h-6" /></div>
+                      <p className="text-white/30 text-[10px] font-black uppercase tracking-widest">Bénéfice Salon</p>
+                      <p className="text-3xl font-black mt-1 text-[#D4AF37]">€{beneficeSalon.toFixed(2)}</p>
+                      <p className="text-white/40 text-[10px] mt-1">Après commissions coiffeurs</p>
+                      <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-[#D4AF37]/[0.03] to-transparent rounded-full -mr-10 -mt-10" />
+                    </div>
+
+                    {/* Card 4 — Solde Net */}
+                    <div className={`bg-[#141414] border border-white/5 p-6 rounded-[2rem] transition-all group relative overflow-hidden ${netAfterExpenses >= 0 ? 'hover:border-green-500/20' : 'hover:border-red-500/20'}`}>
+                      <div className={`p-3 rounded-2xl w-fit mb-4 group-hover:scale-110 transition-transform ${netAfterExpenses >= 0 ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}><Wallet className="w-6 h-6" /></div>
+                      <p className="text-white/30 text-[10px] font-black uppercase tracking-widest">Solde Net</p>
+                      <p className={`text-3xl font-black mt-1 ${netAfterExpenses >= 0 ? 'text-green-400' : 'text-red-400'}`}>€{netAfterExpenses.toFixed(2)}</p>
+                      <p className="text-white/40 text-[10px] mt-1">Après dépenses et charges</p>
+                      <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-white/[0.02] to-transparent rounded-full -mr-10 -mt-10" />
+                    </div>
+                  </div>
+
+                  {/* Quick stats row */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="bg-white/[0.03] border border-white/5 p-4 rounded-2xl text-center">
+                      <p className="text-white/30 text-[9px] font-black uppercase tracking-widest">Réservations</p>
+                      <p className="text-2xl font-black text-white mt-1">{filteredBookings.length}</p>
+                    </div>
+                    <div className="bg-white/[0.03] border border-white/5 p-4 rounded-2xl text-center">
+                      <p className="text-white/30 text-[9px] font-black uppercase tracking-widest">Services Terminés</p>
+                      <p className="text-2xl font-black text-white mt-1">{completedBookings.length}</p>
+                    </div>
+                    <div className="bg-white/[0.03] border border-white/5 p-4 rounded-2xl text-center">
+                      <p className="text-white/30 text-[9px] font-black uppercase tracking-widest">Pourboires</p>
+                      <p className="text-2xl font-black text-amber-400 mt-1">€{totalTips.toFixed(2)}</p>
+                    </div>
+                    <div className="bg-white/[0.03] border border-white/5 p-4 rounded-2xl text-center">
+                      <p className="text-white/30 text-[9px] font-black uppercase tracking-widest">Services Prévus</p>
+                      <p className="text-2xl font-black text-white mt-1">{bookings.filter(b => b.status === 'approved').length}</p>
+                    </div>
+                  </div>
 
                   <div className="grid lg:grid-cols-2 gap-8">
                     <div className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem]">
@@ -1413,15 +1470,24 @@ export default function AdminDashboard() {
               )}
 
               {activeTab === 'depenses' && (() => {
-                const totalRevenus = (sales || []).reduce((sum, s) => {
-                  const amount = Number(s.amount || s.pricePaid || 0);
-                  const tips = Number(s.tips || 0);
-                  return sum + amount + tips;
+                // Revenue calculations for dépenses tab
+                const depServiceRev = completedBookings.reduce((sum, b) => sum + Number(b.pricePaid || 0), 0);
+                const depProductRev = (sales || []).filter(s => isDateInRange(s.date)).reduce((sum, s) => {
+                  const price = s.amount != null ? s.amount : (s.customPrice != null ? s.customPrice : (s.sellPrice || 0));
+                  const qty = s.quantity || 1;
+                  const disc = s.discount || 0;
+                  return sum + (price * qty * (1 - disc / 100));
                 }, 0);
-                const totalDepenses = (expenses || []).reduce((sum, e) => {
-                  return sum + Number(e.amount || 0);
+                const depTotalReceived = depServiceRev + depProductRev;
+                const depBarberComm = completedBookings.reduce((sum, b) => {
+                  const barber = barbers.find(bar => bar.id === b.barberId);
+                  const rate = (barber?.commissionRate || barber?.commission || 50) / 100;
+                  return sum + (Number(b.pricePaid || 0) * rate);
                 }, 0);
-                const soldeCaisse = totalRevenus + totalDeposits - totalDepenses;
+                const depBenefice = depTotalReceived - depBarberComm;
+                const depTotalExp = (expenses || []).filter(e => isDateInRange(getLocalDateStringFromTimestamp(e.createdAt))).reduce((sum, e) => sum + Number(e.amount || 0), 0);
+                const depFilteredDeposits = (deposits || []).filter(d => isDateInRange(getLocalDateStringFromTimestamp(d.createdAt))).reduce((sum, d) => sum + Number(d.amount || 0), 0);
+                const depSoldeNet = depBenefice - depTotalExp + depFilteredDeposits;
 
                 return (
                   <motion.div key="depenses" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
@@ -1446,41 +1512,37 @@ export default function AdminDashboard() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                      <div className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem] hover:border-[#D4AF37]/20 transition-all group relative overflow-hidden">
-                        <div className="p-4 rounded-3xl bg-[#D4AF37]/10 w-fit mb-6 group-hover:scale-110 transition-transform text-[#D4AF37]">
-                          <DollarSign className="w-7 h-7" />
-                        </div>
-                        <p className="text-white/30 text-xs font-bold uppercase tracking-widest">Total Revenus</p>
-                        <p className="text-4xl font-black mt-2 text-[#D4AF37]">
-                          €{totalRevenus.toFixed(2)}
-                        </p>
-                        <p className="text-white/40 text-[10px] mt-1">Ventes boutique + Prestations + Pourboires</p>
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-[#D4AF37]/[0.02] to-transparent rounded-full -mr-16 -mt-16" />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                      <div className="bg-[#141414] border border-white/5 p-6 rounded-[2rem] hover:border-[#D4AF37]/20 transition-all group relative overflow-hidden">
+                        <div className="p-3 rounded-2xl bg-[#D4AF37]/10 w-fit mb-4 group-hover:scale-110 transition-transform text-[#D4AF37]"><DollarSign className="w-6 h-6" /></div>
+                        <p className="text-white/30 text-[10px] font-black uppercase tracking-widest">Chiffre d'Affaires</p>
+                        <p className="text-3xl font-black mt-1 text-[#D4AF37]">€{depTotalReceived.toFixed(2)}</p>
+                        <p className="text-white/40 text-[10px] mt-1">Total encaissé (hors pourboires)</p>
+                        <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-[#D4AF37]/[0.03] to-transparent rounded-full -mr-10 -mt-10" />
                       </div>
 
-                      <div className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem] hover:border-red-500/20 transition-all group relative overflow-hidden">
-                        <div className="p-4 rounded-3xl bg-red-500/10 w-fit mb-6 group-hover:scale-110 transition-transform text-red-400">
-                          <Wallet className="w-7 h-7" />
-                        </div>
-                        <p className="text-white/30 text-xs font-bold uppercase tracking-widest">Total Dépenses</p>
-                        <p className="text-4xl font-black mt-2 text-red-500">
-                          €{totalDepenses.toFixed(2)}
-                        </p>
+                      <div className="bg-[#141414] border border-white/5 p-6 rounded-[2rem] hover:border-[#D4AF37]/20 transition-all group relative overflow-hidden">
+                        <div className="p-3 rounded-2xl bg-[#D4AF37]/10 w-fit mb-4 group-hover:scale-110 transition-transform text-[#D4AF37]"><TrendingUp className="w-6 h-6" /></div>
+                        <p className="text-white/30 text-[10px] font-black uppercase tracking-widest">Bénéfice Salon</p>
+                        <p className="text-3xl font-black mt-1 text-[#D4AF37]">€{depBenefice.toFixed(2)}</p>
+                        <p className="text-white/40 text-[10px] mt-1">Après commissions coiffeurs</p>
+                        <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-[#D4AF37]/[0.03] to-transparent rounded-full -mr-10 -mt-10" />
+                      </div>
+
+                      <div className="bg-[#141414] border border-white/5 p-6 rounded-[2rem] hover:border-red-500/20 transition-all group relative overflow-hidden">
+                        <div className="p-3 rounded-2xl bg-red-500/10 w-fit mb-4 group-hover:scale-110 transition-transform text-red-400"><Wallet className="w-6 h-6" /></div>
+                        <p className="text-white/30 text-[10px] font-black uppercase tracking-widest">Total Dépenses</p>
+                        <p className="text-3xl font-black mt-1 text-red-500">€{depTotalExp.toFixed(2)}</p>
                         <p className="text-white/40 text-[10px] mt-1">Retraits de caisse et achats</p>
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-red-500/[0.02] to-transparent rounded-full -mr-16 -mt-16" />
+                        <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-red-500/[0.03] to-transparent rounded-full -mr-10 -mt-10" />
                       </div>
 
-                      <div className={`bg-[#141414] border border-white/5 p-8 rounded-[2.5rem] transition-all group relative overflow-hidden ${soldeCaisse >= 0 ? 'hover:border-green-500/20' : 'hover:border-red-500/20'}`}>
-                        <div className={`p-4 rounded-3xl w-fit mb-6 group-hover:scale-110 transition-transform ${soldeCaisse >= 0 ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
-                          <TrendingUp className="w-7 h-7" />
-                        </div>
-                        <p className="text-white/30 text-xs font-bold uppercase tracking-widest">Solde Caisse</p>
-                        <p className={`text-4xl font-black mt-2 ${soldeCaisse >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                          €{soldeCaisse.toFixed(2)}
-                        </p>
-                        <p className="text-white/40 text-[10px] mt-1">Revenus nets disponibles (avec dépôts)</p>
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-white/[0.02] to-transparent rounded-full -mr-16 -mt-16" />
+                      <div className={`bg-[#141414] border border-white/5 p-6 rounded-[2rem] transition-all group relative overflow-hidden ${depSoldeNet >= 0 ? 'hover:border-green-500/20' : 'hover:border-red-500/20'}`}>
+                        <div className={`p-3 rounded-2xl w-fit mb-4 group-hover:scale-110 transition-transform ${depSoldeNet >= 0 ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}><TrendingUp className="w-6 h-6" /></div>
+                        <p className="text-white/30 text-[10px] font-black uppercase tracking-widest">Solde Caisse Net</p>
+                        <p className={`text-3xl font-black mt-1 ${depSoldeNet >= 0 ? 'text-green-500' : 'text-red-500'}`}>€{depSoldeNet.toFixed(2)}</p>
+                        <p className="text-white/40 text-[10px] mt-1">Après dépenses, dépôts et commissions</p>
+                        <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-white/[0.02] to-transparent rounded-full -mr-10 -mt-10" />
                       </div>
                     </div>
 

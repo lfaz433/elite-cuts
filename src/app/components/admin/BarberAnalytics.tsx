@@ -386,6 +386,58 @@ export function BarberAnalytics({ bookings, barbers, services, attendance, isBar
         </div>
       </div>
 
+      {/* ── Répartition Financière ── */}
+      {(() => {
+        const finServiceRev = filtered.reduce((s, b) => s + Number(b.pricePaid || 0), 0);
+        const finBarberComm = filtered.reduce((s, b) => {
+          const barber = barbers.find(bb => bb.id === b.barberId);
+          const rate = (barber?.commissionRate || barber?.commission || 50) / 100;
+          return s + (Number(b.pricePaid || 0) * rate);
+        }, 0);
+        const finTips = filtered.reduce((s, b) => s + Number(b.tip || 0), 0);
+        const finBeneficeBrut = finServiceRev - finBarberComm;
+        const finNet = finBeneficeBrut - totalDepenses;
+
+        const rows = [
+          { label: 'Total encaissé (services)', value: finServiceRev, positive: true },
+          { label: 'Part coiffeurs', value: -finBarberComm, positive: false },
+          { label: 'Pourboires (équipe)', value: -finTips, positive: false },
+          { label: 'Bénéfice brut salon', value: finBeneficeBrut, positive: finBeneficeBrut >= 0 },
+          { label: 'Dépenses', value: -totalDepenses, positive: false },
+          { label: 'Bénéfice net salon', value: finNet, positive: finNet >= 0, isBold: true },
+        ];
+
+        return (
+          <div className="bg-[#141414] border border-white/5 p-6 rounded-3xl">
+            <h3 className="text-lg font-bold mb-6 flex items-center gap-2">
+              <span className="text-xl">💰</span> <span className="bg-gradient-to-r from-[#D4AF37] to-[#FFD700] bg-clip-text text-transparent">Répartition Financière</span>
+            </h3>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="text-white/30 text-[10px] font-black uppercase tracking-widest border-b border-white/10">
+                    <th className="text-left py-3 px-4">Description</th>
+                    <th className="text-right py-3 px-4">Montant</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row, i) => (
+                    <tr key={i} className={`border-b border-white/5 ${i % 2 === 0 ? 'bg-white/[0.01]' : ''} ${row.isBold ? 'bg-[#D4AF37]/5' : ''}`}>
+                      <td className={`py-3.5 px-4 text-sm ${row.isBold ? 'font-black text-white' : 'text-white/70 font-medium'}`}>{row.label}</td>
+                      <td className={`py-3.5 px-4 text-right text-sm font-black ${
+                        row.isBold ? 'text-[#D4AF37] text-lg' : row.positive ? 'text-green-400' : 'text-red-400'
+                      }`}>
+                        {row.value >= 0 ? '' : ''}{row.value < 0 ? `-€${Math.abs(row.value).toFixed(2)}` : `€${row.value.toFixed(2)}`}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* ── Top Service ── */}
       {topService && (
         <div className="bg-[#141414] border border-white/5 p-6 rounded-3xl flex items-center gap-5">
