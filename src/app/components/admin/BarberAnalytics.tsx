@@ -157,13 +157,30 @@ export function BarberAnalytics({ bookings, barbers, services, attendance, isBar
 
   // ── Period filter ──────────────────────────────────────────────────────────
   const periodRange = useMemo(() => {
-    const now = new Date();
-    const todayStr = localDateStr(now);
-    if (periodFilter === 'day') { return { start: todayStr, end: todayStr }; }
-    if (periodFilter === 'week') { const d = new Date(now); d.setDate(d.getDate() - 7); return { start: localDateStr(d), end: todayStr }; }
-    if (periodFilter === 'month') { const d = new Date(now); d.setDate(d.getDate() - 30); return { start: localDateStr(d), end: todayStr }; }
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+    
+    if (periodFilter === 'day') {
+      return { start: todayStr, end: todayStr };
+    }
+    
+    if (periodFilter === 'week') {
+      const monday = new Date(today);
+      monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+      monday.setHours(0, 0, 0, 0);
+      const mondayStr = `${monday.getFullYear()}-${String(monday.getMonth()+1).padStart(2,'0')}-${String(monday.getDate()).padStart(2,'0')}`;
+      return { start: mondayStr, end: todayStr };
+    }
+    
+    if (periodFilter === 'month') {
+      const monthStart = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-01`;
+      return { start: monthStart, end: todayStr };
+    }
+    
     if (periodFilter === 'custom') { return { start: customStart || '2000-01-01', end: customEnd || '2099-12-31' }; }
-    return { start: '2000-01-01', end: '2099-12-31' };
+    
+    // all time
+    return { start: '2020-01-01', end: todayStr };
   }, [periodFilter, customStart, customEnd]);
 
   const filtered = useMemo(

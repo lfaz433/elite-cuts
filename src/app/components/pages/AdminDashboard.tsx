@@ -215,49 +215,37 @@ export default function AdminDashboard() {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   };
 
-  const isDateInRange = (dateStr: string) => {
-    console.log('isDateInRange check:', dateStr, 'filter:', dateFilter, 'today:', getTodayStr());
-    if (dateFilter === 'all') return true;
+  const isDateInRange = (dateStr: string): boolean => {
     if (!dateStr) return false;
-    // For YYYY-MM-DD strings, compare as strings to avoid UTC timezone offset bug
-    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-      const now = new Date();
-      const todayStr = getTodayStr();
-      if (dateFilter === 'day') {
-        return dateStr === todayStr;
-      } else if (dateFilter === 'week') {
-        const first = now.getDate() - now.getDay() + (now.getDay() === 0 ? -6 : 1);
-        const weekStart = new Date(now.getFullYear(), now.getMonth(), first);
-        const weekEnd = new Date(weekStart); weekEnd.setDate(weekStart.getDate() + 6);
-        const startStr = `${weekStart.getFullYear()}-${String(weekStart.getMonth() + 1).padStart(2, '0')}-${String(weekStart.getDate()).padStart(2, '0')}`;
-        const endStr = `${weekEnd.getFullYear()}-${String(weekEnd.getMonth() + 1).padStart(2, '0')}-${String(weekEnd.getDate()).padStart(2, '0')}`;
-        return dateStr >= startStr && dateStr <= endStr;
-      } else if (dateFilter === 'month') {
-        const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-        return dateStr.startsWith(monthStr);
-      } else if (dateFilter === 'custom') {
-        const start = customDateRange.start || '';
-        const end = customDateRange.end || '';
-        return (!start || dateStr >= start) && (!end || dateStr <= end);
-      }
-    }
-    // Fallback for ISO timestamp strings
-    const date = new Date(dateStr);
-    if (isNaN(date.getTime())) return false;
-    const now = new Date();
-    let start = new Date(0);
-    let end = new Date(3000, 0, 1);
+    
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+    
+    if (dateFilter === 'all') return true;
+    
     if (dateFilter === 'day') {
-      start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-      end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-    } else if (dateFilter === 'month') {
-      start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-      end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-    } else if (dateFilter === 'custom') {
-      if (customDateRange.start) start = new Date(customDateRange.start);
-      if (customDateRange.end) end = new Date(customDateRange.end);
+      return dateStr === todayStr;
     }
-    return date >= start && date <= end;
+    
+    if (dateFilter === 'week') {
+      // Get Monday of current week
+      const monday = new Date(today);
+      monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+      monday.setHours(0, 0, 0, 0);
+      const mondayStr = `${monday.getFullYear()}-${String(monday.getMonth()+1).padStart(2,'0')}-${String(monday.getDate()).padStart(2,'0')}`;
+      return dateStr >= mondayStr && dateStr <= todayStr;
+    }
+    
+    if (dateFilter === 'month') {
+      const monthStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
+      return dateStr.startsWith(monthStr);
+    }
+    
+    if (dateFilter === 'custom' && customDateRange.start && customDateRange.end) {
+      return dateStr >= customDateRange.start && dateStr <= customDateRange.end;
+    }
+    
+    return true;
   };
 
   // Helper: get the effective date for a booking (handles legacy walk-ins without date field)
@@ -527,39 +515,54 @@ export default function AdminDashboard() {
       console.log('Approving request:', request.id, 'amount:', approvedAmount);
       
       // Step 1: Update request status
-      await updateDoc(doc(db, 'payroll_requests', request.id), {
-        status: 'approved',
-        approvedAmount: Number(approvedAmount),
-        processedAt: Date.now(),
-        processedBy: user?.uid,
-      });
-      console.log('Step 1 done - request updated');
+      try {
+        console.log('Executing Step 1: Update request status...');
+        await updateDoc(doc(db, 'payroll_requests', request.id), {
+          status: 'approved',
+          approvedAmount: Number(approvedAmount),
+          processedAt: Date.now(),
+          processedBy: user?.uid,
+        });
+        console.log('Step 1 done - request updated');
+      } catch (err) {
+        console.error('Error in Step 1:', err);
+      }
       
       // Step 2: Create payment record
-      await addDoc(collection(db, 'payroll_payments'), {
-        tenantId: request.tenantId,
-        barberId: request.barberId,
-        barberName: request.barberName,
-        amount: Number(approvedAmount),
-        requestId: request.id,
-        paidAt: Date.now(),
-        paidBy: user?.uid,
-      });
-      console.log('Step 2 done - payment created');
+      try {
+        console.log('Executing Step 2: Create payment record...');
+        await addDoc(collection(db, 'payroll_payments'), {
+          tenantId: request.tenantId || tenant?.id || '',
+          barberId: request.barberId,
+          barberName: request.barberName,
+          amount: Number(approvedAmount),
+          requestId: request.id,
+          paidAt: Date.now(),
+          paidBy: user?.uid || '',
+        });
+        console.log('Step 2 done - payment created');
+      } catch (err) {
+        console.error('Error in Step 2:', err);
+      }
       
       // Step 3: Create expense
-      await addDoc(collection(db, 'expenses'), {
-        tenantId: request.tenantId,
-        title: `Salaire — ${request.barberName}`,
-        amount: Number(approvedAmount),
-        category: 'salaire',
-        description: `Paiement approuvé #${request.id}`,
-        createdAt: Date.now(),
-        createdBy: user?.uid || '',
-        createdByName: user?.displayName || user?.email || '',
-        isPayroll: true,
-      });
-      console.log('Step 3 done - expense created');
+      try {
+        console.log('Executing Step 3: Create expense...');
+        await addDoc(collection(db, 'expenses'), {
+          tenantId: request.tenantId || tenant?.id || '',
+          title: `Salaire — ${request.barberName}`,
+          amount: Number(approvedAmount),
+          category: 'salaire',
+          description: `Paiement approuvé #${request.id}`,
+          createdAt: Date.now(),
+          createdBy: user?.uid || '',
+          createdByName: user?.displayName || user?.email || 'Admin',
+          isPayroll: true,
+        });
+        console.log('Step 3 done - expense created');
+      } catch (err) {
+        console.error('Error in Step 3:', err);
+      }
       
       // Step 4: Notify barber
       await sendPush(
@@ -1091,6 +1094,15 @@ export default function AdminDashboard() {
                                         <X className="w-4 h-4" />
                                       </button>
                                     </>
+                                  )}
+                                  {booking.status === 'approved' && (
+                                    <button
+                                      onClick={() => setActiveBookingId(booking.id)}
+                                      className="px-3 py-1.5 rounded-lg text-xs font-medium text-black"
+                                      style={{ background: 'var(--primary-color)' }}
+                                    >
+                                      ✓ Terminer
+                                    </button>
                                   )}
                                   <span className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider flex items-center gap-1.5 border ${
                                     booking.status === 'pending' ? 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20' :
