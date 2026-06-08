@@ -95,45 +95,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
           // 3. Fresh Fetch
           const profilePromise = (async () => {
-            const [adminEmailSnap, barberSnap, userDoc] = await Promise.all([
-              getDoc(doc(db, 'business', 'info')).catch(() => null),
-              getDocs(query(collection(db, 'barbers'), where('email', '==', email))).catch(() => ({ empty: true, docs: [] })),
-              getDoc(doc(db, 'users', firebaseUser.uid)).catch(() => null)
-            ]);
+            // Fetch user profile first to know their true home tenant
+            const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid)).catch(() => null);
+            const userData = userDoc?.exists() ? userDoc.data() : {};
+            const activeTenantId = userData.tenantId || tenantId;
 
-            const bizData = adminEmailSnap?.exists() ? adminEmailSnap.data() : null;
-            const isAdmin = email === bizData?.adminEmail?.toLowerCase();
+            // Strict tenant-scoped query for barbers
+            const barberQuery = query(
+              collection(db, 'barbers'), 
+              where('email', '==', email),
+              where('tenantId', '==', activeTenantId)
+            );
+            const barberSnap = await getDocs(barberQuery).catch(() => ({ empty: true, docs: [] }));
             
-            // Check barber by email (case-insensitive and space-resilient)
-            let isBarber = barberSnap && !barberSnap.empty;
-            let barberDoc = isBarber ? barberSnap.docs[0] : null;
-
-            // If not found or if the direct match was imprecise, scan all barbers to avoid Firestore spacing bugs
-            if (!isBarber || !barberDoc?.data().email || barberDoc.data().email.trim().toLowerCase() !== email) {
-               const allBarbers = await getDocs(collection(db, 'barbers')).catch(() => null);
-               if (allBarbers) {
-                 barberDoc = allBarbers.docs.find(d => {
-                   const bEmail = d.data().email?.trim().toLowerCase();
-                   return bEmail && bEmail === email;
-                 }) || null;
-                 isBarber = !!barberDoc;
-               }
-             }
-
+            // Filter precisely to avoid any case or spacing issues within the scoped tenant results
+            let barberDoc = (!barberSnap || barberSnap.empty) ? null : 
+              barberSnap.docs.find(d => {
+                const bEmail = d.data().email?.trim().toLowerCase();
+                return bEmail && bEmail === email;
+              }) || null;
+            
+            const isBarber = !!barberDoc;
             const barberData = barberDoc?.data();
             const barberId = barberDoc?.id;
-            const userData = userDoc?.exists() ? userDoc.data() : {};
 
-            const resolvedRole = isAdmin ? 'admin' : (isBarber ? 'barber' : (userData.role || 'client'));
+            // Resolve Role: Admin always takes absolute priority
+            let resolvedRole = userData.role || 'client';
+            if (resolvedRole !== 'admin' && isBarber) {
+              resolvedRole = 'barber';
+            }
             
             const fullProfile: User = {
               id: firebaseUser.uid,
               uid: firebaseUser.uid,
               email: email,
-              name: userData.name || barberData?.name || firebaseUser.displayName || (isAdmin ? 'Administrateur' : 'Utilisateur'),
+              name: userData.name || barberData?.name || firebaseUser.displayName || (resolvedRole === 'admin' ? 'Administrateur' : 'Utilisateur'),
               role: resolvedRole as 'admin' | 'barber' | 'client',
               barberId: barberId,
-              tenantId: userData.tenantId || tenantId
+              tenantId: activeTenantId
             };
 
             setUser(fullProfile);

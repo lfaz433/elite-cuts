@@ -2,60 +2,65 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Helper: Safely retrieves user data without throwing errors if the document doesn't exist
+    function getUserData() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid)) 
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data 
+        : {};
+    }
+
     // Helper: checks if user is logged in and belongs to the specified tenant
     function isMemberOfTenant(tenantId) {
       return request.auth != null && (
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId == tenantId ||
+        getUserData().tenantId == tenantId ||
         request.auth.token.tenantId == tenantId
       );
     }
 
     function isSuperAdmin() {
-      return request.auth != null && 
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "superadmin";
+      return request.auth != null && getUserData().role == "superadmin";
     }
 
     // 1. Tenants Collection (Public reads for domain resolution, admin write controls)
     match /tenants/{tenantId} {
       allow read: if true;
-      allow write: if isSuperAdmin() || 
-        isMemberOfTenant(tenantId);
+      allow create: if isSuperAdmin() || isMemberOfTenant(tenantId);
+      allow update, delete: if isSuperAdmin() || isMemberOfTenant(tenantId);
     }
 
     // 2. Scoped Business Operations Collections
     match /bookings/{bookingId} {
       allow read: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
       allow create: if true; // guests can create bookings
-      allow update, delete: if isSuperAdmin() || 
-        isMemberOfTenant(resource.data.tenantId);
+      allow update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
     }
 
     match /barbers/{barberId} {
       allow read: if true;
-      allow write: if isSuperAdmin() || 
-        isMemberOfTenant(resource.data.tenantId) ||
-        isMemberOfTenant(request.resource.data.tenantId);
+      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
+      allow update: if isSuperAdmin() || (isMemberOfTenant(resource.data.tenantId) && isMemberOfTenant(request.resource.data.tenantId));
+      allow delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
     }
 
     match /services/{serviceId} {
       allow read: if true;
-      allow write: if isSuperAdmin() || 
-        isMemberOfTenant(resource.data.tenantId) ||
-        isMemberOfTenant(request.resource.data.tenantId);
+      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
+      allow update: if isSuperAdmin() || (isMemberOfTenant(resource.data.tenantId) && isMemberOfTenant(request.resource.data.tenantId));
+      allow delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
     }
 
     match /products/{productId} {
       allow read: if true;
-      allow write: if isSuperAdmin() || 
-        isMemberOfTenant(resource.data.tenantId) ||
-        isMemberOfTenant(request.resource.data.tenantId);
+      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
+      allow update: if isSuperAdmin() || (isMemberOfTenant(resource.data.tenantId) && isMemberOfTenant(request.resource.data.tenantId));
+      allow delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
     }
 
     match /gallery/{galleryId} {
       allow read: if true;
-      allow write: if isSuperAdmin() || 
-        isMemberOfTenant(resource.data.tenantId) ||
-        isMemberOfTenant(request.resource.data.tenantId);
+      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
+      allow update: if isSuperAdmin() || (isMemberOfTenant(resource.data.tenantId) && isMemberOfTenant(request.resource.data.tenantId));
+      allow delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
     }
 
     match /sales/{saleId} {
@@ -64,20 +69,12 @@ service cloud.firestore {
     }
 
     match /expenses/{expenseId} {
-      allow read, update, delete: if request.auth != null && (
-        isSuperAdmin() ||
-        request.auth.token.tenantId == resource.data.tenantId ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId == resource.data.tenantId
-      );
-      allow create: if request.auth != null && (
-        isSuperAdmin() ||
-        request.auth.token.tenantId == request.resource.data.tenantId ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId == request.resource.data.tenantId
-      );
+      allow read, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
     }
 
     match /deposits/{depositId} {
-      allow read, write: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow read, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
       allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
     }
 
@@ -86,7 +83,7 @@ service cloud.firestore {
       allow read, write: if isSuperAdmin() || (request.auth != null && request.auth.uid == userId);
     }
 
-    // 4. Notifications Collection (Tenant members OR specific recipient fallback)
+    // 4. Notifications Collection
     match /notifications/{notificationId} {
       allow read, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId) || 
                                     (request.auth != null && request.auth.uid == resource.data.recipientId);
@@ -94,41 +91,22 @@ service cloud.firestore {
                                     (request.auth != null && request.auth.uid == request.resource.data.recipientId);
     }
 
+    // 5. Payroll Collections
     match /payroll_requests/{requestId} {
-      allow read: if isSuperAdmin() || 
-        isMemberOfTenant(resource.data.tenantId);
-      
-      allow create: if request.auth != null && (
-        isSuperAdmin() ||
-        request.auth.token.tenantId == request.resource.data.tenantId ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId == request.resource.data.tenantId
-      );
-      
-      allow update, delete: if request.auth != null && (
-        isSuperAdmin() ||
-        request.auth.token.tenantId == resource.data.tenantId ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId == resource.data.tenantId
-      );
+      allow read, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
     }
 
     match /payroll_payments/{paymentId} {
-      allow read: if request.auth != null && (
-        isSuperAdmin() ||
-        request.auth.token.tenantId == resource.data.tenantId ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId == resource.data.tenantId
-      );
-      allow create: if request.auth != null && (
-        isSuperAdmin() ||
-        request.auth.token.tenantId == request.resource.data.tenantId ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId == request.resource.data.tenantId
-      );
+      allow read, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
     }
 
     match /manual_payments/{paymentId} {
       allow read, write: if isSuperAdmin();
     }
 
-    // 6. Unmigrated / Legacy Collections (Locked to prevent data leaks until migrated)
+    // 6. Unmigrated / Legacy Collections
     match /attendance/{document=**} {
       allow read, write: if false;
     }
