@@ -46,45 +46,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           const email = firebaseUser.email?.trim().toLowerCase() || '';
           
-          // 1. FAST TRACK: Hardcoded admin check (Sync/Instant)
-          const hardcodedAdmins = ['admin@test.com', 'admin-elite@test.com'];
-          const isHardcodedAdmin = hardcodedAdmins.includes(email) || 
-                                  (email.startsWith('admin-') && email.endsWith('@test.com'));
 
-          if (isHardcodedAdmin) {
-            try {
-              const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-              if (userDoc.exists() && userDoc.data().role === 'superadmin') {
-                const superProfile: User = {
-                  id: firebaseUser.uid,
-                  uid: firebaseUser.uid,
-                  email: email,
-                  name: userDoc.data().name || 'Super Admin',
-                  role: 'superadmin',
-                  tenantId: userDoc.data().tenantId || tenantId
-                };
-                setUser(superProfile);
-                localStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(superProfile));
-                setIsLoading(false);
-                return;
-              }
-            } catch (err) {
-              console.error("Error fetching superadmin status for hardcoded admin:", err);
-            }
-
-            const adminProfile: User = {
-              id: firebaseUser.uid,
-              uid: firebaseUser.uid,
-              email: email,
-              name: 'Administrateur',
-              role: 'admin',
-              tenantId: tenantId
-            };
-            setUser(adminProfile);
-            localStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(adminProfile));
-            setIsLoading(false);
-            return;
-          }
 
           // 2. Check Cache
           const cachedProfile = localStorage.getItem(`user_profile_${firebaseUser.uid}`);
@@ -98,17 +60,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             // Fetch user profile first to know their true home tenant
             const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid)).catch(() => null);
             const userData = userDoc?.exists() ? userDoc.data() : {};
-            const activeTenantId = userData.tenantId || tenantId;
 
-            // Strict tenant-scoped query for barbers
+            // Global query for barbers to find their home tenant
             const barberQuery = query(
               collection(db, 'barbers'), 
-              where('email', '==', email),
-              where('tenantId', '==', activeTenantId)
+              where('email', '==', email)
             );
             const barberSnap = await getDocs(barberQuery).catch(() => ({ empty: true, docs: [] }));
             
-            // Filter precisely to avoid any case or spacing issues within the scoped tenant results
+            // Filter precisely to avoid any case or spacing issues
             let barberDoc = (!barberSnap || barberSnap.empty) ? null : 
               barberSnap.docs.find(d => {
                 const bEmail = d.data().email?.trim().toLowerCase();
@@ -119,10 +79,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const barberData = barberDoc?.data();
             const barberId = barberDoc?.id;
 
+            const activeTenantId = userData.tenantId || barberData?.tenantId || tenantId;
+
             // Resolve Role: Admin always takes absolute priority
             let resolvedRole = userData.role || 'client';
             if (resolvedRole !== 'admin' && isBarber) {
               resolvedRole = 'barber';
+            }
+            
+            // Auto-create user document for barber if it doesn't exist
+            if (!userDoc?.exists() && isBarber) {
+              try {
+                await setDoc(doc(db, 'users', firebaseUser.uid), {
+                  uid: firebaseUser.uid,
+                  email: email,
+                  name: barberData.name || firebaseUser.displayName || 'Coiffeur',
+                  role: 'barber',
+                  tenantId: activeTenantId,
+                  createdAt: new Date().toISOString()
+                });
+                userData.role = 'barber';
+                userData.tenantId = activeTenantId;
+              } catch (e) {
+                console.error("Could not auto-create barber user profile:", e);
+              }
             }
             
             const fullProfile: User = {

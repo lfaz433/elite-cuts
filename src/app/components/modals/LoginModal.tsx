@@ -127,51 +127,7 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
             </button>
           </div>
 
-          {/* 🎮 Demo quick-access — only shown on demo tenant */}
-          {tenant?.isDemo && (
-            <div style={{ border: '1px solid rgba(212,175,55,0.3)', borderRadius: 16, padding: 16, marginBottom: 4, background: 'rgba(212,175,55,0.05)' }}>
-              <p style={{ color: '#D4AF37', fontSize: 11, fontWeight: 700, textAlign: 'center', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                🎮 MODE DÉMO — Accès rapide
-              </p>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-                {[
-                  { role: 'admin', emoji: '👑', label: 'Admin', email: 'demo-admin@barberboard.pro' },
-                  { role: 'barber', emoji: '✂️', label: 'Coiffeur', email: 'demo-barber@barberboard.pro' },
-                  { role: 'client', emoji: '👤', label: 'Client', email: 'demo-client@barberboard.pro' },
-                ].map(demo => (
-                  <button
-                    key={demo.role}
-                    type="button"
-                    disabled={isSubmitting}
-                    onClick={async () => {
-                      setIsSubmitting(true);
-                      try {
-                        await signInWithEmailAndPassword(auth, demo.email, 'Demo1234!');
-                        toast.success(`Connecté en mode démo (${demo.label})`);
-                      } catch (e: any) {
-                        if (e.code === 'auth/too-many-requests') {
-                          toast.error('Trop de tentatives sur la démo. Réessayez dans 5 min.');
-                        } else {
-                          toast.error(`Erreur démo: ${e.message}`);
-                        }
-                      } finally {
-                        setIsSubmitting(false);
-                      }
-                    }}
-                    style={{
-                      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                      gap: 4, padding: '10px 6px', background: 'rgba(212,175,55,0.08)',
-                      border: '1px solid rgba(212,175,55,0.25)', borderRadius: 12, cursor: isSubmitting ? 'wait' : 'pointer',
-                      transition: 'all 0.2s',
-                    }}
-                  >
-                    <span style={{ fontSize: 16 }}>{demo.emoji}</span>
-                    <span style={{ color: 'white', fontSize: 11, fontWeight: 700 }}>{demo.label}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+
 
           {!isLogin && (
             <div>

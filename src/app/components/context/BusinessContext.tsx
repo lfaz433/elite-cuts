@@ -254,129 +254,18 @@ interface BusinessContextType {
   getAvailableTimeSlots: (date: string, barberId: string) => string[];
 }
 
-// ... skipping to defaultServices
-const defaultServices: Service[] = [
-  {
-    id: '1',
-    name: 'Coupe cheveux et barbe',
-    price: '15€',
-    duration: '45 min',
-    description: 'Coupe de cheveux professionnelle et entretien de la barbe',
-    image: 'https://images.unsplash.com/photo-1622286342621-4bd786c2447c?w=400&h=300&fit=crop',
-  },
-  {
-    id: '2',
-    name: 'Barbe',
-    price: '7€',
-    duration: '20 min',
-    description: 'Entretien et taille de la barbe experte',
-    image: 'https://images.unsplash.com/photo-1621605815971-fbc98d665033?w=400&h=300&fit=crop',
-  }
-];
-
-const defaultBarbers: Barber[] = [
-  {
-    id: '1',
-    name: 'Marcus Johnson',
-    specialty: 'Maître Barbier',
-    experience: '12 ans',
-    rating: 4.9,
-    image: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&h=300&fit=crop',
-    shiftStart: '09:00',
-    shiftEnd: '18:00',
-    workingDays: [1, 2, 3, 4, 5, 6],
-    username: 'marcus',
-    password: 'password123',
-    phone: '+33 6 12 34 56 78',
-    email: 'barber@test.com',
-    commission: 50,
-    archived: false
-  },
-  {
-    id: '2',
-    name: 'Andre Williams',
-    specialty: 'Spécialiste Dégradé',
-    experience: '8 ans',
-    rating: 4.8,
-    image: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=300&h=300&fit=crop',
-    shiftStart: '09:30',
-    shiftEnd: '18:30',
-    workingDays: [1, 2, 3, 4, 5],
-    username: 'andre',
-    password: 'password123',
-    phone: '+33 6 87 65 43 21',
-    email: 'andre@test.com',
-    status: 'available',
-    commission: 50
-  }
-];
-
-
-
 const defaultBusinessInfo: BusinessInfo = {
-  name: 'Barberboard',
-  address: '123 Rue Premium, Centre Ville, 12345',
-  phone: '+33 1 23 45 67 89',
-  email: 'info@elitecuts.fr',
-  adminEmail: 'admin-elite@test.com',
-  adminPassword: 'password123',
+  name: 'Mon Salon',
+  address: '',
+  phone: '',
+  email: '',
   hours: {
-    weekdays: '9:00 - 20:00',
-    weekends: '10:00 - 18:00',
+    weekdays: '9:00 - 18:00',
+    weekends: 'Fermé',
   },
-  socials: {
-    instagram: 'elitecuts_officiel',
-  },
-  instagram: 'https://instagram.com/elitecuts_officiel',
-  tiktok: 'https://tiktok.com/@elitecuts_officiel',
-  facebook: 'https://facebook.com/elitecuts',
-  website: 'https://elitecuts.fr',
-  mapUrl: 'https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d2624.9916256937586!2d2.3522219!3d48.856614!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2zNDjCsDUxJzIzLjgiTiAywrAyMScwOC4wIkU!5e0!3m2!1sfr!2sfr!4v1625600000000!5m2!1sfr!2sfr',
-  latitude: 48.8566,
-  longitude: 2.3522,
-  heroImage: 'https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=1920&h=1080&fit=crop',
-  heroTitle: 'Soins Premium',
-  heroSubtitle: 'Vivez une expérience de soins de luxe avec des maîtres barbiers dans un environnement premium',
-  heroButtonText: 'Prendre Rendez-vous',
-  stats: [
-    { id: 'experience', label: "Années d'expérience", value: '15+', enabled: true },
-    { id: 'clients', label: 'Clients Satisfaits', value: '10K+', enabled: true },
-    { id: 'services', label: 'Services Réalisés', value: '50K+', enabled: true },
-    { id: 'rating', label: 'Note des Clients', value: '4.9', enabled: true },
-  ],
-  showStatsSection: true,
+  socials: {},
+  showStatsSection: false,
 };
-
-const defaultGallery = [
-  'https://images.unsplash.com/photo-1622286342621-4bd786c2447c?w=400&h=400&fit=crop',
-  'https://images.unsplash.com/photo-1621605815971-fbc98d665033?w=400&h=400&fit=crop',
-  'https://images.unsplash.com/photo-1605497788044-5a32c7078486?w=400&h=400&fit=crop',
-];
-
-const defaultProducts: Product[] = [
-  {
-    id: '1',
-    name: 'Huile à Barbe Premium',
-    buyPrice: 8.0,
-    sellPrice: 19.99,
-    image: 'https://images.unsplash.com/photo-1621605815971-fbc98d665033?w=400&h=300&fit=crop',
-    description: 'Nourrit et adoucit la barbe au quotidien.',
-    stock: 25,
-    category: 'Shampoo',
-    trackStock: true
-  },
-  {
-    id: '2',
-    name: 'Pommade Coiffante',
-    buyPrice: 6.5,
-    sellPrice: 15.0,
-    image: 'https://images.unsplash.com/photo-1599305090598-fe179d501227?w=400&h=300&fit=crop',
-    description: 'Fixation forte avec un fini mat naturel.',
-    stock: 40,
-    category: 'Gel',
-    trackStock: true
-  }
-];
 
 const BusinessContext = createContext<BusinessContextType | undefined>(undefined);
 
@@ -529,18 +418,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     };
   }, [tenantId]);
 
-  const [isSeeding, setIsSeeding] = useState(false);
 
-  // Auto-seed if empty (Dev/First Run)
-  useEffect(() => {
-    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    const isDefaultSubdomain = subdomain === 'elite-cuts-default';
-    if (isLocalhost && isDefaultSubdomain && !loading && services.length === 0 && barbers.length === 0 && !isSeeding) {
-      setIsSeeding(true);
-      console.log("Database empty, seeding default data...");
-      seedDatabase().finally(() => setIsSeeding(false));
-    }
-  }, [loading, services.length, barbers.length, isSeeding, subdomain]);
 
   const addService = async (service: Omit<Service, 'id'>) => {
     await addDoc(collection(db, 'services'), { ...service, tenantId });
@@ -809,79 +687,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     });
   };
 
-  const seedDatabase = async () => {
-    if (!tenantId) return;
-    try {
-      const seedingPromises = [];
-
-      if (services.length === 0) {
-        for (const s of defaultServices) {
-          const { id: _id, ...data } = s;
-          seedingPromises.push(addDoc(collection(db, 'services'), { ...data, tenantId }));
-        }
-      }
-      if (barbers.length === 0) {
-        for (const b of defaultBarbers) {
-          const { id: _id, ...data } = b;
-          seedingPromises.push(addDoc(collection(db, 'barbers'), { ...data, archived: false, tenantId }));
-        }
-      }
-      
-      // Always ensure some products exist for demo
-      if (products.length === 0) {
-        for (const p of defaultProducts) {
-          const { id: _id, ...data } = p;
-          seedingPromises.push(addDoc(collection(db, 'products'), { ...data, tenantId }));
-        }
-      }
-      
-      // Run base seeding
-      await Promise.all(seedingPromises);
-
-      // Seed dummy bookings if needed
-      if (bookings.length < 5) {
-        const activeServices = services.length > 0 ? services : defaultServices;
-        const activeBarbers = barbers.length > 0 ? barbers : defaultBarbers;
-        
-        const bookingPromises = [];
-        const statuses = ['completed', 'completed', 'completed', 'pending', 'approved'];
-        
-        for (let i = 0; i < 15; i++) {
-          const d = new Date();
-          d.setDate(d.getDate() - Math.floor(Math.random() * 14));
-          const status = statuses[Math.floor(Math.random() * statuses.length)];
-          const service = activeServices[Math.floor(Math.random() * activeServices.length)];
-          
-          const b: any = {
-            clientName: `Client Test ${i+1}`,
-            clientEmail: `client${i}@test.com`,
-            clientPhone: '0600000000',
-            serviceId: service.id || '1',
-            barberId: activeBarbers[0].id || '1',
-            date: d.toISOString().split('T')[0],
-            time: '14:00',
-            status: status,
-            createdAt: new Date().toISOString(),
-            tenantId
-          };
-          if (status === 'completed') {
-            b.pricePaid = parseInt((service.price || '').replace(/[^0-9]/g, '')) || 15;
-            b.tip = Math.floor(Math.random() * 5);
-            b.paymentMethod = Math.random() > 0.5 ? 'cash' : 'card';
-          }
-          bookingPromises.push(addDoc(collection(db, 'bookings'), b));
-        }
-        await Promise.all(bookingPromises);
-      }
-
-      // Seed business info
-      await setDoc(doc(db, 'business', 'info'), { ...defaultBusinessInfo, tenantId }, { merge: true });
-      
-      toast.success("Données initialisées !");
-    } catch (error: any) {
-      console.error("Firebase Seeding Error:", error);
-    }
-  };
+  const seedDatabase = async () => {};
 
   const resetBarberBalance = async (barberId: string) => {
     try {

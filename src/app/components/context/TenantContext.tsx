@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { db } from '../../lib/firebase';
-import { collection, query, where, getDocs, addDoc, doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc, doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
 
 export interface TenantData {
@@ -69,46 +69,22 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
 
       if (subdomain === 'elite-cuts-default') {
         const fallbackTenant = {
-          tenantId: 'default-tenant',
+          tenantId: 'platform',
           subdomain: 'elite-cuts-default',
-          name: "Barberboard",
+          name: "Barberboard Platform",
           branding: { primaryColor: "#D4AF37", logoUrl: "", businessName: "Barberboard" },
           subscription: { 
             status: "active" as const, 
-            planId: "basic",
-            trialEndsAt: Date.now() + 14 * 24 * 60 * 60 * 1000,
+            planId: "pro",
+            trialEndsAt: 0,
             currentPeriodEnd: 0
           },
-          settings: { maxBarbersLimit: 3, allowOnlineBooking: true },
+          settings: { maxBarbersLimit: 100, allowOnlineBooking: true },
           onboardingComplete: true
         };
         
         setTenant(fallbackTenant);
         setIsLoading(false);
-
-        // Auto-seed ONLY on localhost/127.0.0.1 if missing
-        if (isLocalhost) {
-          try {
-            const tenantsRef = collection(db, 'tenants');
-            const q = query(tenantsRef, where('subdomain', '==', subdomain));
-            const snap = await getDocs(q);
-            if (snap.empty) {
-              console.log('Localhost: Seeding default tenant document in Firestore...');
-              const docRef = await addDoc(tenantsRef, {
-                subdomain: "elite-cuts-default",
-                name: fallbackTenant.name,
-                branding: fallbackTenant.branding,
-                subscription: fallbackTenant.subscription,
-                settings: fallbackTenant.settings
-              });
-              setTenant({ ...fallbackTenant, tenantId: docRef.id });
-            } else {
-              setTenant({ ...fallbackTenant, tenantId: snap.docs[0].id });
-            }
-          } catch (e) {
-            console.error('Failed to seed localhost:', e);
-          }
-        }
         return;
       }
 
@@ -156,34 +132,46 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const auth = getAuth();
-    return onAuthStateChanged(auth, async (user) => {
+    let unsubscribeSnapshot: (() => void) | undefined;
+
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      if (unsubscribeSnapshot) {
+        unsubscribeSnapshot();
+      }
+
       if (user) {
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
-        const userTenantId = userDoc.data()?.tenantId;
-        if (userTenantId && userTenantId !== tenant?.tenantId) {
-          // Load the correct tenant for this user
-          const tenantDoc = await getDoc(doc(db, 'tenants', userTenantId));
-          if (tenantDoc.exists()) {
-            const data = tenantDoc.data();
-            setTenant({
-              tenantId: tenantDoc.id,
-              subdomain: data.subdomain,
-              name: data.name,
-              branding: data.branding,
-              subscription: {
-                status: data.subscription?.status || 'trialing',
-                planId: data.subscription?.planId || 'basic',
-                trialEndsAt: data.subscription?.trialEndsAt || 0,
-                currentPeriodEnd: data.subscription?.currentPeriodEnd || 0,
-              },
-              settings: data.settings,
-              onboardingComplete: data.onboardingComplete || false,
-              isDemo: data.isDemo || false,
-            });
+        unsubscribeSnapshot = onSnapshot(doc(db, 'users', user.uid), async (userDoc) => {
+          const userTenantId = userDoc.data()?.tenantId;
+          if (userTenantId && userTenantId !== tenant?.tenantId) {
+            // Load the correct tenant for this user
+            const tenantDoc = await getDoc(doc(db, 'tenants', userTenantId));
+            if (tenantDoc.exists()) {
+              const data = tenantDoc.data();
+              setTenant({
+                tenantId: tenantDoc.id,
+                subdomain: data.subdomain,
+                name: data.name,
+                branding: data.branding,
+                subscription: {
+                  status: data.subscription?.status || 'trialing',
+                  planId: data.subscription?.planId || 'basic',
+                  trialEndsAt: data.subscription?.trialEndsAt || 0,
+                  currentPeriodEnd: data.subscription?.currentPeriodEnd || 0,
+                },
+                settings: data.settings,
+                onboardingComplete: data.onboardingComplete || false,
+                isDemo: data.isDemo || false,
+              });
+            }
           }
-        }
+        });
       }
     });
+
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeSnapshot) unsubscribeSnapshot();
+    };
   }, [tenant?.tenantId]);
 
   useEffect(() => {
