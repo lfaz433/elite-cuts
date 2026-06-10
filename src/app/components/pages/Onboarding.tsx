@@ -97,7 +97,7 @@ export default function Onboarding() {
             rating: '5.0',
             image: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400&h=400&fit=crop',
             archived: false,
-            tenantId
+            tenantId: user?.tenantId || tenantId
           });
           toast.success('Premier collaborateur ajouté !');
         }
@@ -113,7 +113,7 @@ export default function Onboarding() {
             category: serviceCategory,
             description: 'Soin classique configuré lors de l\'inscription.',
             image: 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=800&h=450&fit=crop',
-            tenantId
+            tenantId: user?.tenantId || tenantId
           });
           toast.success('Premier service configuré !');
         }
@@ -130,7 +130,10 @@ export default function Onboarding() {
   const handleFinalSubmit = async () => {
     setLoading(true);
     try {
-      const tenantRef = doc(db, 'tenants', tenantId);
+      const activeTenantId = user?.tenantId || tenantId;
+      if (!activeTenantId) throw new Error("Tenant ID manquant");
+      
+      const tenantRef = doc(db, 'tenants', activeTenantId);
       
       // Update weeklyHours and mark onboardingComplete to true
       await updateDoc(tenantRef, {
