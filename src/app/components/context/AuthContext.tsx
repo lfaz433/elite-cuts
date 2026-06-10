@@ -48,11 +48,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           
 
 
-          // 2. Check Cache
+          // 2. Check Cache (only use if it exists and is not stale — we'll overwrite after Firestore fetch)
           const cachedProfile = localStorage.getItem(`user_profile_${firebaseUser.uid}`);
           if (cachedProfile) {
-            setUser(JSON.parse(cachedProfile));
-            setIsLoading(false); // Instantly dismiss loading screen so user is not blocked
+            const parsed = JSON.parse(cachedProfile);
+            // Only trust the cache if the tenantId is real (not 'platform' fallback)
+            if (parsed.tenantId && parsed.tenantId !== 'platform') {
+              setUser(parsed);
+              setIsLoading(false); // Instantly dismiss loading screen so user is not blocked
+            }
           }
 
           // 3. Fresh Fetch

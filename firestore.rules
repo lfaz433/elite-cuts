@@ -24,7 +24,11 @@ service cloud.firestore {
     // 1. Tenants Collection (Public reads for domain resolution, admin write controls)
     match /tenants/{tenantId} {
       allow read: if true;
-      allow create: if isSuperAdmin() || isMemberOfTenant(tenantId);
+      // Allow create if: superadmin, already a member, OR the authenticated user is the owner
+      // (the ownerUid check handles brand-new signups who don't yet have a matching tenantId in their user doc)
+      allow create: if isSuperAdmin() 
+        || isMemberOfTenant(tenantId)
+        || (request.auth != null && request.resource.data.ownerUid == request.auth.uid);
       allow update, delete: if isSuperAdmin() || isMemberOfTenant(tenantId);
     }
 

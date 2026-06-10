@@ -28,10 +28,19 @@ interface DayConfig {
 
 export default function Onboarding() {
   const navigate = useNavigate();
-  const { tenantId } = useTenant();
-  const { user } = useAuth();
+  const { tenantId: urlTenantId } = useTenant();
+  const { user, isLoading: authLoading } = useAuth();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
+
+  // Resolve the correct tenant ID — always prefer the auth user's tenantId
+  // because the URL may still be on barberboard.pro (urlTenantId = 'platform')
+  const activeTenantId = (user?.tenantId && user.tenantId !== 'platform') 
+    ? user.tenantId 
+    : urlTenantId;
+
+  // True if we are still waiting for the auth context to resolve a real tenantId
+  const isResolvingTenant = authLoading || !activeTenantId || activeTenantId === 'platform';
 
   useEffect(() => {
     if (user?.role === 'superadmin') {
@@ -97,7 +106,7 @@ export default function Onboarding() {
             rating: '5.0',
             image: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400&h=400&fit=crop',
             archived: false,
-            tenantId: user?.tenantId || tenantId
+            tenantId: activeTenantId
           });
           toast.success('Premier collaborateur ajouté !');
         }
@@ -113,7 +122,7 @@ export default function Onboarding() {
             category: serviceCategory,
             description: 'Soin classique configuré lors de l\'inscription.',
             image: 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=800&h=450&fit=crop',
-            tenantId: user?.tenantId || tenantId
+            tenantId: activeTenantId
           });
           toast.success('Premier service configuré !');
         }
@@ -130,8 +139,9 @@ export default function Onboarding() {
   const handleFinalSubmit = async () => {
     setLoading(true);
     try {
-      const activeTenantId = user?.tenantId || tenantId;
-      if (!activeTenantId) throw new Error("Tenant ID manquant");
+      if (!activeTenantId || activeTenantId === 'platform') {
+        throw new Error("Impossible de déterminer votre salon. Veuillez recharger la page.");
+      }
       
       const tenantRef = doc(db, 'tenants', activeTenantId);
       
@@ -150,6 +160,22 @@ export default function Onboarding() {
       setLoading(false);
     }
   };
+
+  // Show a loading screen while we wait for the real tenantId to be resolved.
+  // This prevents the user from submitting forms with tenantId = 'platform'.
+  if (isResolvingTenant) {
+    return (
+      <div className="min-h-screen bg-black flex flex-col items-center justify-center text-white">
+        <div className="relative w-14 h-14">
+          <div className="absolute inset-0 rounded-full border-4 border-white/10"></div>
+          <div className="absolute inset-0 rounded-full border-4 border-t-[#D4AF37] animate-spin"></div>
+        </div>
+        <p className="mt-6 text-sm uppercase tracking-widest text-white/50 animate-pulse font-medium">
+          Chargement de votre espace...
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-black flex flex-col justify-center items-center py-8 px-4 relative overflow-hidden text-white">

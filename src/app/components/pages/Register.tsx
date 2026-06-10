@@ -178,14 +178,8 @@ export default function Register() {
       // 3. Update displayName in Firebase Auth profile
       await updateProfile(createdUser, { displayName: ownerName });
 
-      // 4. Reserve subdomain document to prevent race conditions
-      await setDoc(doc(db, 'subdomains', subdomain), {
-        ownerUid: createdUser.uid,
-        tenantId: newTenantId,
-        createdAt: new Date().toISOString()
-      });
-
-      // 5. Write user document to Firestore
+      // 4. Write user document to Firestore FIRST — this must happen before any other
+      //    Firestore write, because Security Rules use getUserData() to verify identity.
       const userProfile = {
         uid: createdUser.uid,
         email: ownerEmail.trim().toLowerCase(),
@@ -196,31 +190,19 @@ export default function Register() {
       };
       await setDoc(doc(db, 'users', createdUser.uid), userProfile);
 
-      // 6. Call Vercel Provisioning API
+      // 5. Reserve subdomain — now safe because user doc exists
       try {
-        const idToken = await createdUser.getIdToken();
-        const res = await fetch('/api/provision-subdomain', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${idToken}`
-          },
-          body: JSON.stringify({ subdomain, tenantId: newTenantId })
+        await setDoc(doc(db, 'subdomains', subdomain), {
+          ownerUid: createdUser.uid,
+          tenantId: newTenantId,
+          createdAt: new Date().toISOString()
         });
-        const data = await res.json();
-        if (res.ok && data.ok) {
-          provisionStatus = 'active';
-          isVercelVerified = data.verified;
-        } else {
-          provisionStatus = 'failed';
-          console.error("Provisioning failed:", data.error || data);
-        }
-      } catch (e) {
-        console.error("Failed to reach provisioning endpoint:", e);
-        provisionStatus = 'failed';
+      } catch (subErr) {
+        // Non-fatal: log but do not abort the entire registration
+        console.warn('Subdomain reservation failed (non-fatal):', subErr);
       }
 
-      // 7. Write tenant document to Firestore
+      // 6. Write tenant document — user doc is now in Firestore so isMemberOfTenant() will pass
       const tenantData = {
         subdomain,
         domain: {
@@ -248,8 +230,32 @@ export default function Register() {
       };
       await setDoc(doc(db, 'tenants', newTenantId), tenantData);
 
+      // 7. Force token refresh so downstream calls have fresh claims
+      await auth.currentUser?.getIdToken(true);
 
-      await auth.currentUser?.getIdToken(true); // force refresh
+      // 8. Call Vercel Provisioning API (non-fatal if it fails)
+      try {
+        const idToken = await createdUser.getIdToken();
+        const res = await fetch('/api/provision-subdomain', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${idToken}`
+          },
+          body: JSON.stringify({ subdomain, tenantId: newTenantId })
+        });
+        const data = await res.json();
+        if (res.ok && data.ok) {
+          provisionStatus = 'active';
+          isVercelVerified = data.verified;
+        } else {
+          provisionStatus = 'failed';
+          console.error("Provisioning failed:", data.error || data);
+        }
+      } catch (e) {
+        console.error("Failed to reach provisioning endpoint:", e);
+        provisionStatus = 'failed';
+      }
 
       if (provisionStatus === 'failed') {
         toast.warning("Salon créé, mais la configuration du domaine a échoué. Vous pourrez réessayer depuis les paramètres.");
@@ -257,7 +263,6 @@ export default function Register() {
         toast.success('Votre salon a été configuré avec succès !');
       }
       
-      // Auto-authenticate redirects to client onboarding or dashboard setup
       navigate('/onboarding');
 
     } catch (err: any) {
