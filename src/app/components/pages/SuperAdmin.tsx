@@ -551,6 +551,71 @@ export default function SuperAdmin() {
     }
   };
 
+  const handleProvisionSubdomain = async (tenantId: string, subdomain: string) => {
+    setSaveLoading(true);
+    try {
+      const idToken = await auth.currentUser?.getIdToken();
+      const res = await fetch('/api/provision-subdomain', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
+        },
+        body: JSON.stringify({ subdomain, tenantId })
+      });
+      const data = await res.json();
+      
+      if (res.ok && data.ok) {
+        await updateDoc(doc(db, 'tenants', tenantId), {
+          'domain.status': 'active',
+          'domain.vercelVerified': data.verified
+        });
+        toast.success(`Domaine configuré : ${data.domain}`);
+        fetchData();
+      } else {
+        throw new Error(data.error || 'Erreur inconnue');
+      }
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.message || 'Erreur lors du provisionnement');
+    } finally {
+      setSaveLoading(false);
+    }
+  };
+
+  const handleRemoveSubdomain = async (tenantId: string, subdomain: string) => {
+    if (!confirm(`Voulez-vous vraiment détacher le domaine de ${subdomain} de Vercel ?`)) return;
+    setSaveLoading(true);
+    try {
+      const idToken = await auth.currentUser?.getIdToken();
+      const res = await fetch('/api/remove-subdomain', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
+        },
+        body: JSON.stringify({ subdomain, tenantId })
+      });
+      const data = await res.json();
+      
+      if (res.ok && data.ok) {
+        await updateDoc(doc(db, 'tenants', tenantId), {
+          'domain.status': 'removed',
+          'domain.vercelVerified': false
+        });
+        toast.success("Domaine détaché avec succès.");
+        fetchData();
+      } else {
+        throw new Error(data.error || 'Erreur inconnue');
+      }
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.message || 'Erreur lors du détachement');
+    } finally {
+      setSaveLoading(false);
+    }
+  };
+
   const grantFreeAccessForm = async (e: React.FormEvent) => {
     e.preventDefault();
     const tenant = tenants.find(t => t.subdomain === freeSubdomain);
@@ -1445,7 +1510,15 @@ export default function SuperAdmin() {
                         {paginatedTenants.map(t => (
                           <tr key={t.id} className="hover:bg-white/5">
                             <td className="p-4 font-bold">{t.name}</td>
-                            <td className="p-4 text-white/60">{t.subdomain}</td>
+                            <td className="p-4">
+                              <div className="text-white/60">{t.subdomain}</div>
+                              {t.domain && (
+                                <div className="flex items-center gap-1 mt-1 text-[10px] font-mono">
+                                  <span className={`w-1.5 h-1.5 rounded-full ${t.domain.status === 'active' ? 'bg-green-500' : t.domain.status === 'failed' ? 'bg-red-500' : 'bg-yellow-500'}`}></span>
+                                  <span className="text-white/40 uppercase">{t.domain.status} {t.domain.vercelVerified && '(Verifié)'}</span>
+                                </div>
+                              )}
+                            </td>
                             <td className="p-4 uppercase text-xs font-black">{t.subscription?.planId || 'N/A'} {t.freeAccess && <span className="text-yellow-400 ml-1">(Free)</span>}</td>
                             <td className="p-4">
                               <span className={`px-2 py-1 rounded-md text-[10px] font-black uppercase ${
@@ -1458,6 +1531,12 @@ export default function SuperAdmin() {
                             </td>
                             <td className="p-4 text-white/50">{t.createdAt ? new Date(t.createdAt).toLocaleDateString() : 'N/A'}</td>
                             <td className="p-4"><div className="flex flex-wrap gap-1 justify-end">
+                              {t.domain?.status === 'failed' && (
+                                <button onClick={() => handleProvisionSubdomain(t.id, t.subdomain)} className="px-3 py-1 bg-yellow-500/10 text-yellow-400 rounded-lg text-xs font-bold hover:bg-yellow-500/20" title="Relancer la configuration Vercel">↻ Vercel</button>
+                              )}
+                              {t.domain?.status === 'active' && (
+                                <button onClick={() => handleRemoveSubdomain(t.id, t.subdomain)} className="px-3 py-1 bg-white/5 text-white/50 rounded-lg text-xs font-bold hover:bg-red-500/20 hover:text-red-400" title="Détacher de Vercel">Disconnect</button>
+                              )}
                               <button onClick={() => handleViewTenant(t)} className="px-3 py-1 bg-blue-500/10 text-blue-400 rounded-lg text-xs font-bold hover:bg-blue-500/20">👁 Voir</button>
                               <button onClick={() => handleFreeAccess(t.id)} className="px-3 py-1 bg-green-500/10 text-green-400 rounded-lg text-xs font-bold hover:bg-green-500/20">✓ Accès gratuit</button>
                               <button onClick={() => handleSuspend(t.id)} className="px-3 py-1 bg-orange-500/10 text-orange-400 rounded-lg text-xs font-bold hover:bg-orange-500/20">⏸ Suspendre</button>

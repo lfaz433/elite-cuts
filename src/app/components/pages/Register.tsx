@@ -10,6 +10,8 @@ import { toast } from 'sonner';
 import PhoneInput from 'react-phone-input-2';
 import 'react-phone-input-2/lib/style.css';
 
+import { validateSubdomain } from '../../lib/validators';
+
 type PlanId = 'basic' | 'pro' | 'enterprise';
 
 interface Plan {
@@ -87,12 +89,9 @@ export default function Register() {
   };
 
   const checkSubdomain = async () => {
-    if (!subdomain) {
-      setSubdomainError('Veuillez entrer un sous-domaine.');
-      return;
-    }
-    if (subdomain.length < 3) {
-      setSubdomainError('Le sous-domaine doit comporter au moins 3 caractères.');
+    const validationError = validateSubdomain(subdomain);
+    if (validationError) {
+      setSubdomainError(validationError);
       return;
     }
 
@@ -165,6 +164,8 @@ export default function Register() {
   const handleSubmit = async () => {
     setLoading(true);
     let createdUser: any = null;
+    let provisionStatus = 'pending';
+    let isVercelVerified = false;
 
     try {
       // 1. Generate unique Tenant Doc ID
@@ -177,7 +178,14 @@ export default function Register() {
       // 3. Update displayName in Firebase Auth profile
       await updateProfile(createdUser, { displayName: ownerName });
 
-      // 4. Write user document to Firestore
+      // 4. Reserve subdomain document to prevent race conditions
+      await setDoc(doc(db, 'subdomains', subdomain), {
+        ownerUid: createdUser.uid,
+        tenantId: newTenantId,
+        createdAt: new Date().toISOString()
+      });
+
+      // 5. Write user document to Firestore
       const userProfile = {
         uid: createdUser.uid,
         email: ownerEmail.trim().toLowerCase(),
@@ -188,9 +196,38 @@ export default function Register() {
       };
       await setDoc(doc(db, 'users', createdUser.uid), userProfile);
 
-      // 5. Write tenant document to Firestore
+      // 6. Call Vercel Provisioning API
+      try {
+        const idToken = await createdUser.getIdToken();
+        const res = await fetch('/api/provision-subdomain', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${idToken}`
+          },
+          body: JSON.stringify({ subdomain, tenantId: newTenantId })
+        });
+        const data = await res.json();
+        if (res.ok && data.ok) {
+          provisionStatus = 'active';
+          isVercelVerified = data.verified;
+        } else {
+          provisionStatus = 'failed';
+          console.error("Provisioning failed:", data.error || data);
+        }
+      } catch (e) {
+        console.error("Failed to reach provisioning endpoint:", e);
+        provisionStatus = 'failed';
+      }
+
+      // 7. Write tenant document to Firestore
       const tenantData = {
         subdomain,
+        domain: {
+          subdomain,
+          status: provisionStatus,
+          vercelVerified: isVercelVerified
+        },
         name: shopName,
         ownerUid: createdUser.uid,
         subscription: {
@@ -214,7 +251,11 @@ export default function Register() {
 
       await auth.currentUser?.getIdToken(true); // force refresh
 
-      toast.success('Votre salon a été configuré avec succès !');
+      if (provisionStatus === 'failed') {
+        toast.warning("Salon créé, mais la configuration du domaine a échoué. Vous pourrez réessayer depuis les paramètres.");
+      } else {
+        toast.success('Votre salon a été configuré avec succès !');
+      }
       
       // Auto-authenticate redirects to client onboarding or dashboard setup
       navigate('/onboarding');

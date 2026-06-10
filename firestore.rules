@@ -28,6 +28,13 @@ service cloud.firestore {
       allow update, delete: if isSuperAdmin() || isMemberOfTenant(tenantId);
     }
 
+    // 1.5 Subdomains Reservation Collection
+    match /subdomains/{subdomainName} {
+      allow read: if true;
+      allow create: if request.auth != null && request.resource.data.ownerUid == request.auth.uid;
+      allow delete: if isSuperAdmin() || (request.auth != null && resource.data.ownerUid == request.auth.uid);
+    }
+
     // 2. Scoped Business Operations Collections
     match /bookings/{bookingId} {
       allow read: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);

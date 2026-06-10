@@ -145,12 +145,24 @@ Backend / Functions:
 - `STRIPE_PRICE_PRO`: Stripe Price ID for the Pro plan.
 - `STRIPE_WEBHOOK_SECRET`: Secret to verify Stripe webhook signatures.
 
-Vercel Serverless (`api/send-push.ts`):
+Vercel Serverless (`api/send-push.ts` & `api/provision-subdomain.ts`):
 - `ONESIGNAL_REST_API_KEY`: OneSignal REST API key for push notifications.
+- `VERCEL_TOKEN`: Vercel API token to manage project domains dynamically.
+- `VERCEL_PROJECT_ID`: ID of the Vercel project.
+- `VERCEL_TEAM_ID`: (Optional) ID of the Vercel team if applicable.
+- `VITE_MAIN_DOMAIN`: The apex domain (e.g., `barberboard.pro`).
 
 *(Note: Firebase client configuration is hardcoded in `src/app/lib/firebase.ts` and does not require local `.env` variables for the frontend).*
 
-## 11. Third-Party Services
+## 11. Automated Subdomain Provisioning & Manual Setup
+To enable zero-touch subdomain provisioning for tenants, Vercel requires specific DNS and environment configuration:
+
+### Manual Setup Steps (One-time)
+1. **Namecheap (DNS)**: Add a `CNAME` record with Host `*` pointing to the Vercel project target (e.g., `cname.vercel-dns.com`). This enables dynamic routing to Vercel for any `*.maindomain.com`.
+2. **Vercel Settings**: Generate a `VERCEL_TOKEN` from Account/Team Settings and add it as an Environment Variable alongside `VERCEL_PROJECT_ID` and `VITE_MAIN_DOMAIN`.
+3. **Provisioning Flow**: When a tenant registers, `/api/provision-subdomain` is called. Because the wildcard CNAME exists, Vercel automatically fulfills the HTTP-01 challenge and provisions the SSL certificate without further intervention.
+
+## 12. Third-Party Services
 - **Firebase**: Authentication (Email/Password), Firestore (NoSQL Database), Cloud Functions (Backend logic).
 - **Stripe**: Handles SaaS subscription billing and checkout sessions.
 - **OneSignal**: Handles push notifications for admins, barbers, and clients (via Vercel Serverless Function).
