@@ -1,5 +1,5 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
-import { adminAuth, adminDb } from './utils/firebaseAdmin';
+import { adminAuth, adminDb } from './utils/firebaseAdmin.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {

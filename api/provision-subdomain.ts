@@ -1,5 +1,5 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
-import { adminAuth, adminDb } from './utils/firebaseAdmin';
+import { adminAuth, adminDb } from './utils/firebaseAdmin.js';
 
 // Validation regex directly matching the shared validator
 const subdomainRegex = /^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?$/;
