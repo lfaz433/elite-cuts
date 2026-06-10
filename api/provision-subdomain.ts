@@ -40,19 +40,37 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: 'Invalid or reserved subdomain' });
   }
 
-  // Ensure the caller actually owns this tenant
+  // Ensure the caller actually owns this tenant (using REST API to avoid needing Service Account credentials)
   try {
-    const tenantDoc = await adminDb.collection('tenants').doc(tenantId).get();
-    if (!tenantDoc.exists) {
+    const firestoreApiUrl = `https://firestore.googleapis.com/v1/projects/elite-cuts-app/databases/(default)/documents`;
+    
+    const tenantResponse = await fetch(`${firestoreApiUrl}/tenants/${tenantId}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    
+    if (tenantResponse.status === 404) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
-    const tenantData = tenantDoc.data();
     
-    // SuperAdmins bypass this check if they are re-provisioning
-    const userDoc = await adminDb.collection('users').doc(decodedToken.uid).get();
-    const isSuperAdmin = userDoc.exists && userDoc.data()?.role === 'superadmin';
+    if (!tenantResponse.ok) {
+      throw new Error(`Failed to fetch tenant: ${tenantResponse.statusText}`);
+    }
+    
+    const tenantDoc = await tenantResponse.json();
+    const ownerUid = tenantDoc.fields?.ownerUid?.stringValue;
 
-    if (!isSuperAdmin && tenantData?.ownerUid !== decodedToken.uid) {
+    // Check superadmin status
+    let isSuperAdmin = false;
+    const userResponse = await fetch(`${firestoreApiUrl}/users/${decodedToken.uid}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    
+    if (userResponse.ok) {
+      const userDoc = await userResponse.json();
+      isSuperAdmin = userDoc.fields?.role?.stringValue === 'superadmin';
+    }
+
+    if (!isSuperAdmin && ownerUid !== decodedToken.uid) {
       return res.status(403).json({ error: 'Forbidden: You do not own this tenant' });
     }
   } catch (err) {

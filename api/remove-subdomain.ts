@@ -25,18 +25,39 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: 'Missing required fields: subdomain or tenantId' });
   }
 
-  // Ensure the caller is either SuperAdmin or owns this tenant
+  // Ensure the caller is either SuperAdmin or owns this tenant (using REST API)
   try {
-    const tenantDoc = await adminDb.collection('tenants').doc(tenantId).get();
-    const userDoc = await adminDb.collection('users').doc(decodedToken.uid).get();
-    const isSuperAdmin = userDoc.exists && userDoc.data()?.role === 'superadmin';
+    const firestoreApiUrl = `https://firestore.googleapis.com/v1/projects/elite-cuts-app/databases/(default)/documents`;
+    
+    // Check superadmin status
+    let isSuperAdmin = false;
+    const userResponse = await fetch(`${firestoreApiUrl}/users/${decodedToken.uid}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    
+    if (userResponse.ok) {
+      const userDoc = await userResponse.json();
+      isSuperAdmin = userDoc.fields?.role?.stringValue === 'superadmin';
+    }
 
     // Even if tenant doesn't exist anymore, superadmin can force remove domain
     if (!isSuperAdmin) {
-      if (!tenantDoc.exists) {
+      const tenantResponse = await fetch(`${firestoreApiUrl}/tenants/${tenantId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (tenantResponse.status === 404) {
         return res.status(404).json({ error: 'Tenant not found' });
       }
-      if (tenantDoc.data()?.ownerUid !== decodedToken.uid) {
+
+      if (!tenantResponse.ok) {
+        throw new Error(`Failed to fetch tenant: ${tenantResponse.statusText}`);
+      }
+
+      const tenantDoc = await tenantResponse.json();
+      const ownerUid = tenantDoc.fields?.ownerUid?.stringValue;
+
+      if (ownerUid !== decodedToken.uid) {
         return res.status(403).json({ error: 'Forbidden: You do not own this tenant' });
       }
     }
