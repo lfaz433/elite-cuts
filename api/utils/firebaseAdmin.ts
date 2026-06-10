@@ -1,8 +1,10 @@
-import * as admin from 'firebase-admin';
+import { initializeApp, getApps } from 'firebase-admin/app';
+import { getAuth } from 'firebase-admin/auth';
+import { getFirestore } from 'firebase-admin/firestore';
 
 // Initialize the app only once
-if (!admin.apps.length) {
-  admin.initializeApp({
+if (!getApps().length) {
+  initializeApp({
     // Hardcode the Project ID based on the client firebaseConfig. 
     // This allows verifyIdToken to work without needing the full service account private key,
     // which is useful in Vercel Edge/Serverless functions.
@@ -10,5 +12,5 @@ if (!admin.apps.length) {
   });
 }
 
-export const adminAuth = admin.auth();
-export const adminDb = admin.firestore();
+export const adminAuth = getAuth();
+export const adminDb = getFirestore();
