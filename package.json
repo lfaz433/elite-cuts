@@ -43,7 +43,7 @@
     "date-fns": "3.6.0",
     "embla-carousel-react": "8.6.0",
     "firebase": "^12.13.0",
-    "firebase-admin": "^14.0.0",
+    "firebase-admin": "^13.0.0",
     "html5-qrcode": "^2.3.8",
     "input-otp": "1.4.2",
     "leaflet": "^1.9.4",
