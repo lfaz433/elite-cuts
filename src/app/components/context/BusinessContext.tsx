@@ -785,7 +785,9 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   };
 
   const totalExpenses = useMemo(() => {
-    return expenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
+    return expenses
+      .filter(e => e.category !== 'salaire' && !e.isPayroll)
+      .reduce((sum, e) => sum + Number(e.amount || 0), 0);
   }, [expenses]);
 
   const totalDeposits = useMemo(() => {
@@ -811,9 +813,11 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   }, [bookings, sales]);
 
   const totalDepenses = useMemo(() => {
-    return (expenses || []).reduce((sum, e) => {
-      return sum + Number(e.amount || 0);
-    }, 0);
+    return (expenses || [])
+      .filter(e => e.category !== 'salaire' && !e.isPayroll)
+      .reduce((sum, e) => {
+        return sum + Number(e.amount || 0);
+      }, 0);
   }, [expenses]);
 
   const caisseBalance = useMemo(() => {

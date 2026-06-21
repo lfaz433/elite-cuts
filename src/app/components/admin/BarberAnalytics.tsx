@@ -253,6 +253,7 @@ export function BarberAnalytics({ bookings, barbers, services, attendance, isBar
   const totalDepenses = useMemo(() => {
     return (expenses || [])
       .filter(e => {
+        if (e.category === 'salaire' || e.isPayroll) return false;
         if (!e.createdAt) return false;
         try {
           const dateStr = new Date(e.createdAt).toISOString().split('T')[0];
