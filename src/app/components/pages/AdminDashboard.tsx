@@ -1136,7 +1136,26 @@ export default function AdminDashboard() {
 
               {activeTab === 'barbers' && (
                 <motion.div key="barbers" className="space-y-6">
-                  <div className="flex justify-between items-center"><h2 className="text-3xl font-black uppercase">Coiffeurs</h2><button onClick={() => { setEditingBarber(null); setBarberModalOpen(true); }} className="px-6 py-3 bg-[#D4AF37] text-black rounded-2xl font-black text-sm hover:scale-105 transition-all shadow-xl shadow-[#D4AF37]/20 uppercase">Nouveau Coiffeur</button></div>
+                  <div className="flex justify-between items-center">
+                    <h2 className="text-3xl font-black uppercase">Coiffeurs</h2>
+                    <button 
+                      onClick={() => { 
+                        if (services.length === 0) {
+                          toast.error("Veuillez d'abord créer un service.", {
+                            description: "Vous devez ajouter au moins un service avant de pouvoir créer un coiffeur.",
+                            duration: 5000
+                          });
+                          setActiveTab('services');
+                          return;
+                        }
+                        setEditingBarber(null); 
+                        setBarberModalOpen(true); 
+                      }} 
+                      className="px-6 py-3 bg-[#D4AF37] text-black rounded-2xl font-black text-sm hover:scale-105 transition-all shadow-xl shadow-[#D4AF37]/20 uppercase"
+                    >
+                      Nouveau Coiffeur
+                    </button>
+                  </div>
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {barbers.map(barber => (
                       <div key={barber.id} className="bg-[#141414] border border-white/5 p-5 sm:p-6 rounded-[2rem] flex flex-col sm:flex-row gap-5 sm:gap-6 items-center sm:items-start group relative overflow-hidden hover:border-[#D4AF37]/20 transition-all text-center sm:text-left">
