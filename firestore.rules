@@ -89,9 +89,30 @@ service cloud.firestore {
       allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
     }
 
-    // 3. User Profiles Collection (Owner-only access)
+    // 3. User Profiles Collection (Owner-only access, tenant admin access)
     match /users/{userId} {
-      allow read, write: if isSuperAdmin() || (request.auth != null && request.auth.uid == userId);
+      allow read: if isSuperAdmin() 
+        || (request.auth != null && request.auth.uid == userId)
+        || (request.auth != null && getUserData().role == "admin" && (
+             !exists(/databases/$(database)/documents/users/$(userId)) 
+             || get(/databases/$(database)/documents/users/$(userId)).data.tenantId == getUserData().tenantId
+           ));
+      allow write: if isSuperAdmin() 
+        || (request.auth != null && request.auth.uid == userId)
+        || (request.auth != null && getUserData().role == "admin" && (
+             // for updates, verify they belong to the same tenant
+             (exists(/databases/$(database)/documents/users/$(userId)) && get(/databases/$(database)/documents/users/$(userId)).data.tenantId == getUserData().tenantId)
+             ||
+             // for creation, verify the new document has the admin's tenantId
+             (!exists(/databases/$(database)/documents/users/$(userId)) && request.resource.data.tenantId == getUserData().tenantId)
+           ));
+    }
+
+    // 3.5 Audit Logs Collection (Admins can create audit logs, superadmins can manage)
+    match /audit_logs/{logId} {
+      allow read: if isSuperAdmin();
+      allow create: if isSuperAdmin() || (request.auth != null && getUserData().role == "admin");
+      allow update, delete: if isSuperAdmin();
     }
 
     // 4. Notifications Collection

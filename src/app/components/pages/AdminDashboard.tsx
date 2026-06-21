@@ -2266,14 +2266,18 @@ export default function AdminDashboard() {
               await updateBarber(editingBarber.id, data);
               
               // Secure Audit Logging for profile/credentials update
-              await addDoc(collection(db, 'audit_logs'), {
-                action: 'update_barber',
-                barberId: editingBarber.id,
-                barberName: data.name,
-                adminEmail: user?.email || 'admin@test.com',
-                timestamp: new Date().toISOString(),
-                details: 'Barber profile or credentials modified by admin'
-              });
+              try {
+                await addDoc(collection(db, 'audit_logs'), {
+                  action: 'update_barber',
+                  barberId: editingBarber.id,
+                  barberName: data.name,
+                  adminEmail: user?.email || 'admin@test.com',
+                  timestamp: new Date().toISOString(),
+                  details: 'Barber profile or credentials modified by admin'
+                });
+              } catch (auditErr) {
+                console.warn("Audit logging failed (non-fatal):", auditErr);
+              }
             } else {
               let newBarberUid: string | null = null;
               if (data.email && data.password) {
@@ -2311,13 +2315,17 @@ export default function AdminDashboard() {
               await addBarber(data as any);
               
               // Secure Audit Logging for new barber profile/credentials creation
-              await addDoc(collection(db, 'audit_logs'), {
-                action: 'create_barber',
-                barberName: data.name,
-                adminEmail: user?.email || 'admin@test.com',
-                timestamp: new Date().toISOString(),
-                details: 'New barber profile and credentials created by admin'
-              });
+              try {
+                await addDoc(collection(db, 'audit_logs'), {
+                  action: 'create_barber',
+                  barberName: data.name,
+                  adminEmail: user?.email || 'admin@test.com',
+                  timestamp: new Date().toISOString(),
+                  details: 'New barber profile and credentials created by admin'
+                });
+              } catch (auditErr) {
+                console.warn("Audit logging failed (non-fatal):", auditErr);
+              }
 
               // Try to pre-set user profile role for immediate Barber Dashboard routing
               try {
