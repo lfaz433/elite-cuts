@@ -481,7 +481,10 @@ export default function AdminDashboard() {
   // Salon profit = total received - barber commissions - tips (which means totalEncaisse - totalOwedToBarbers)
   const beneficeSalon = useMemo(() => totalEncaisse - totalOwedToBarbers, [totalEncaisse, totalOwedToBarbers]);
 
-  const filteredExpensesTotal = useMemo(() => (expenses || []).filter(e => isDateInRange(getLocalDateStringFromTimestamp(e.createdAt))).reduce((sum, e) => sum + Number(e.amount || 0), 0), [expenses, dateFilter, customDateRange]);
+  const filteredExpensesTotal = useMemo(() => (expenses || [])
+    .filter(e => e.category !== 'salaire' && !e.isPayroll)
+    .filter(e => isDateInRange(getLocalDateStringFromTimestamp(e.createdAt)))
+    .reduce((sum, e) => sum + Number(e.amount || 0), 0), [expenses, dateFilter, customDateRange]);
   const filteredDepositsTotal = useMemo(() => (deposits || []).filter(d => isDateInRange(getLocalDateStringFromTimestamp(d.createdAt))).reduce((sum, d) => sum + Number(d.amount || 0), 0), [deposits, dateFilter, customDateRange]);
   const netAfterExpenses = useMemo(() => beneficeSalon - filteredExpensesTotal + filteredDepositsTotal, [beneficeSalon, filteredExpensesTotal, filteredDepositsTotal]);
 
