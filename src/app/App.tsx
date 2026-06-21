@@ -109,7 +109,7 @@ function AppRoutes() {
       </Route>
       <Route path="/boutique" element={<Navigate to="/" replace />} />
       <Route path="/login" element={<Navigate to="/?login=true" replace />} />
-      <Route path="/onboarding" element={<Onboarding />} />
+      <Route path="/onboarding" element={<AuthRequired><Onboarding /></AuthRequired>} />
       <Route path="/billing" element={<AuthRequired><Billing /></AuthRequired>} />
       <Route path="/superadmin/*" element={<SuperAdminGuard><SuperAdmin /></SuperAdminGuard>} />
       <Route path="/client/*" element={<ProtectedRoute role="client"><ClientDashboard /></ProtectedRoute>} />

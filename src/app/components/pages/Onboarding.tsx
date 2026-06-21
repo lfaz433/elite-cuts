@@ -44,7 +44,13 @@ export default function Onboarding() {
 
   useEffect(() => {
     if (user?.role === 'superadmin') {
-      navigate('/admin', { replace: true });
+      navigate('/superadmin', { replace: true });
+    }
+    if (user?.role === 'barber') {
+      navigate('/barber', { replace: true });
+    }
+    if (user?.role === 'client') {
+      navigate('/client', { replace: true });
     }
   }, [user, navigate]);
 
@@ -389,7 +395,7 @@ export default function Onboarding() {
                   Votre espace a été configuré avec succès. Vous pouvez maintenant accéder à votre tableau de bord d'administration pour gérer les réservations, les collaborateurs et vos services.
                 </p>
                 <button
-                  onClick={() => navigate('/admin')}
+                  onClick={() => navigate(`/${user?.role || 'admin'}`, { replace: true })}
                   className="px-10 py-4 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black rounded-2xl font-black text-sm hover:shadow-xl hover:shadow-[#D4AF37]/30 transition-all uppercase tracking-widest active:scale-95"
                 >
                   Accéder au tableau de bord
