@@ -213,6 +213,7 @@ export default function Register() {
         },
         name: shopName,
         ownerUid: createdUser.uid,
+        onboardingComplete: true, // skip the onboarding wizard — admin goes straight to dashboard
         subscription: {
           status: 'trialing',
           planId: selectedPlan,
@@ -230,6 +231,17 @@ export default function Register() {
         createdAt: Date.now()
       };
       await setDoc(doc(db, 'tenants', newTenantId), tenantData);
+
+      // Pre-populate localStorage so AuthContext resolves role:'admin' immediately
+      // (bypasses the race condition where onAuthStateChanged fires before setDoc completes)
+      localStorage.setItem(`user_profile_${createdUser.uid}`, JSON.stringify({
+        id: createdUser.uid,
+        uid: createdUser.uid,
+        email: cleanEmail,
+        name: ownerName,
+        role: 'admin',
+        tenantId: newTenantId
+      }));
 
       // 7. Force token refresh so downstream calls have fresh claims
       await auth.currentUser?.getIdToken(true);
@@ -264,7 +276,7 @@ export default function Register() {
         toast.success('Votre salon a été configuré avec succès !');
       }
       
-      navigate('/onboarding', { state: { fromRegistration: true } });
+      navigate('/admin', { replace: true });
 
     } catch (err: any) {
       console.error('Registration failure:', err);

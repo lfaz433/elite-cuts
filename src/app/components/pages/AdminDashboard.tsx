@@ -119,6 +119,21 @@ export default function AdminDashboard() {
   } = useBusiness();
   
   const navigate = useNavigate();
+  
+  const getSalonUrl = () => {
+    const hostname = window.location.hostname;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return window.location.origin;
+    }
+    if (hostname.endsWith('.vercel.app')) {
+      return window.location.origin;
+    }
+    const sub = tenant?.subdomain || '';
+    if (!sub || sub === 'elite-cuts-default' || sub === 'platform') {
+      return window.location.origin;
+    }
+    return `https://${sub}.barberboard.pro`;
+  };
   const [activeTab, setActiveTab] = useState(() => {
     const path = window.location.pathname;
     const subpath = path.split('/admin/')[1];
@@ -2039,7 +2054,7 @@ export default function AdminDashboard() {
                         
                         <div className="flex flex-col lg:flex-row gap-8 items-start">
                           <div className="bg-white p-6 rounded-[2rem] shadow-2xl shadow-white/5 flex-shrink-0">
-                            <QRCodeCanvas id="global-qr-code" value={window.location.origin} size={150} />
+                            <QRCodeCanvas id="global-qr-code" value={getSalonUrl()} size={150} />
                           </div>
                           
                           <div className="space-y-6 flex-1 w-full">
@@ -2100,10 +2115,10 @@ export default function AdminDashboard() {
                             <div className="pt-6 border-t border-white/5">
                               <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Lien Direct du Salon</label>
                               <div className="flex gap-2">
-                                <input readOnly value={window.location.origin} className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none text-white/60 font-medium text-sm" />
+                                <input readOnly value={getSalonUrl()} className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none text-white/60 font-medium text-sm" />
                                 <button 
                                   onClick={() => {
-                                    navigator.clipboard.writeText(window.location.origin);
+                                    navigator.clipboard.writeText(getSalonUrl());
                                     toast.success('Lien copié dans le presse-papier');
                                   }} 
                                   className="p-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-colors"
@@ -2117,10 +2132,10 @@ export default function AdminDashboard() {
                                       navigator.share({
                                         title: businessInfo.name || 'Barberboard',
                                         text: 'Prenez rendez-vous dans notre salon premium !',
-                                        url: window.location.origin,
+                                        url: getSalonUrl(),
                                       }).catch(console.error);
                                     } else {
-                                      navigator.clipboard.writeText(window.location.origin);
+                                      navigator.clipboard.writeText(getSalonUrl());
                                       toast.success('Lien copié ! (Partage non supporté)');
                                     }
                                   }} 

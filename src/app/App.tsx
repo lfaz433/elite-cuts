@@ -54,9 +54,7 @@ function ProtectedRoute({ children, role }: { children: React.ReactNode; role?: 
   
   if (role && user.role !== role) return <Navigate to="/" replace />;
   
-  if (user.role === 'admin' && !tenant.onboardingComplete) {
-    return <Navigate to="/onboarding" replace />;
-  }
+
   
   return <>{children}</>;
 }
