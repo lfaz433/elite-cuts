@@ -278,7 +278,17 @@ export default function Register() {
         toast.success('Votre salon a été configuré avec succès !');
       }
       
-      navigate('/admin', { replace: true });
+      const hostname = window.location.hostname;
+      if (
+        hostname === 'localhost' ||
+        hostname === '127.0.0.1' ||
+        hostname.endsWith('.vercel.app')
+      ) {
+        navigate('/admin', { replace: true });
+      } else {
+        // Redirect to the salon's subdomain admin dashboard in production
+        window.location.href = `https://${subdomain}.barberboard.pro/admin`;
+      }
 
     } catch (err: any) {
       console.error('Registration failure:', err);
