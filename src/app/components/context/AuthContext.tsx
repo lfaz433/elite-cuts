@@ -62,7 +62,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // 3. Fresh Fetch
           const profilePromise = (async () => {
             // Fetch user profile first to know their true home tenant
-            const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid)).catch(() => null);
+            let userDoc = await getDoc(doc(db, 'users', firebaseUser.uid)).catch(() => null);
+            if (!userDoc?.exists()) {
+              // Retry once after 600ms in case of new registration write delay
+              await new Promise(resolve => setTimeout(resolve, 600));
+              userDoc = await getDoc(doc(db, 'users', firebaseUser.uid)).catch(() => null);
+            }
             const userData = userDoc?.exists() ? userDoc.data() : {};
 
             // Global query for barbers to find their home tenant

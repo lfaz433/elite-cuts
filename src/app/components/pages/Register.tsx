@@ -176,6 +176,17 @@ export default function Register() {
       const userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, ownerPassword);
       createdUser = userCredential.user;
 
+      // Pre-populate localStorage immediately so that AuthContext's onAuthStateChanged (which fires asynchronously
+      // in the next tick) resolves role: 'admin' right away.
+      localStorage.setItem(`user_profile_${createdUser.uid}`, JSON.stringify({
+        id: createdUser.uid,
+        uid: createdUser.uid,
+        email: cleanEmail,
+        name: ownerName,
+        role: 'admin',
+        tenantId: newTenantId
+      }));
+
       // 3. Update displayName in Firebase Auth profile
       await updateProfile(createdUser, { displayName: ownerName });
 
@@ -232,16 +243,7 @@ export default function Register() {
       };
       await setDoc(doc(db, 'tenants', newTenantId), tenantData);
 
-      // Pre-populate localStorage so AuthContext resolves role:'admin' immediately
-      // (bypasses the race condition where onAuthStateChanged fires before setDoc completes)
-      localStorage.setItem(`user_profile_${createdUser.uid}`, JSON.stringify({
-        id: createdUser.uid,
-        uid: createdUser.uid,
-        email: cleanEmail,
-        name: ownerName,
-        role: 'admin',
-        tenantId: newTenantId
-      }));
+
 
       // 7. Force token refresh so downstream calls have fresh claims
       await auth.currentUser?.getIdToken(true);
