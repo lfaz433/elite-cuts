@@ -49,7 +49,7 @@ import { toast } from 'sonner';
 import { QRCodeCanvas } from 'qrcode.react';
 import type { Barber, Service, Product } from '../context/BusinessContext';
 import { db } from '../../lib/firebase';
-import { collection, query, where, getDocs, updateDoc, doc, addDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, updateDoc, doc, addDoc, setDoc } from 'firebase/firestore';
 import { usePagination } from '../../hooks/usePagination';
 import { PaginationBar } from '../ui/PaginationBar';
 import NotificationCenter from '../ui/NotificationCenter';
@@ -2241,18 +2241,37 @@ export default function AdminDashboard() {
                 details: 'Barber profile or credentials modified by admin'
               });
             } else {
+              let newBarberUid: string | null = null;
               if (data.email && data.password) {
                 try {
-                  await Promise.race([
+                  const authResult = await Promise.race([
                     createBarberAccount(data.email, data.password),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error("Auth Timeout")), 35000))
+                    new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Auth Timeout")), 35000))
                   ]);
+                  newBarberUid = (authResult as any)?.uid ?? null;
                 } catch (err: any) {
                   if (err.code === 'auth/email-already-in-use') {
                     console.warn("Email already in use");
                   } else if (err.message === "Auth Timeout") {
                     console.warn("Auth creation taking time, proceeding...");
                   } else throw err;
+                }
+              }
+
+              // Pre-create users/{uid} so barber reaches their dashboard on first login
+              if (newBarberUid) {
+                try {
+                  await setDoc(doc(db, 'users', newBarberUid), {
+                    uid: newBarberUid,
+                    email: data.email,
+                    name: data.name,
+                    role: 'barber',
+                    tenantId: tenant.tenantId,
+                    onboardingComplete: true,
+                    createdAt: new Date(),
+                  });
+                } catch (e) {
+                  console.warn("Could not pre-create barber user profile:", e);
                 }
               }
               await addBarber(data as any);

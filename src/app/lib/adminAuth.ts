@@ -15,8 +15,10 @@ export const createBarberAccount = async (email: string, password: string) => {
     const secondaryAuth = getAuth(secondaryApp);
 
     // 2. Wrap creation in a timeout to prevent infinite hanging
+    let newUid: string | null = null;
     const creationPromise = (async () => {
-      await createUserWithEmailAndPassword(secondaryAuth, email, password);
+      const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, password);
+      newUid = userCredential.user.uid;
       await signOut(secondaryAuth);
     })();
 
@@ -25,7 +27,7 @@ export const createBarberAccount = async (email: string, password: string) => {
       new Promise((_, reject) => setTimeout(() => reject(new Error("Auth Timeout")), 35000))
     ]);
     
-    return { success: true };
+    return { success: true, uid: newUid };
   } catch (error: any) {
     console.error("Error creating barber account:", error);
     throw error;
