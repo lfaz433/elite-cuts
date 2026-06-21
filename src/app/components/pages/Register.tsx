@@ -172,7 +172,8 @@ export default function Register() {
       const newTenantId = doc(collection(db, 'tenants')).id;
 
       // 2. Create Firebase Auth user
-      const userCredential = await createUserWithEmailAndPassword(auth, ownerEmail, ownerPassword);
+      const cleanEmail = ownerEmail.trim().toLowerCase();
+      const userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, ownerPassword);
       createdUser = userCredential.user;
 
       // 3. Update displayName in Firebase Auth profile
@@ -182,7 +183,7 @@ export default function Register() {
       //    Firestore write, because Security Rules use getUserData() to verify identity.
       const userProfile = {
         uid: createdUser.uid,
-        email: ownerEmail.trim().toLowerCase(),
+        email: cleanEmail,
         name: ownerName,
         role: 'admin',
         tenantId: newTenantId,
