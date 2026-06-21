@@ -264,7 +264,7 @@ export default function Register() {
         toast.success('Votre salon a été configuré avec succès !');
       }
       
-      navigate('/onboarding');
+      navigate('/onboarding', { state: { fromRegistration: true } });
 
     } catch (err: any) {
       console.error('Registration failure:', err);

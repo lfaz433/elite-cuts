@@ -5,7 +5,7 @@ import { Scissors, Check, ArrowRight, ArrowLeft, Loader2, Sparkles, UserPlus, Fi
 import { doc, updateDoc, addDoc, collection } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { useTenant } from '../context/TenantContext';
-import { useNavigate } from 'react-router';
+import { useNavigate, useLocation } from 'react-router';
 import { toast } from 'sonner';
 
 import { useAuth } from '../context/AuthContext';
@@ -28,6 +28,7 @@ interface DayConfig {
 
 export default function Onboarding() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { tenantId: urlTenantId } = useTenant();
   const { user, isLoading: authLoading } = useAuth();
   const [step, setStep] = useState(1);
@@ -42,7 +43,16 @@ export default function Onboarding() {
   // True if we are still waiting for the auth context to resolve a real tenantId
   const isResolvingTenant = authLoading || !activeTenantId || activeTenantId === 'platform';
 
+  // When an admin just registered, AuthContext may not have resolved the real role yet
+  // (race condition: onAuthStateChanged getDoc fires before Register's setDoc completes).
+  // The fromRegistration flag tells us to trust the user is an admin and skip the redirect.
+  const fromRegistration = location.state?.fromRegistration === true;
+
   useEffect(() => {
+    // Never redirect while auth is still loading
+    if (authLoading) return;
+    // Never redirect a freshly registered admin — their role resolves asynchronously
+    if (fromRegistration) return;
     if (user?.role === 'superadmin') {
       navigate('/superadmin', { replace: true });
     }
@@ -52,7 +62,7 @@ export default function Onboarding() {
     if (user?.role === 'client') {
       navigate('/client', { replace: true });
     }
-  }, [user, navigate]);
+  }, [user, authLoading, fromRegistration, navigate]);
 
   useEffect(() => {
     getAuth().currentUser?.getIdToken(true);
