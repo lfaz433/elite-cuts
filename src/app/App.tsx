@@ -87,7 +87,9 @@ function HomeRouter() {
     hostname === '127.0.0.1' ||
     hostname.endsWith('.vercel.app') ||
     hostname === 'barberboard.pro' ||
-    hostname === 'www.barberboard.pro';
+    hostname === 'www.barberboard.pro' ||
+    hostname === 'barbeboard.pro' ||
+    hostname === 'www.barbeboard.pro';
   
   if (isMainDomain) {
     return <HomePage />;

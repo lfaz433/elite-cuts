@@ -39,14 +39,16 @@ function extractSubdomain(hostname: string): string {
     hostname === '127.0.0.1' ||
     hostname.endsWith('.vercel.app') ||
     hostname === 'barberboard.pro' ||
-    hostname === 'www.barberboard.pro'
+    hostname === 'www.barberboard.pro' ||
+    hostname === 'barbeboard.pro' ||
+    hostname === 'www.barbeboard.pro'
   ) {
     return 'elite-cuts-default';
   }
-  if (hostname === 'demo.barberboard.pro') {
+  if (hostname === 'demo.barberboard.pro' || hostname === 'demo.barbeboard.pro') {
     return 'demo';
   }
-  if (hostname.endsWith('.barberboard.pro')) {
+  if (hostname.endsWith('.barberboard.pro') || hostname.endsWith('.barbeboard.pro')) {
     return hostname.split('.')[0];
   }
   return 'elite-cuts-default';

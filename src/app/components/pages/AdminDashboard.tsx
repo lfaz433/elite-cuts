@@ -115,7 +115,7 @@ export default function AdminDashboard() {
     resetBarberBalance, seedDatabase, gallery,
     expenses, caisseBalance, totalExpenses, deposits, totalDeposits,
     payrollRequests, payrollPayments, getBarberWalletBalance, sendPush,
-    resetAllBalances
+    resetAllBalances, loading
   } = useBusiness();
   
   const navigate = useNavigate();
@@ -132,7 +132,8 @@ export default function AdminDashboard() {
     if (!sub || sub === 'elite-cuts-default' || sub === 'platform') {
       return window.location.origin;
     }
-    return `https://${sub}.barberboard.pro`;
+    const baseDomain = hostname.includes('barbeboard.pro') ? 'barbeboard.pro' : 'barberboard.pro';
+    return `https://${sub}.${baseDomain}`;
   };
   const [activeTab, setActiveTab] = useState(() => {
     const path = window.location.pathname;
@@ -548,6 +549,19 @@ export default function AdminDashboard() {
     name: String(barber.name || ''),
     total: approvedBookings.filter(b => b.barberId === barber.id).length
   })), [barbers, approvedBookings]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-black flex flex-col items-center justify-center gap-4">
+        <div className="relative">
+          <div className="w-16 h-16 border-4 border-[#D4AF37]/20 rounded-full" />
+          <div className="w-16 h-16 border-4 border-t-[#D4AF37] rounded-full animate-spin absolute inset-0" />
+          <Scissors className="w-6 h-6 text-[#D4AF37] absolute inset-0 m-auto" />
+        </div>
+        <p className="text-white/40 text-sm tracking-widest uppercase">Chargement...</p>
+      </div>
+    );
+  }
 
   const handleLogout = () => { logout(); navigate('/'); };
 
