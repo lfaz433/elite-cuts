@@ -49,7 +49,7 @@ import { toast } from 'sonner';
 import { QRCodeCanvas } from 'qrcode.react';
 import type { Barber, Service, Product } from '../context/BusinessContext';
 import { db } from '../../lib/firebase';
-import { collection, query, where, getDocs, updateDoc, doc, addDoc, setDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, updateDoc, doc, addDoc, setDoc, getDoc } from 'firebase/firestore';
 import { usePagination } from '../../hooks/usePagination';
 import { PaginationBar } from '../ui/PaginationBar';
 import NotificationCenter from '../ui/NotificationCenter';
@@ -150,6 +150,29 @@ export default function AdminDashboard() {
       navigate(`/admin/${activeTab}`, { replace: true });
     }
   }, [activeTab, navigate]);
+
+  // Auto-heal admin user document if tenantId is missing or incorrectly set to 'platform'
+  useEffect(() => {
+    if (user && tenant && tenant.tenantId && tenant.tenantId !== 'platform') {
+      const checkAndHeal = async () => {
+        try {
+          const userDocRef = doc(db, 'users', user.uid);
+          const userDocSnap = await getDoc(userDocRef);
+          if (userDocSnap.exists()) {
+            const data = userDocSnap.data();
+            if (!data.tenantId || data.tenantId === 'platform') {
+              await updateDoc(userDocRef, { tenantId: tenant.tenantId });
+              console.log(`[AdminDashboard] Auto-healed tenantId for user ${user.uid} to ${tenant.tenantId}`);
+              toast.success("Permissions synchronisées avec succès !");
+            }
+          }
+        } catch (e) {
+          console.error("Auto-heal check failed:", e);
+        }
+      };
+      checkAndHeal();
+    }
+  }, [user, tenant]);
 
   // Deep linking logic for highlighting and scrolling to reservations
   useEffect(() => {
@@ -2091,27 +2114,6 @@ export default function AdminDashboard() {
                         </div>
                       </div>
 
-                      <div className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem]">
-                        <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-4">Logo du Salon</label>
-                        <div className="flex items-center gap-8">
-                           <div className="w-24 h-24 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center overflow-hidden">
-                              {businessInfo.logo ? <img src={businessInfo.logo} className="w-full h-full object-contain p-2" /> : <Scissors className="w-8 h-8 text-white/10" />}
-                           </div>
-                           <label className="px-6 py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl font-bold text-sm cursor-pointer transition-colors">
-                              Modifier le Logo
-                              <input type="file" className="hidden" accept="image/*" onChange={async (e) => {
-                                 const file = e.target.files?.[0];
-                                 if (file) {
-                                    const url = await handleImageUpload(file);
-                                    updateBusinessInfo({ logo: url });
-                                    toast.success('Logo mis à jour');
-                                 }
-                              }} />
-                           </label>
-                        </div>
-                        </div>
-                      </div>
-
                       {/* Global QR & Share */}
                       <div className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem]">
                         <h3 className="text-xl font-bold mb-6 flex items-center gap-3">
@@ -2219,6 +2221,7 @@ export default function AdminDashboard() {
                         </div>
                       </div>
                     </div>
+                  </div>
 
                   {/* Danger Zone */}
                   {/* Danger Zone */}

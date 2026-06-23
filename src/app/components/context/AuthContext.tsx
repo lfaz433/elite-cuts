@@ -6,7 +6,7 @@ import {
   onAuthStateChanged,
   updateProfile
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, query, where, getDocs, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../../lib/firebase';
 import { useTenant } from './TenantContext';
 
@@ -102,7 +102,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const barberData = barberDoc?.data();
             const barberId = barberDoc?.id;
 
-            const activeTenantId = userData.tenantId || barberData?.tenantId || tenantId;
+            let resolvedTenantId = userData.tenantId || barberData?.tenantId || tenantId;
+
+            // Auto-resolve tenantId from tenants collection if current resolution is missing or 'platform'
+            if ((!resolvedTenantId || resolvedTenantId === 'platform') && firebaseUser.uid) {
+              try {
+                const tenantsRef = collection(db, 'tenants');
+                const q = query(tenantsRef, where('ownerUid', '==', firebaseUser.uid));
+                const qSnap = await getDocs(q);
+                if (!qSnap.empty) {
+                  resolvedTenantId = qSnap.docs[0].id;
+                  console.log(`[Auth] Auto-resolved tenantId from tenants ownerUid query: ${resolvedTenantId}`);
+                }
+              } catch (err) {
+                console.error("[Auth] Error fetching tenant by ownerUid:", err);
+              }
+            }
+
+            const activeTenantId = resolvedTenantId;
 
             // Resolve Role with strict priority:
             // 1. If users/{uid} doc explicitly says 'barber' → ALWAYS barber (set by admin at creation)
@@ -143,6 +160,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 console.error("Could not auto-create barber user profile:", e);
               }
             }
+            
+            // Auto-heal admin / client user document if tenantId is missing or incorrectly set to 'platform'
+            if (userDoc?.exists() && (!userData.tenantId || userData.tenantId === 'platform') && activeTenantId && activeTenantId !== 'platform') {
+              try {
+                await updateDoc(doc(db, 'users', firebaseUser.uid), {
+                  tenantId: activeTenantId
+                });
+                userData.tenantId = activeTenantId;
+                console.log(`[Auth] Auto-healed tenantId for user ${firebaseUser.uid} to ${activeTenantId}`);
+              } catch (e) {
+                console.error("Could not auto-heal user tenantId:", e);
+              }
+            }
+            
             
             const fullProfile: User = {
               id: firebaseUser.uid,
