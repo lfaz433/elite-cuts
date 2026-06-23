@@ -350,10 +350,6 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     }, () => markLoaded('businessInfo'));
 
     const unsubBookings = onSnapshot(query(collection(db, 'bookings'), where('tenantId', '==', tenantId)), (snapshot) => {
-      console.log('=== BOOKINGS SNAPSHOT ===');
-      console.log('Total docs:', snapshot.docs.length);
-      console.log('Completed docs:', snapshot.docs.filter(d => d.data().status === 'completed').length);
-      console.log('TenantId filter:', tenantId);
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Booking));
       setBookings(data);
       markLoaded();
@@ -829,7 +825,8 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   }, [totalRevenus, totalDeposits, totalDepenses, payrollPayments]);
 
   const completedBookings = useMemo(() => {
-    return bookings.filter(b => b.status === 'completed' || b.status === 'approved');
+    // Only 'completed' bookings represent real paid revenue — 'approved' are pending appointments
+    return bookings.filter(b => b.status === 'completed');
   }, [bookings]);
 
   const totalSales = useMemo(() => {

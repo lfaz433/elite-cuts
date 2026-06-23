@@ -5,11 +5,13 @@ import { useAuth } from './context/AuthContext';
 
 export default function SubscriptionGuard({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
+  // Both hooks must be called unconditionally — React Rules of Hooks
+  const tenant = useTenant();
+
+  // Superadmin bypasses subscription checks entirely
   if (user?.role === 'superadmin') {
     return <>{children}</>;
   }
-
-  const tenant = useTenant();
 
   if (tenant.isLoading) {
     return (

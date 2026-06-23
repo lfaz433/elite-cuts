@@ -58,6 +58,10 @@ const WalkInModal = ({ onClose, services, currentBarber, commissionRate, addBook
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedServiceId) return;
+    if (!currentBarber) {
+      toast.error("Erreur: profil coiffeur introuvable.");
+      return;
+    }
 
     // Build local YYYY-MM-DD date string to avoid UTC midnight timezone bug
     const _now = new Date();
@@ -82,9 +86,6 @@ const WalkInModal = ({ onClose, services, currentBarber, commissionRate, addBook
       paymentStatus: 'paid' as const,
     };
     
-    console.log('Walk-in tenantId:', currentBarber?.tenantId);
-    console.log('Walk-in booking:', newBooking);
-    
     try {
       addBooking(newBooking);
       toast.custom((t) => (
@@ -99,9 +100,10 @@ const WalkInModal = ({ onClose, services, currentBarber, commissionRate, addBook
         onClose();
       }, 1500);
     } catch (error: any) {
-      alert("ERREUR: " + error.message);
+      toast.error("Erreur: " + (error.message || 'Une erreur est survenue'));
     }
   };
+
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
@@ -212,7 +214,7 @@ export default function BarberDashboard() {
   const [activeTab, setActiveTab] = useState(() => {
     const path = window.location.pathname;
     const subpath = path.split('/barber/')[1];
-    const allowed = ['dashboard', 'reservations', 'boutique', 'horaires'];
+    const allowed = ['dashboard', 'reservations', 'boutique', 'horaires', 'rapports'];
     return (subpath && allowed.includes(subpath)) ? subpath : 'dashboard';
   });
 

@@ -1,0 +1,13 @@
+{
+  "name": "Le Double Face",
+  "short_name": "Double Face",
+  "description": "Le Double Face — Restaurant Gastronomique à Grenoble. Sur place ou à emporter.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1a1a1a",
+  "theme_color": "#c9a84c",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "/spotlight-icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

@@ -421,15 +421,8 @@ export default function AdminDashboard() {
 
   // Only count COMPLETED bookings (approved bookings have no pricePaid yet)
   const completedBookings = useMemo(() => {
-    const completed = filteredBookings.filter(b => b.status === 'completed');
-    console.log('=== ADMIN REVENUE DEBUG ===');
-    console.log('Total bookings in context:', (bookings || []).length);
-    console.log('Completed bookings:', completed.length);
-    console.log('Completed booking sample:', completed[0]);
-    console.log('tenantId:', tenant?.tenantId);
-    console.log('All booking statuses:', (bookings || []).map(b => b.status));
-    return completed;
-  }, [bookings, filteredBookings, tenant]);
+    return filteredBookings.filter(b => b.status === 'completed');
+  }, [bookings, filteredBookings]);
 
   // Keep approvedBookings for charts/performance (approved + completed)
   const approvedBookings = useMemo(() => filteredBookings.filter(b => b.status === 'completed' || b.status === 'approved'), [filteredBookings]);
@@ -459,11 +452,7 @@ export default function AdminDashboard() {
   const totalReceived = totalEncaisse; // Alias for compatibility
   const totalRevenue = totalReceived; // Alias for compatibility
 
-  useEffect(() => {
-    console.log('serviceRevenue:', serviceRevenue);
-    console.log('productRevenue:', productRevenue);
-    console.log('totalEncaisse:', totalEncaisse);
-  }, [serviceRevenue, productRevenue, totalEncaisse]);
+
 
   // Total tips (paid to barbers from caisse)
   const totalTips = useMemo(() => completedBookings.reduce((sum, b) => sum + Number(b.tip || 0), 0), [completedBookings]);
@@ -529,60 +518,43 @@ export default function AdminDashboard() {
   );
 
   const handlePayrollApprove = async (request: any, approvedAmount: number) => {
+    // Resolve tenantId — tenant?.tenantId is the correct field (not tenant?.id)
+    const resolvedTenantId = request.tenantId || tenant?.tenantId || '';
+    
     try {
-      console.log('Approving request:', request.id, 'amount:', approvedAmount);
-      
-      // Step 1: Update request status
-      try {
-        console.log('Executing Step 1: Update request status...');
-        await updateDoc(doc(db, 'payroll_requests', request.id), {
-          status: 'approved',
-          approvedAmount: Number(approvedAmount),
-          processedAt: Date.now(),
-          processedBy: user?.uid,
-        });
-        console.log('Step 1 done - request updated');
-      } catch (err) {
-        console.error('Error in Step 1:', err);
-      }
+      // Step 1: Update request status — must succeed before creating payment
+      await updateDoc(doc(db, 'payroll_requests', request.id), {
+        status: 'approved',
+        approvedAmount: Number(approvedAmount),
+        processedAt: Date.now(),
+        processedBy: user?.uid,
+      });
       
       // Step 2: Create payment record
-      try {
-        console.log('Executing Step 2: Create payment record...');
-        await addDoc(collection(db, 'payroll_payments'), {
-          tenantId: request.tenantId || tenant?.id || '',
-          barberId: request.barberId,
-          barberName: request.barberName,
-          amount: Number(approvedAmount),
-          requestId: request.id,
-          paidAt: Date.now(),
-          paidBy: user?.uid || '',
-        });
-        console.log('Step 2 done - payment created');
-      } catch (err) {
-        console.error('Error in Step 2:', err);
-      }
+      await addDoc(collection(db, 'payroll_payments'), {
+        tenantId: resolvedTenantId,
+        barberId: request.barberId,
+        barberName: request.barberName,
+        amount: Number(approvedAmount),
+        requestId: request.id,
+        paidAt: Date.now(),
+        paidBy: user?.uid || '',
+      });
       
-      // Step 3: Create expense
-      try {
-        console.log('Executing Step 3: Create expense...');
-        await addDoc(collection(db, 'expenses'), {
-          tenantId: request.tenantId || tenant?.id || '',
-          title: `Salaire — ${request.barberName}`,
-          amount: Number(approvedAmount),
-          category: 'salaire',
-          description: `Paiement approuvé #${request.id}`,
-          createdAt: Date.now(),
-          createdBy: user?.uid || '',
-          createdByName: user?.displayName || user?.email || 'Admin',
-          isPayroll: true,
-        });
-        console.log('Step 3 done - expense created');
-      } catch (err) {
-        console.error('Error in Step 3:', err);
-      }
+      // Step 3: Create expense entry
+      await addDoc(collection(db, 'expenses'), {
+        tenantId: resolvedTenantId,
+        title: `Salaire — ${request.barberName}`,
+        amount: Number(approvedAmount),
+        category: 'salaire',
+        description: `Paiement approuvé #${request.id}`,
+        createdAt: Date.now(),
+        createdBy: user?.uid || '',
+        createdByName: user?.displayName || user?.email || 'Admin',
+        isPayroll: true,
+      });
       
-      // Step 4: Notify barber
+      // Step 4: Notify barber (non-fatal — push failure must not break the flow)
       await sendPush(
         request.barberId,
         '✅ Paiement approuvé',
@@ -592,7 +564,7 @@ export default function AdminDashboard() {
 
       toast.success('Paiement approuvé');
     } catch (error: any) {
-      console.error('APPROVAL ERROR:', error.code, error.message);
+      console.error('Payroll approval error:', error.code, error.message);
       toast.error("Erreur lors de l'approbation");
       throw error;
     }
