@@ -30,6 +30,12 @@ service cloud.firestore {
         || isMemberOfTenant(tenantId)
         || (request.auth != null && request.resource.data.ownerUid == request.auth.uid);
       allow update, delete: if isSuperAdmin() || isMemberOfTenant(tenantId);
+      
+      // 1.1 Per-tenant business info subcollection
+      match /businessInfo/{docId} {
+        allow read: if true; // Public: needed for landing page branding
+        allow write: if isSuperAdmin() || isMemberOfTenant(tenantId);
+      }
     }
 
     // 1.5 Subdomains Reservation Collection
@@ -138,13 +144,18 @@ service cloud.firestore {
       allow read, write: if isSuperAdmin();
     }
 
-    // 6. Unmigrated / Legacy Collections
+    // 6. Attendance (tenant-scoped)
     match /attendance/{document=**} {
-      allow read, write: if false;
+      allow read: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
+      allow update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
     }
 
+    // 7. Settlements (tenant-scoped)
     match /settlements/{document=**} {
-      allow read, write: if false;
+      allow read: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
+      allow update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
     }
 
     match /business/{document=**} {

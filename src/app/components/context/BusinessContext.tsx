@@ -343,8 +343,9 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       markLoaded('barbers');
     }, () => markLoaded('barbers'));
 
-    const unsubInfo = onSnapshot(doc(db, 'business', 'info'), (doc) => {
-      if (doc.exists()) setBusinessInfo(doc.data() as BusinessInfo);
+    // Business info is stored per-tenant under tenants/{tenantId}/businessInfo/info
+    const unsubInfo = onSnapshot(doc(db, 'tenants', tenantId, 'businessInfo', 'info'), (snap) => {
+      if (snap.exists()) setBusinessInfo(snap.data() as BusinessInfo);
       markLoaded('businessInfo');
     }, () => markLoaded('businessInfo'));
 
@@ -380,12 +381,12 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       markLoaded();
     }, () => markLoaded());
 
-    const unsubAttendance = onSnapshot(query(collection(db, 'attendance')), (snapshot) => {
+    const unsubAttendance = onSnapshot(query(collection(db, 'attendance'), where('tenantId', '==', tenantId)), (snapshot) => {
       setAttendance(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Attendance)));
       markLoaded();
     }, () => markLoaded());
 
-    const unsubSettlements = onSnapshot(query(collection(db, 'settlements')), (snapshot) => {
+    const unsubSettlements = onSnapshot(query(collection(db, 'settlements'), where('tenantId', '==', tenantId)), (snapshot) => {
       setSettlements(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Settlement)));
       markLoaded();
     }, () => markLoaded());
@@ -615,11 +616,12 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   };
 
   const updateBusinessInfo = async (info: Partial<BusinessInfo>) => {
-    await setDoc(doc(db, 'business', 'info'), { ...businessInfo, ...info }, { merge: true });
+    // Write to tenant-scoped path to keep each salon's data isolated
+    await setDoc(doc(db, 'tenants', tenantId, 'businessInfo', 'info'), { ...businessInfo, ...info }, { merge: true });
   };
 
   const addToGallery = async (url: string) => {
-    await addDoc(collection(db, 'gallery'), { url });
+    await addDoc(collection(db, 'gallery'), { url, tenantId });
   };
 
   const removeFromGallery = async (id: string) => {
@@ -632,7 +634,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   };
 
   const addProduct = async (product: Omit<Product, 'id'>) => {
-    await addDoc(collection(db, 'products'), product);
+    await addDoc(collection(db, 'products'), { ...product, tenantId });
   };
 
   const updateProduct = async (id: string, updated: Partial<Product>) => {
@@ -677,12 +679,13 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   };
 
   const addAttendance = async (record: Omit<Attendance, 'id'>) => {
-    await addDoc(collection(db, 'attendance'), record);
+    await addDoc(collection(db, 'attendance'), { ...record, tenantId });
   };
 
   const addSettlement = async (settlement: Omit<Settlement, 'id' | 'createdAt'>) => {
     await addDoc(collection(db, 'settlements'), {
       ...settlement,
+      tenantId,
       createdAt: new Date().toISOString()
     });
   };
