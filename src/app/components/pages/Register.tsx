@@ -286,8 +286,8 @@ export default function Register() {
       ) {
         navigate('/admin', { replace: true });
       } else {
-        // Redirect to the salon's subdomain admin dashboard in production
-        const baseDomain = hostname.includes('barbeboard.pro') ? 'barbeboard.pro' : 'barberboard.pro';
+        // Always redirect to 'barbeboard.pro' in production since it has wildcard subdomains configured on Vercel
+        const baseDomain = 'barbeboard.pro';
         window.location.href = `https://${subdomain}.${baseDomain}/admin`;
       }
 

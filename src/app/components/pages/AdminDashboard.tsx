@@ -132,7 +132,8 @@ export default function AdminDashboard() {
     if (!sub || sub === 'elite-cuts-default' || sub === 'platform') {
       return window.location.origin;
     }
-    const baseDomain = hostname.includes('barbeboard.pro') ? 'barbeboard.pro' : 'barberboard.pro';
+    // Always use 'barbeboard.pro' in production for subdomains since it has working wildcard subdomains on Vercel
+    const baseDomain = 'barbeboard.pro';
     return `https://${sub}.${baseDomain}`;
   };
   const [activeTab, setActiveTab] = useState(() => {
