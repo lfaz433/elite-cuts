@@ -233,9 +233,9 @@ export default function AdminDashboard() {
 
       await updateBusinessInfo(updated);
       toast.success('Paramètres enregistrés avec succès !');
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error saving settings:', err);
-      toast.error('Erreur lors de l\'enregistrement des paramètres');
+      toast.error(`Erreur lors de l'enregistrement des paramètres : ${err?.message || err}`);
     } finally {
       setIsSavingSettings(false);
     }
@@ -1284,7 +1284,7 @@ export default function AdminDashboard() {
                     <h2 className="text-3xl font-black uppercase">Boutique</h2>
                     <div className="flex flex-wrap gap-3">
                       <a
-                        href="/boutique"
+                        href={`${getSalonUrl()}/boutique`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="px-5 py-3 bg-white/5 border border-white/10 text-white/70 hover:text-white hover:border-white/30 rounded-2xl font-black text-sm transition-all flex items-center gap-2"
@@ -2082,11 +2082,11 @@ export default function AdminDashboard() {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                           <div>
                             <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">En Semaine (Lun-Ven)</label>
-                            <input id="settings-weekdays" defaultValue={businessInfo.hours.weekdays} onBlur={(e) => updateBusinessInfo({ hours: { ...businessInfo.hours, weekdays: e.target.value } })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" placeholder="ex: 9h-19h" />
+                            <input id="settings-weekdays" defaultValue={businessInfo.hours?.weekdays || ''} onBlur={(e) => updateBusinessInfo({ hours: { ...(businessInfo.hours || {}), weekdays: e.target.value } })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" placeholder="ex: 9h-19h" />
                           </div>
                           <div>
                             <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Week-end (Sam-Dim)</label>
-                            <input id="settings-weekends" defaultValue={businessInfo.hours.weekends} onBlur={(e) => updateBusinessInfo({ hours: { ...businessInfo.hours, weekends: e.target.value } })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" placeholder="ex: 10h-17h" />
+                            <input id="settings-weekends" defaultValue={businessInfo.hours?.weekends || ''} onBlur={(e) => updateBusinessInfo({ hours: { ...(businessInfo.hours || {}), weekends: e.target.value } })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" placeholder="ex: 10h-17h" />
                           </div>
                         </div>
                       </div>

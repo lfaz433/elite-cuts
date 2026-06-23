@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { ImageIcon, Save, Plus, X, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
@@ -6,6 +6,12 @@ import { toast } from 'sonner';
 export const BrandingSection = ({ businessInfo, updateBusinessInfo, handleImageUpload }: any) => {
   const [formData, setFormData] = useState(businessInfo);
   const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (businessInfo) {
+      setFormData(businessInfo);
+    }
+  }, [businessInfo]);
 
   const currentStats = formData.stats || [
     { id: 'experience', label: "Années d'expérience", value: '15+', enabled: true },
@@ -25,6 +31,9 @@ export const BrandingSection = ({ businessInfo, updateBusinessInfo, handleImageU
     try {
       await updateBusinessInfo(formData);
       toast.success("Design mis à jour !");
+    } catch (err: any) {
+      console.error('Error updating design/branding:', err);
+      toast.error("Erreur lors de la mise à jour du design : " + (err?.message || err));
     } finally {
       setIsSaving(false);
     }
