@@ -186,6 +186,59 @@ export default function AdminDashboard() {
   const [barberFilter, setBarberFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'completed' | 'rejected'>('all');
   const [isSaving, setIsSaving] = useState(false);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+
+  const handleSaveSettings = async () => {
+    setIsSavingSettings(true);
+    try {
+      const nameInput = document.getElementById('settings-name') as HTMLInputElement;
+      const phoneInput = document.getElementById('settings-phone') as HTMLInputElement;
+      const emailInput = document.getElementById('settings-email') as HTMLInputElement;
+      const addressInput = document.getElementById('settings-address') as HTMLInputElement;
+      const instagramInput = document.getElementById('settings-instagram') as HTMLInputElement;
+      const tiktokInput = document.getElementById('settings-tiktok') as HTMLInputElement;
+      const facebookInput = document.getElementById('settings-facebook') as HTMLInputElement;
+      const websiteInput = document.getElementById('settings-website') as HTMLInputElement;
+      const coordsInput = document.getElementById('settings-coords') as HTMLInputElement;
+      const weekdaysInput = document.getElementById('settings-weekdays') as HTMLInputElement;
+      const weekendsInput = document.getElementById('settings-weekends') as HTMLInputElement;
+
+      const updated: any = {};
+      if (nameInput) updated.name = nameInput.value;
+      if (phoneInput) updated.phone = phoneInput.value;
+      if (emailInput) updated.email = emailInput.value;
+      if (addressInput) updated.address = addressInput.value;
+      if (instagramInput) updated.instagram = instagramInput.value;
+      if (tiktokInput) updated.tiktok = tiktokInput.value;
+      if (facebookInput) updated.facebook = facebookInput.value;
+      if (websiteInput) updated.website = websiteInput.value;
+      if (weekdaysInput || weekendsInput) {
+        updated.hours = {
+          weekdays: weekdaysInput ? weekdaysInput.value : businessInfo.hours?.weekdays || '',
+          weekends: weekendsInput ? weekendsInput.value : businessInfo.hours?.weekends || ''
+        };
+      }
+      if (coordsInput) {
+        const parts = coordsInput.value.split(',');
+        if (parts.length === 2) {
+          const lat = parseFloat(parts[0].trim());
+          const lng = parseFloat(parts[1].trim());
+          if (!isNaN(lat) && !isNaN(lng)) {
+            updated.latitude = lat;
+            updated.longitude = lng;
+          }
+        }
+      }
+
+      await updateBusinessInfo(updated);
+      toast.success('Paramètres enregistrés avec succès !');
+    } catch (err) {
+      console.error('Error saving settings:', err);
+      toast.error('Erreur lors de l\'enregistrement des paramètres');
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
 
   const [barberModalOpen, setBarberModalOpen] = useState(false);
   const [editingBarber, setEditingBarber] = useState<Barber | null>(null);
@@ -204,8 +257,6 @@ export default function AdminDashboard() {
 
   const triggerSuccess = (callback: () => void) => {
     return new Promise<void>((resolve) => {
-      setIsSaving(false);
-      
       // Use a standard but high-visibility success toast
       toast.success("DONNÉES ENREGISTRÉES AVEC SUCCÈS", {
         description: "La synchronisation avec la base de données est terminée.",
@@ -214,6 +265,7 @@ export default function AdminDashboard() {
       });
       
       setTimeout(() => {
+        setIsSaving(false);
         callback();
         resolve();
       }, 1000); // Close modal slightly earlier than toast disappears
@@ -1892,10 +1944,18 @@ export default function AdminDashboard() {
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-2">
                     <h2 className="text-3xl font-black uppercase tracking-tighter">Paramètres Généraux</h2>
                     <button 
-                      onClick={() => toast.success('Paramètres enregistrés avec succès !')} 
-                      className="px-8 py-3 bg-[#D4AF37] text-black rounded-2xl font-black text-sm hover:scale-105 transition-all shadow-xl shadow-[#D4AF37]/20 uppercase w-full sm:w-auto"
+                      onClick={handleSaveSettings} 
+                      disabled={isSavingSettings}
+                      className="px-8 py-3 bg-[#D4AF37] disabled:bg-[#D4AF37]/50 text-black rounded-2xl font-black text-sm hover:scale-105 transition-all shadow-xl shadow-[#D4AF37]/20 uppercase w-full sm:w-auto flex items-center justify-center gap-2"
                     >
-                      Enregistrer les modifications
+                      {isSavingSettings ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                          Enregistrement...
+                        </>
+                      ) : (
+                        "Enregistrer les modifications"
+                      )}
                     </button>
                   </div>
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -1911,22 +1971,22 @@ export default function AdminDashboard() {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
                           <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Nom du Salon</label>
-                          <input defaultValue={businessInfo.name} onBlur={(e) => updateBusinessInfo({ name: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" />
+                          <input id="settings-name" defaultValue={businessInfo.name} onBlur={(e) => updateBusinessInfo({ name: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" />
                         </div>
                         <div>
                           <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Téléphone</label>
-                          <input defaultValue={businessInfo.phone} onBlur={(e) => updateBusinessInfo({ phone: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" />
+                          <input id="settings-phone" defaultValue={businessInfo.phone} onBlur={(e) => updateBusinessInfo({ phone: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" />
                         </div>
                       </div>
                       
                       <div>
                         <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2 text-[#D4AF37]">Adresse E-mail (Admin Login)</label>
-                        <input defaultValue={businessInfo.email} onBlur={(e) => updateBusinessInfo({ email: e.target.value })} className="w-full bg-white/10 border border-[#D4AF37]/30 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" />
+                        <input id="settings-email" defaultValue={businessInfo.email} onBlur={(e) => updateBusinessInfo({ email: e.target.value })} className="w-full bg-white/10 border border-[#D4AF37]/30 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" />
                       </div>
                       
                       <div>
                         <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Adresse Physique</label>
-                        <input defaultValue={businessInfo.address} onBlur={(e) => updateBusinessInfo({ address: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" />
+                        <input id="settings-address" defaultValue={businessInfo.address} onBlur={(e) => updateBusinessInfo({ address: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" />
                       </div>
 
                       <div className="space-y-4 pt-4 border-t border-white/5">
@@ -1937,7 +1997,7 @@ export default function AdminDashboard() {
                             <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Instagram</label>
                             <div className="flex gap-2">
                                <div className="bg-white/5 p-3 rounded-xl border border-white/10 flex items-center justify-center w-11"><Instagram className="w-5 h-5 text-pink-500" /></div>
-                               <input defaultValue={businessInfo.instagram} onBlur={(e) => updateBusinessInfo({ instagram: e.target.value })} className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold text-xs" placeholder="https://instagram.com/..." />
+                               <input id="settings-instagram" defaultValue={businessInfo.instagram} onBlur={(e) => updateBusinessInfo({ instagram: e.target.value })} className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold text-xs" placeholder="https://instagram.com/..." />
                             </div>
                           </div>
 
@@ -1945,7 +2005,7 @@ export default function AdminDashboard() {
                             <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">TikTok</label>
                             <div className="flex gap-2">
                                <div className="bg-white/5 p-3 rounded-xl border border-white/10 flex items-center justify-center w-11"><Link className="w-5 h-5 text-amber-500" /></div>
-                               <input defaultValue={businessInfo.tiktok} onBlur={(e) => updateBusinessInfo({ tiktok: e.target.value })} className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold text-xs" placeholder="https://tiktok.com/@..." />
+                               <input id="settings-tiktok" defaultValue={businessInfo.tiktok} onBlur={(e) => updateBusinessInfo({ tiktok: e.target.value })} className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold text-xs" placeholder="https://tiktok.com/@..." />
                             </div>
                           </div>
 
@@ -1953,7 +2013,7 @@ export default function AdminDashboard() {
                             <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Facebook</label>
                             <div className="flex gap-2">
                                <div className="bg-white/5 p-3 rounded-xl border border-white/10 flex items-center justify-center w-11"><Facebook className="w-5 h-5 text-blue-500" /></div>
-                               <input defaultValue={businessInfo.facebook} onBlur={(e) => updateBusinessInfo({ facebook: e.target.value })} className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold text-xs" placeholder="https://facebook.com/..." />
+                               <input id="settings-facebook" defaultValue={businessInfo.facebook} onBlur={(e) => updateBusinessInfo({ facebook: e.target.value })} className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold text-xs" placeholder="https://facebook.com/..." />
                             </div>
                           </div>
 
@@ -1961,7 +2021,7 @@ export default function AdminDashboard() {
                             <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Site Web</label>
                             <div className="flex gap-2">
                                <div className="bg-white/5 p-3 rounded-xl border border-white/10 flex items-center justify-center w-11"><Globe className="w-5 h-5 text-green-400" /></div>
-                               <input defaultValue={businessInfo.website} onBlur={(e) => updateBusinessInfo({ website: e.target.value })} className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold text-xs" placeholder="https://..." />
+                               <input id="settings-website" defaultValue={businessInfo.website} onBlur={(e) => updateBusinessInfo({ website: e.target.value })} className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold text-xs" placeholder="https://..." />
                             </div>
                           </div>
                         </div>
@@ -1973,6 +2033,7 @@ export default function AdminDashboard() {
                             <div className="flex gap-2">
                               <div className="bg-white/5 p-3 rounded-xl border border-white/10 flex items-center justify-center w-11"><MapPin className="w-5 h-5 text-[#D4AF37]" /></div>
                               <input 
+                                id="settings-coords"
                                 type="text" 
                                 defaultValue={`${businessInfo.latitude || 48.8566}, ${businessInfo.longitude || 2.3522}`} 
                                 onBlur={(e) => {
@@ -2007,11 +2068,11 @@ export default function AdminDashboard() {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                           <div>
                             <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">En Semaine (Lun-Ven)</label>
-                            <input defaultValue={businessInfo.hours.weekdays} onBlur={(e) => updateBusinessInfo({ hours: { ...businessInfo.hours, weekdays: e.target.value } })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" placeholder="ex: 9h-19h" />
+                            <input id="settings-weekdays" defaultValue={businessInfo.hours.weekdays} onBlur={(e) => updateBusinessInfo({ hours: { ...businessInfo.hours, weekdays: e.target.value } })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" placeholder="ex: 9h-19h" />
                           </div>
                           <div>
                             <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Week-end (Sam-Dim)</label>
-                            <input defaultValue={businessInfo.hours.weekends} onBlur={(e) => updateBusinessInfo({ hours: { ...businessInfo.hours, weekends: e.target.value } })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" placeholder="ex: 10h-17h" />
+                            <input id="settings-weekends" defaultValue={businessInfo.hours.weekends} onBlur={(e) => updateBusinessInfo({ hours: { ...businessInfo.hours, weekends: e.target.value } })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" placeholder="ex: 10h-17h" />
                           </div>
                         </div>
                       </div>

@@ -208,7 +208,7 @@ const WalkInModal = ({ onClose, services, currentBarber, commissionRate, addBook
 export default function BarberDashboard() {
   const { user, logout } = useAuth();
   const tenant = useTenant();
-  const { bookings, addBooking, services, barbers, updateBarber, updateBooking, updateBookingStatus, products, addSale, addAttendance, attendance, businessInfo, addSettlement, settlements, updateBarberStatus } = useBusiness();
+  const { loading, bookings, addBooking, services, barbers, updateBarber, updateBooking, updateBookingStatus, products, addSale, addAttendance, attendance, businessInfo, addSettlement, settlements, updateBarberStatus } = useBusiness();
   const navigate = useNavigate();
   
   const [activeTab, setActiveTab] = useState(() => {
@@ -487,6 +487,19 @@ export default function BarberDashboard() {
     navigate('/');
   };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-black flex flex-col items-center justify-center gap-4">
+        <div className="relative">
+          <div className="w-16 h-16 border-4 border-[#D4AF37]/20 rounded-full" />
+          <div className="w-16 h-16 border-4 border-t-[#D4AF37] rounded-full animate-spin absolute inset-0" />
+          <Scissors className="w-6 h-6 text-[#D4AF37] absolute inset-0 m-auto" />
+        </div>
+        <p className="text-white/40 text-sm tracking-widest uppercase">Chargement...</p>
+      </div>
+    );
+  }
+
   if (!user) return null;
 
   if (!currentBarber && user?.role === 'barber') {
@@ -516,7 +529,7 @@ export default function BarberDashboard() {
           <div className="flex items-center gap-4">
             <div className="text-right hidden sm:block">
               <p className="text-white text-sm font-bold">{user?.name}</p>
-              <select value={currentBarber?.status} onChange={(e) => updateBarberStatus(currentBarber.id, e.target.value as any)} className="bg-transparent text-[10px] text-white/40 focus:outline-none text-right">
+              <select value={currentBarber?.status} onChange={(e) => currentBarber?.id && updateBarberStatus(currentBarber.id, e.target.value as any)} className="bg-transparent text-[10px] text-white/40 focus:outline-none text-right">
                 <option value="available">Disponible</option>
                 <option value="busy">Occupé</option>
                 <option value="break">En Pause</option>
@@ -1033,8 +1046,10 @@ export default function BarberDashboard() {
                     <button
                       key={status.id}
                       onClick={() => {
-                        updateBarberStatus(currentBarber.id, status.id as any);
-                        toast.success(`Statut mis à jour: ${status.label}`);
+                        if (currentBarber?.id) {
+                          updateBarberStatus(currentBarber.id, status.id as any);
+                          toast.success(`Statut mis à jour: ${status.label}`);
+                        }
                       }}
                       className={`flex-1 flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-3 rounded-lg text-xs sm:text-sm font-bold transition-all ${
                         isActive ? status.color : 'text-white/40 hover:bg-white/10 hover:text-white'
@@ -1070,8 +1085,10 @@ export default function BarberDashboard() {
                           const newDays = isWorking 
                             ? currentDays.filter((d: number) => d !== day.id)
                             : [...currentDays, day.id];
-                          updateBarber(currentBarber.id, { workingDays: newDays });
-                      toast.success('Horaires mis à jour !');
+                          if (currentBarber?.id) {
+                            updateBarber(currentBarber.id, { workingDays: newDays });
+                            toast.success('Horaires mis à jour !');
+                          }
                         }}
                         className={`w-12 h-12 rounded-lg font-bold flex items-center justify-center transition-all ${
                           isWorking 
@@ -1093,8 +1110,10 @@ export default function BarberDashboard() {
                     type="time" 
                     defaultValue={currentBarber?.shiftStart || '09:00'} 
                     onChange={(e) => {
-                      updateBarber(currentBarber.id, { shiftStart: e.target.value });
-                      toast.success('✅ Action completed successfully');
+                      if (currentBarber?.id) {
+                        updateBarber(currentBarber.id, { shiftStart: e.target.value });
+                        toast.success('✅ Action completed successfully');
+                      }
                     }}
                     className="w-full bg-white/5 border border-white/10 text-white px-4 py-3 rounded-lg focus:border-[#D4AF37] focus:outline-none font-bold"
                   />
@@ -1105,8 +1124,10 @@ export default function BarberDashboard() {
                     type="time" 
                     defaultValue={currentBarber?.shiftEnd || '18:00'} 
                     onChange={(e) => {
-                      updateBarber(currentBarber.id, { shiftEnd: e.target.value });
-                      toast.success('✅ Action completed successfully');
+                      if (currentBarber?.id) {
+                        updateBarber(currentBarber.id, { shiftEnd: e.target.value });
+                        toast.success('✅ Action completed successfully');
+                      }
                     }}
                     className="w-full bg-white/5 border border-white/10 text-white px-4 py-3 rounded-lg focus:border-[#D4AF37] focus:outline-none font-bold"
                   />

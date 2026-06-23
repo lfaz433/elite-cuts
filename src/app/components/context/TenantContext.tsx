@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { db } from '../../lib/firebase';
 import { collection, query, where, getDocs, addDoc, doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
@@ -57,6 +57,11 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const tenantRef = useRef(tenant);
+  tenantRef.current = tenant;
+
+  const initialTenantRef = useRef<TenantData | null>(null);
+
   const getSubdomain = () => {
     return extractSubdomain(window.location.hostname);
   };
@@ -84,6 +89,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         };
         
         setTenant(fallbackTenant);
+        initialTenantRef.current = fallbackTenant;
         setIsLoading(false);
         return;
       }
@@ -101,7 +107,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         if (!querySnapshot.empty) {
           const doc = querySnapshot.docs[0];
           const data = doc.data();
-          setTenant({
+          const fetchedTenant = {
             tenantId: doc.id,
             subdomain: data.subdomain,
             name: data.name,
@@ -115,7 +121,9 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
             settings: data.settings,
             onboardingComplete: data.onboardingComplete || false,
             isDemo: data.isDemo || false,
-          });
+          };
+          setTenant(fetchedTenant);
+          initialTenantRef.current = fetchedTenant;
         } else {
           setError('Barbershop not found');
         }
@@ -131,18 +139,23 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (isLoading) return; // Wait until initial subdomain tenant is resolved
+
     const auth = getAuth();
     let unsubscribeSnapshot: (() => void) | undefined;
 
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       if (unsubscribeSnapshot) {
         unsubscribeSnapshot();
+        unsubscribeSnapshot = undefined;
       }
 
       if (user) {
         unsubscribeSnapshot = onSnapshot(doc(db, 'users', user.uid), async (userDoc) => {
           const userTenantId = userDoc.data()?.tenantId;
-          if (userTenantId && userTenantId !== tenant?.tenantId) {
+          const currentTenant = tenantRef.current;
+          
+          if (userTenantId && currentTenant && userTenantId !== currentTenant.tenantId) {
             // Load the correct tenant for this user
             const tenantDoc = await getDoc(doc(db, 'tenants', userTenantId));
             if (tenantDoc.exists()) {
@@ -165,6 +178,11 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
             }
           }
         });
+      } else {
+        // Reset to initial subdomain tenant on logout
+        if (initialTenantRef.current) {
+          setTenant(initialTenantRef.current);
+        }
       }
     });
 
@@ -172,7 +190,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
       unsubscribeAuth();
       if (unsubscribeSnapshot) unsubscribeSnapshot();
     };
-  }, [tenant?.tenantId]);
+  }, [isLoading]);
 
   useEffect(() => {
     if (tenant) {
