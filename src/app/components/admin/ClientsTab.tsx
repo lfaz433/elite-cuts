@@ -20,6 +20,7 @@ export default function ClientsTab() {
   
   // Note editing state
   const [editingNotes, setEditingNotes] = useState('');
+  const [editingVip, setEditingVip] = useState(false);
   const [isSavingNotes, setIsSavingNotes] = useState(false);
 
   // Campaign builder state
@@ -34,11 +35,22 @@ export default function ClientsTab() {
   const compiledClients = useMemo(() => {
     const clientsMap = new Map<string, any>();
 
+    // Index to map aliases (email, un-normalized phone, UID) to the main clientKey
+    const idMap = new Map<string, string>();
+    const emailMap = new Map<string, string>();
+    const phoneMap = new Map<string, string>();
+
     // 1. Process all registered clients first
     (registeredClients || []).forEach(c => {
       const normalizedPhone = c.phone ? c.phone.replace(/[^0-9+]/g, '') : '';
       const clientKey = normalizedPhone || c.email || c.uid;
       
+      if (c.uid) idMap.set(c.uid, clientKey);
+      if (c.email) emailMap.set(c.email, clientKey);
+      if (normalizedPhone) phoneMap.set(normalizedPhone, clientKey);
+
+      const noteDoc = clientNotes?.find(n => n.phone === normalizedPhone);
+
       clientsMap.set(clientKey, {
         id: c.uid,
         name: c.name,
@@ -52,7 +64,8 @@ export default function ClientsTab() {
         lastVisit: null,
         servicesCount: {} as Record<string, number>,
         barbersCount: {} as Record<string, number>,
-        notes: clientNotes?.find(n => n.phone === normalizedPhone)?.notes || '',
+        notes: noteDoc?.notes || '',
+        manualVip: noteDoc?.isVip || false,
         bookingsList: []
       });
     });
@@ -62,12 +75,20 @@ export default function ClientsTab() {
       if (b.status === 'rejected') return; // Skip cancelled appointments
       
       const normalizedPhone = b.clientPhone ? b.clientPhone.replace(/[^0-9+]/g, '') : '';
-      const clientKey = normalizedPhone || b.clientEmail || b.clientId;
+      
+      let clientKey = '';
+      if (b.clientId && idMap.has(b.clientId)) clientKey = idMap.get(b.clientId)!;
+      else if (normalizedPhone && phoneMap.has(normalizedPhone)) clientKey = phoneMap.get(normalizedPhone)!;
+      else if (b.clientEmail && emailMap.has(b.clientEmail)) clientKey = emailMap.get(b.clientEmail)!;
+      else clientKey = normalizedPhone || b.clientEmail || b.clientId;
+
       if (!clientKey) return;
 
       let clientProfile = clientsMap.get(clientKey);
       
       if (!clientProfile) {
+        const noteDoc = clientNotes?.find(n => n.phone === normalizedPhone);
+
         clientProfile = {
           id: b.clientId || `guest_${Math.random().toString(36).substring(2, 11)}`,
           name: b.clientName || 'Client Anonyme',
@@ -81,10 +102,22 @@ export default function ClientsTab() {
           lastVisit: null,
           servicesCount: {} as Record<string, number>,
           barbersCount: {} as Record<string, number>,
-          notes: clientNotes?.find(n => n.phone === normalizedPhone)?.notes || '',
+          notes: noteDoc?.notes || '',
+          manualVip: noteDoc?.isVip || false,
           bookingsList: []
         };
         clientsMap.set(clientKey, clientProfile);
+
+        if (b.clientId) idMap.set(b.clientId, clientKey);
+        if (b.clientEmail) emailMap.set(b.clientEmail, clientKey);
+        if (normalizedPhone) phoneMap.set(normalizedPhone, clientKey);
+      }
+
+      // Update missing phone info
+      if (clientProfile.phone === '—' && b.clientPhone) {
+        clientProfile.phone = b.clientPhone;
+        clientProfile.normalizedPhone = normalizedPhone;
+        if (normalizedPhone) phoneMap.set(normalizedPhone, clientKey);
       }
 
       // Add booking details
@@ -144,7 +177,7 @@ export default function ClientsTab() {
         ? Math.floor((Date.now() - new Date(client.createdAt).getTime()) / (1000 * 60 * 60 * 24))
         : 999;
 
-      if (client.totalVisits > 5) {
+      if (client.manualVip || client.totalVisits > 5) {
         segment = 'vip';
       } else if (daysSinceLastVisit > 30 && client.lastVisit !== null) {
         segment = 'inactive';
@@ -187,17 +220,23 @@ export default function ClientsTab() {
   const handleOpenClientDetail = (client: any) => {
     setSelectedClient(client);
     setEditingNotes(client.notes || '');
+    setEditingVip(client.manualVip || false);
   };
 
   const handleSaveNotes = async () => {
     if (!selectedClient) return;
     setIsSavingNotes(true);
     try {
-      await updateClientNote(selectedClient.normalizedPhone || selectedClient.phone, editingNotes);
+      await updateClientNote(selectedClient.normalizedPhone || selectedClient.phone, editingNotes, editingVip);
       toast.success("Notes du client mises à jour !");
       
       // Update in local selection state
-      setSelectedClient((prev: any) => ({ ...prev, notes: editingNotes }));
+      setSelectedClient((prev: any) => ({ 
+        ...prev, 
+        notes: editingNotes,
+        manualVip: editingVip,
+        segment: (editingVip || prev.totalVisits > 5) ? 'vip' : prev.segment
+      }));
     } catch (err: any) {
       console.error(err);
       toast.error("Erreur lors de l'enregistrement des notes.");
@@ -650,7 +689,18 @@ export default function ClientsTab() {
 
                 {/* Admin Notes Section */}
                 <div className="space-y-3 pt-6 md:pt-4">
-                  <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest">Notes du Coiffeur (Admin)</label>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-white/30 text-[10px] font-black uppercase tracking-widest">Notes du Coiffeur (Admin)</label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={editingVip}
+                        onChange={(e) => setEditingVip(e.target.checked)}
+                        className="accent-[#D4AF37] w-3.5 h-3.5 cursor-pointer"
+                      />
+                      <span className="text-[10px] text-[#D4AF37] font-bold uppercase tracking-wider">Client VIP</span>
+                    </label>
+                  </div>
                   <textarea
                     rows={4}
                     placeholder="Ajoutez des notes privées sur les préférences de ce client (ex: longueur du sabot, boisson favorite...)"

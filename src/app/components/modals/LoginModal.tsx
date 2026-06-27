@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X, Eye, EyeOff, Scissors } from 'lucide-react';
+import PhoneInput from 'react-phone-input-2';
+import 'react-phone-input-2/lib/style.css';
 import { useAuth } from '../context/AuthContext';
 import { useBusiness } from '../context/BusinessContext';
 import { useTenant } from '../context/TenantContext';
@@ -14,6 +16,7 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -58,7 +61,7 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
         }
         toast.success('Bon retour !');
       } else {
-        await signup(cleanEmail, password, name);
+        await signup(cleanEmail, password, name, phone);
         toast.success('Bienvenue ! Votre compte a été créé.');
       }
     } catch (error: any) {
@@ -130,17 +133,30 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
 
 
           {!isLogin && (
-            <div>
-              <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: 13, marginBottom: 6 }}>Nom Complet</label>
-              <input
-                type="text"
-                value={name}
-                onChange={e => setName(e.target.value)}
-                placeholder="Votre nom"
-                required
-                style={{ width: '100%', padding: '12px 14px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(212,175,55,0.2)', borderRadius: 10, color: 'white', fontSize: 15, boxSizing: 'border-box' }}
-              />
-            </div>
+            <>
+              <div>
+                <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: 13, marginBottom: 6 }}>Nom Complet</label>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  placeholder="Votre nom"
+                  required
+                  style={{ width: '100%', padding: '12px 14px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(212,175,55,0.2)', borderRadius: 10, color: 'white', fontSize: 15, boxSizing: 'border-box' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', color: 'rgba(255,255,255,0.5)', fontSize: 13, marginBottom: 6 }}>Numéro de téléphone</label>
+                <PhoneInput
+                  country={'fr'}
+                  value={phone}
+                  onChange={phone => setPhone(phone)}
+                  inputStyle={{ width: '100%', height: '45px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(212,175,55,0.2)', borderRadius: 10, color: 'white', fontSize: 15 }}
+                  buttonStyle={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(212,175,55,0.2)', borderRadius: '10px 0 0 10px', borderColor: 'rgba(212,175,55,0.2)' }}
+                  dropdownStyle={{ background: '#1c1c1c', color: 'white', border: '1px solid rgba(212,175,55,0.2)' }}
+                />
+              </div>
+            </>
           )}
 
           {/* Email */}

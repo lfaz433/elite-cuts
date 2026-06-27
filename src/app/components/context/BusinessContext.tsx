@@ -260,7 +260,7 @@ interface BusinessContextType {
   clientNotes: ClientNote[];
   addCampaign: (campaign: Omit<Campaign, 'id' | 'createdAt' | 'tenantId'>) => Promise<void>;
   deleteCampaign: (id: string) => Promise<void>;
-  updateClientNote: (phone: string, notes: string) => Promise<void>;
+  updateClientNote: (phone: string, notes: string, isVip?: boolean) => Promise<void>;
   loading: boolean;
   getBarberWalletBalance: (barberId: string) => number;
   addAttendance: (attendance: Omit<Attendance, 'id'>) => Promise<void>;
@@ -739,16 +739,20 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     await deleteDoc(doc(db, 'campaigns', id));
   };
 
-  const updateClientNote = async (phone: string, notes: string) => {
+  const updateClientNote = async (phone: string, notes: string, isVip?: boolean) => {
     if (!tenantId) return;
     const normalized = phone.replace(/[^0-9+]/g, '');
     if (!normalized) return;
     const docId = `${tenantId}_${normalized}`;
-    await setDoc(doc(db, 'client_notes', docId), {
+    const payload: any = {
       phone: normalized,
       notes,
       tenantId
-    });
+    };
+    if (typeof isVip === 'boolean') {
+      payload.isVip = isVip;
+    }
+    await setDoc(doc(db, 'client_notes', docId), payload, { merge: true });
   };
 
   const addExpense = async (expense: Omit<Expense, 'id' | 'tenantId' | 'createdAt'>) => {

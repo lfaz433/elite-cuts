@@ -18,6 +18,7 @@ interface User {
   uid: string;
   name: string;
   email: string;
+  phone?: string;
   role: 'client' | 'admin' | 'barber';
   barberId?: string;
   tenantId: string;
@@ -27,7 +28,7 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  signup: (email: string, password: string, name: string) => Promise<void>;
+  signup: (email: string, password: string, name: string, phone?: string) => Promise<void>;
   logout: () => Promise<void>;
   isAuthenticated: boolean;
 }
@@ -179,6 +180,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               id: firebaseUser.uid,
               uid: firebaseUser.uid,
               email: email,
+              phone: userData.phone || '',
               name: userData.name || barberData?.name || firebaseUser.displayName || (resolvedRole === 'admin' ? 'Administrateur' : 'Utilisateur'),
               role: resolvedRole as 'admin' | 'barber' | 'client',
               barberId: barberId,
@@ -233,7 +235,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await signInWithEmailAndPassword(auth, email, password);
   };
 
-  const signup = async (email: string, password: string, name: string) => {
+  const signup = async (email: string, password: string, name: string, phone?: string) => {
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     const firebaseUser = userCredential.user;
     
@@ -244,6 +246,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       uid: firebaseUser.uid,
       email,
       name,
+      phone: phone || '',
       role: 'client', // Default role for new signups
       createdAt: new Date().toISOString(),
       tenantId: tenantId
