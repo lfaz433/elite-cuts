@@ -756,16 +756,21 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       const activeDays = barber.workingDays || [1, 2, 3, 4, 5, 6];
       if (!activeDays.includes(dayOfWeek)) return false;
 
-      // 2. Working Hours (Shift) Check
-      const [sh, sm] = (barber.shiftStart || salonOpen).split(':').map(Number);
-      const [eh, em] = (barber.shiftEnd || salonClose).split(':').map(Number);
+      // 2. Working Hours (Shift) Check — support "+1" suffix for after-midnight shifts
+      const shiftStartRaw = (barber.shiftStart || salonOpen).replace('+1', '');
+      const shiftEndRaw = (barber.shiftEnd || salonClose).replace('+1', '');
+      const isShiftEndNextDay = (barber.shiftEnd || salonClose).includes('+1');
+      const [sh, sm] = shiftStartRaw.split(':').map(Number);
+      const [eh, em] = shiftEndRaw.split(':').map(Number);
       const shiftStartMin = sh * 60 + sm;
-      const shiftEndMin = eh * 60 + em;
+      const shiftEndMin = isShiftEndNextDay ? (eh * 60 + em) + 24 * 60 : eh * 60 + em;
 
       const [rh, rm] = time.split(':').map(Number);
-      const slotStartMin = rh * 60 + rm;
+      let slotStartMin = rh * 60 + rm;
       const targetService = serviceId ? services.find(s => s.id === serviceId) : null;
       const duration = targetService ? parseInt(targetService.duration) : 30;
+      // If shift crosses midnight and slot time is before shift start, it's a next-day slot
+      if (isShiftEndNextDay && slotStartMin < shiftStartMin) slotStartMin += 24 * 60;
       const slotEndMin = slotStartMin + duration;
 
       if (slotStartMin < shiftStartMin || slotEndMin > shiftEndMin) return false;
@@ -805,16 +810,20 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       return []; // Salon is closed on this day
     }
 
-    const baseSlots = [];
-    const [openH, openM] = dayHours.open.split(':').map(Number);
-    const [closeH, closeM] = dayHours.close.split(':').map(Number);
+    const baseSlots: string[] = [];
+    // Parse open/close times — support "+1" suffix for after-midnight (next day)
+    const openRaw = (dayHours.open || '09:00').replace('+1', '');
+    const closeRaw = (dayHours.close || '19:00').replace('+1', '');
+    const isCloseNextDay = (dayHours.close || '').includes('+1');
+    const [openH, openM] = openRaw.split(':').map(Number);
+    const [closeH, closeM] = closeRaw.split(':').map(Number);
     const startMin = openH * 60 + openM;
-    const endMin = closeH * 60 + closeM;
+    const endMin = isCloseNextDay ? (closeH * 60 + closeM) + 24 * 60 : closeH * 60 + closeM;
 
     for (let m = startMin; m < endMin; m += 30) {
-      const slotH = Math.floor(m / 60);
-      const slotM = m % 60;
-      baseSlots.push(`${slotH.toString().padStart(2, '0')}:${slotM.toString().padStart(2, '0')}`);
+      const actualH = Math.floor(m / 60) % 24;
+      const actualM = m % 60;
+      baseSlots.push(`${actualH.toString().padStart(2, '0')}:${actualM.toString().padStart(2, '0')}`);
     }
 
     // Filter out past slots if the date is today
@@ -823,7 +832,10 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     const filtered = date === today
       ? baseSlots.filter(slot => {
           const [h, m] = slot.split(':').map(Number);
-          return h * 60 + m > nowMinutes + 30; // must be at least 30min in the future
+          let slotMin = h * 60 + m;
+          // If the slot wraps past midnight (e.g. 01:00), treat it as next-day for "past" filtering
+          if (isCloseNextDay && slotMin < startMin) slotMin += 24 * 60;
+          return slotMin > nowMinutes + 30; // must be at least 30min in the future
         })
       : baseSlots;
 

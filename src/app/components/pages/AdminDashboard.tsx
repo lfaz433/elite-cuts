@@ -250,6 +250,9 @@ export default function AdminDashboard() {
       if (weeklyHoursState) {
         updated.weeklyHours = weeklyHoursState;
         
+        // Helper to display "+1" times cleanly
+        const fmtTime = (t: string) => t.includes('+1') ? t.replace('+1', '') + ' (+1)' : t;
+        
         // Auto-compile hours strings for backwards compatibility and landing page
         const monFriEqual = 
           weeklyHoursState.monday.open === weeklyHoursState.friday.open &&
@@ -259,17 +262,17 @@ export default function AdminDashboard() {
         let weekdaysText = '';
         if (monFriEqual) {
           weekdaysText = weeklyHoursState.monday.isOpen 
-            ? `${weeklyHoursState.monday.open} - ${weeklyHoursState.monday.close}` 
+            ? `${fmtTime(weeklyHoursState.monday.open)} - ${fmtTime(weeklyHoursState.monday.close)}` 
             : 'Fermé';
         } else {
           weekdaysText = `Lun-Ven: variable`;
         }
 
         const satText = weeklyHoursState.saturday.isOpen 
-          ? `${weeklyHoursState.saturday.open}-${weeklyHoursState.saturday.close}` 
+          ? `${fmtTime(weeklyHoursState.saturday.open)}-${fmtTime(weeklyHoursState.saturday.close)}` 
           : 'Fermé';
         const sunText = weeklyHoursState.sunday.isOpen 
-          ? `${weeklyHoursState.sunday.open}-${weeklyHoursState.sunday.close}` 
+          ? `${fmtTime(weeklyHoursState.sunday.open)}-${fmtTime(weeklyHoursState.sunday.close)}` 
           : 'Fermé';
           
         updated.hours = {
@@ -2180,12 +2183,21 @@ export default function AdminDashboard() {
                             ].map(({ key, label }) => {
                               const dayInfo = weeklyHoursState[key] || { isOpen: true, open: '09:00', close: '19:00' };
                               
-                              // Generate time options from 06:00 to 23:30
-                              const times = [];
+                              // Generate time options from 06:00 to 23:30 + next-day hours 00:00-05:30
+                              const openTimes: { value: string; label: string }[] = [];
+                              const closeTimes: { value: string; label: string }[] = [];
                               for (let h = 6; h <= 23; h++) {
                                 const hStr = h.toString().padStart(2, '0');
-                                times.push(`${hStr}:00`);
-                                times.push(`${hStr}:30`);
+                                openTimes.push({ value: `${hStr}:00`, label: `${hStr}:00` });
+                                openTimes.push({ value: `${hStr}:30`, label: `${hStr}:30` });
+                                closeTimes.push({ value: `${hStr}:00`, label: `${hStr}:00` });
+                                closeTimes.push({ value: `${hStr}:30`, label: `${hStr}:30` });
+                              }
+                              // Add next-day hours for closing time (00:00-05:30)
+                              for (let h = 0; h <= 5; h++) {
+                                const hStr = h.toString().padStart(2, '0');
+                                closeTimes.push({ value: `${hStr}:00+1`, label: `${hStr}:00 (lendemain)` });
+                                closeTimes.push({ value: `${hStr}:30+1`, label: `${hStr}:30 (lendemain)` });
                               }
 
                               return (
@@ -2231,7 +2243,7 @@ export default function AdminDashboard() {
                                             }}
                                             className="bg-[#1a1a1a] border border-white/10 rounded-xl px-3 py-2 text-sm text-white font-bold focus:border-[#D4AF37] outline-none"
                                           >
-                                            {times.map(t => <option key={t} value={t}>{t}</option>)}
+                                            {openTimes.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                                           </select>
                                         </div>
 
@@ -2247,7 +2259,7 @@ export default function AdminDashboard() {
                                             }}
                                             className="bg-[#1a1a1a] border border-white/10 rounded-xl px-3 py-2 text-sm text-white font-bold focus:border-[#D4AF37] outline-none"
                                           >
-                                            {times.map(t => <option key={t} value={t}>{t}</option>)}
+                                            {closeTimes.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                                           </select>
                                         </div>
                                       </>

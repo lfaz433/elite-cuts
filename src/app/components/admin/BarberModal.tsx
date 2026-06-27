@@ -108,11 +108,20 @@ const BarberModal = ({
 
               {/* Working Shift Hours Section */}
               {(() => {
-                const times = [];
+                const openTimes: { value: string; label: string }[] = [];
+                const closeTimes: { value: string; label: string }[] = [];
                 for (let h = 6; h <= 23; h++) {
                   const hStr = h.toString().padStart(2, '0');
-                  times.push(`${hStr}:00`);
-                  times.push(`${hStr}:30`);
+                  openTimes.push({ value: `${hStr}:00`, label: `${hStr}:00` });
+                  openTimes.push({ value: `${hStr}:30`, label: `${hStr}:30` });
+                  closeTimes.push({ value: `${hStr}:00`, label: `${hStr}:00` });
+                  closeTimes.push({ value: `${hStr}:30`, label: `${hStr}:30` });
+                }
+                // Add next-day hours for shift end (00:00-05:30)
+                for (let h = 0; h <= 5; h++) {
+                  const hStr = h.toString().padStart(2, '0');
+                  closeTimes.push({ value: `${hStr}:00+1`, label: `${hStr}:00 (lendemain)` });
+                  closeTimes.push({ value: `${hStr}:30+1`, label: `${hStr}:30 (lendemain)` });
                 }
                 return (
                   <div className="grid grid-cols-2 gap-4">
@@ -123,7 +132,7 @@ const BarberModal = ({
                         onChange={e => setFormData({ ...formData, shiftStart: e.target.value })}
                         className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white focus:border-[#D4AF37] outline-none transition-colors text-xs"
                       >
-                        {times.map(t => <option key={t} value={t} className="bg-[#141414]">{t}</option>)}
+                        {openTimes.map(t => <option key={t.value} value={t.value} className="bg-[#141414]">{t.label}</option>)}
                       </select>
                     </div>
                     <div>
@@ -133,7 +142,7 @@ const BarberModal = ({
                         onChange={e => setFormData({ ...formData, shiftEnd: e.target.value })}
                         className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white focus:border-[#D4AF37] outline-none transition-colors text-xs"
                       >
-                        {times.map(t => <option key={t} value={t} className="bg-[#141414]">{t}</option>)}
+                        {closeTimes.map(t => <option key={t.value} value={t.value} className="bg-[#141414]">{t.label}</option>)}
                       </select>
                     </div>
                   </div>
