@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { X, Calendar, User, Phone, Mail, FileText, DollarSign, Clock } from 'lucide-react';
 import { toast } from 'sonner';
-import { useBusiness } from '../context/BusinessContext';
+import { useBusiness, toLocalYYYYMMDD } from '../context/BusinessContext';
 import type { Booking } from '../context/BusinessContext';
 
 interface ManualBookingModalProps {
@@ -19,7 +19,7 @@ export default function ManualBookingModal({ onClose, preSelectedBarberId }: Man
     clientPhone: '',
     serviceId: services[0]?.id || '',
     barberId: preSelectedBarberId || barbers[0]?.id || '',
-    date: new Date().toISOString().split('T')[0],
+    date: toLocalYYYYMMDD(new Date()),
     time: '',
     type: 'avec-rdv' as Booking['type'],
     paymentStatus: 'unpaid' as Booking['paymentStatus'],
@@ -193,7 +193,7 @@ export default function ManualBookingModal({ onClose, preSelectedBarberId }: Man
                   <label className="block text-white/60 text-xs mb-1.5 font-bold uppercase tracking-wider">Date</label>
                   <input
                     type="date"
-                    min={new Date().toISOString().split('T')[0]}
+                    min={toLocalYYYYMMDD(new Date())}
                     value={formData.date}
                     onChange={e => setFormData({ ...formData, date: e.target.value })}
                     className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:border-[#D4AF37] outline-none"

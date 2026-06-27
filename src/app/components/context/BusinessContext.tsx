@@ -293,6 +293,13 @@ const defaultBusinessInfo: BusinessInfo = {
   showStatsSection: false,
 };
 
+export const toLocalYYYYMMDD = (d: Date): string => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const BusinessContext = createContext<BusinessContextType | undefined>(undefined);
 
 export function BusinessProvider({ children }: { children: ReactNode }) {
@@ -670,7 +677,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   const addSale = async (sale: Omit<Sale, 'id' | 'date' | 'time'>) => {
     await addDoc(collection(db, 'sales'), {
       ...sale,
-      date: new Date().toISOString().split('T')[0],
+      date: toLocalYYYYMMDD(new Date()),
       time: new Date().toTimeString().split(' ')[0].substring(0, 5),
       tenantId
     });
@@ -820,14 +827,19 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     const startMin = openH * 60 + openM;
     const endMin = isCloseNextDay ? (closeH * 60 + closeM) + 24 * 60 : closeH * 60 + closeM;
 
-    for (let m = startMin; m < endMin; m += 30) {
+    // Use service duration as the slot generation interval step (Option A)
+    const targetService = serviceId ? services.find(s => s.id === serviceId) : null;
+    const duration = targetService ? parseInt(targetService.duration) : 30;
+    const stepMin = duration > 0 ? duration : 30;
+
+    for (let m = startMin; m + stepMin <= endMin; m += stepMin) {
       const actualH = Math.floor(m / 60) % 24;
       const actualM = m % 60;
       baseSlots.push(`${actualH.toString().padStart(2, '0')}:${actualM.toString().padStart(2, '0')}`);
     }
 
     // Filter out past slots if the date is today
-    const today = new Date().toISOString().split('T')[0];
+    const today = toLocalYYYYMMDD(new Date());
     const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
     const filtered = date === today
       ? baseSlots.filter(slot => {

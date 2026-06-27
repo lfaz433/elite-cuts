@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { X, Calendar, User, Phone, Mail, CheckCircle2, ChevronRight, ChevronLeft } from 'lucide-react';
-import { useBusiness } from '../context/BusinessContext';
+import { useBusiness, toLocalYYYYMMDD } from '../context/BusinessContext';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'sonner';
 import PhoneInput from 'react-phone-input-2';
@@ -13,7 +13,7 @@ export default function BookingModal({ onClose }: { onClose: () => void }) {
   const [step, setStep] = useState(1);
   const [selectedServiceId, setSelectedServiceId] = useState('');
   const [selectedBarberId, setSelectedBarberId] = useState('any');
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(toLocalYYYYMMDD(new Date()));
   const [selectedTime, setSelectedTime] = useState('');
   const [clientInfo, setClientInfo] = useState({ name: '', email: '', phone: '' });
   const [isSuccess, setIsSuccess] = useState(false);
@@ -35,7 +35,7 @@ export default function BookingModal({ onClose }: { onClose: () => void }) {
     for (let i = 0; i < 14; i++) {
       const d = new Date(today);
       d.setDate(today.getDate() + i);
-      const dateStr = d.toISOString().split('T')[0];
+      const dateStr = toLocalYYYYMMDD(d);
       
       let isAvailable = false;
       try {
@@ -58,7 +58,7 @@ export default function BookingModal({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     if (step === 3 && selectedServiceId) {
-      const todayStr = new Date().toISOString().split('T')[0];
+      const todayStr = toLocalYYYYMMDD(new Date());
       let checkDate = selectedDate < todayStr ? todayStr : selectedDate;
       let foundDate = checkDate;
       let hasSlots = false;
@@ -405,7 +405,7 @@ export default function BookingModal({ onClose }: { onClose: () => void }) {
                           </span>
                           <input 
                             type="date" 
-                            min={new Date().toISOString().split('T')[0]}
+                            min={toLocalYYYYMMDD(new Date())}
                             value={selectedDate}
                             onChange={(e) => {
                               if (e.target.value) {
