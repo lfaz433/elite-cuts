@@ -71,34 +71,39 @@ const BarberModal = ({
               </div>
 
               {/* Service Assignment Section */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-white/60 text-xs mb-2">Service Principal</label>
-                  <select 
-                    value={formData.mainServiceId || ''} 
-                    onChange={e => setFormData({ ...formData, mainServiceId: e.target.value })}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white focus:border-[#D4AF37] outline-none transition-colors text-xs"
-                  >
-                    <option value="" className="bg-[#141414] text-white/40">Aucun</option>
-                    {services.map(s => (
-                      <option key={s.id} value={s.id} className="bg-[#141414]">{s.name}</option>
-                    ))}
-                  </select>
+              <div className="space-y-1">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-white/60 text-xs mb-2">Service Principal</label>
+                    <select 
+                      value={formData.mainServiceId || ''} 
+                      onChange={e => setFormData({ ...formData, mainServiceId: e.target.value })}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white focus:border-[#D4AF37] outline-none transition-colors text-xs"
+                    >
+                      <option value="" className="bg-[#141414] text-white/45">★ Tous les services (Aucune restriction)</option>
+                      {services.map(s => (
+                        <option key={s.id} value={s.id} className="bg-[#141414]">{s.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-white/60 text-xs mb-2">Service Secondaire</label>
+                    <select 
+                      value={formData.secondaryServiceId || ''} 
+                      onChange={e => setFormData({ ...formData, secondaryServiceId: e.target.value })}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white focus:border-[#D4AF37] outline-none transition-colors text-xs"
+                    >
+                      <option value="" className="bg-[#141414] text-white/45">Aucun (Optionnel)</option>
+                      {services.map(s => (
+                        <option key={s.id} value={s.id} className="bg-[#141414]">{s.name}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-                
-                <div>
-                  <label className="block text-white/60 text-xs mb-2">Service Secondaire</label>
-                  <select 
-                    value={formData.secondaryServiceId || ''} 
-                    onChange={e => setFormData({ ...formData, secondaryServiceId: e.target.value })}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white focus:border-[#D4AF37] outline-none transition-colors text-xs"
-                  >
-                    <option value="" className="bg-[#141414] text-white/40">Aucun (Optionnel)</option>
-                    {services.map(s => (
-                      <option key={s.id} value={s.id} className="bg-[#141414]">{s.name}</option>
-                    ))}
-                  </select>
-                </div>
+                <p className="text-[10px] text-white/30 italic mt-1">
+                  * Laissez le service principal sur "Tous les services" pour que ce coiffeur soit disponible pour toutes les prestations.
+                </p>
               </div>
 
               {/* Working Shift Hours Section */}

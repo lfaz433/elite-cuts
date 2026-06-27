@@ -54,7 +54,7 @@ export default function BookingModal({ onClose }: { onClose: () => void }) {
       });
     }
     return days;
-  }, [selectedBarberId, selectedServiceId, bookings]);
+  }, [selectedBarberId, selectedServiceId, bookings, businessInfo]);
 
   useEffect(() => {
     if (step === 3 && selectedServiceId) {
