@@ -4,6 +4,8 @@ import {
   LayoutDashboard,
   Calendar,
   Users,
+  User,
+  Megaphone,
   Scissors,
   DollarSign,
   Settings,
@@ -71,6 +73,7 @@ import { createBarberAccount } from '../../lib/adminAuth';
 const BrandingSection = lazy(() => import('../admin/BrandingSection').then(m => ({ default: m.BrandingSection })));
 const AttendanceHistory = lazy(() => import('../admin/AttendanceHistory').then(m => ({ default: m.AttendanceHistory })));
 const SalesReport = lazy(() => import('../admin/SalesReport').then(m => ({ default: m.SalesReport })));
+const ClientsTab = lazy(() => import('../admin/ClientsTab'));
 const ProductManagement = lazy(() => import('../admin/ProductManagement').then(m => ({ default: m.ProductManagement })));
 const FinanceReport = lazy(() => import('../admin/FinanceReport').then(m => ({ default: m.FinanceReport })));
 const ExpenseModal = lazy(() => import('../modals/ExpenseModal'));
@@ -127,7 +130,7 @@ export default function AdminDashboard() {
     resetBarberBalance, seedDatabase, gallery,
     expenses, caisseBalance, totalExpenses, deposits, totalDeposits,
     payrollRequests, payrollPayments, getBarberWalletBalance, sendPush,
-    resetAllBalances, loading
+    resetAllBalances, campaigns, registeredClients, addCampaign, deleteCampaign, loading
   } = useBusiness();
   
   const navigate = useNavigate();
@@ -151,7 +154,7 @@ export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState(() => {
     const path = window.location.pathname;
     const subpath = path.split('/admin/')[1];
-    const allowed = ['dashboard', 'bookings', 'reports', 'barbers', 'services', 'boutique', 'gallery', 'attendance', 'branding', 'settings', 'depenses'];
+    const allowed = ['dashboard', 'bookings', 'reports', 'barbers', 'services', 'boutique', 'gallery', 'attendance', 'branding', 'settings', 'depenses', 'clients'];
     return (subpath && allowed.includes(subpath)) ? subpath : 'dashboard';
   });
 
@@ -760,6 +763,7 @@ export default function AdminDashboard() {
     { id: 'bookings', icon: Calendar, label: 'Réservations', hasNotification: hasUnreadBookings },
     { id: 'reports', icon: TrendingUp, label: 'Rapports' },
     { id: 'barbers', icon: Users, label: 'Coiffeurs' },
+    { id: 'clients', icon: User, label: 'Clients' },
     { id: 'services', icon: Scissors, label: 'Services' },
     { id: 'boutique', icon: ShoppingBag, label: 'Boutique' },
     { id: 'paie', icon: Euro, label: 'Paie', hasNotification: (payrollRequests || []).filter(r => r.status === 'pending').length > 0 },
@@ -2402,6 +2406,10 @@ export default function AdminDashboard() {
                     </div>
                   </div>
                 </motion.div>
+              )}
+
+              {activeTab === 'clients' && (
+                <ClientsTab />
               )}
               
               {/* Rejection Confirmation Modal */}

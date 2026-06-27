@@ -222,6 +222,25 @@ export interface Deposit {
   createdByName: string;
 }
 
+export interface Campaign {
+  id: string;
+  title: string;
+  description: string;
+  couponCode?: string;
+  discountAmount?: number;
+  segment: 'all' | 'new' | 'inactive' | 'vip';
+  status: 'active' | 'inactive';
+  createdAt: string;
+  tenantId: string;
+}
+
+export interface ClientNote {
+  id: string;
+  phone: string;
+  notes: string;
+  tenantId: string;
+}
+
 interface BusinessContextType {
   services: Service[];
   barbers: Barber[];
@@ -236,6 +255,12 @@ interface BusinessContextType {
   deposits: Deposit[];
   payrollRequests: PayrollRequest[];
   payrollPayments: PayrollPayment[];
+  campaigns: Campaign[];
+  registeredClients: any[];
+  clientNotes: ClientNote[];
+  addCampaign: (campaign: Omit<Campaign, 'id' | 'createdAt' | 'tenantId'>) => Promise<void>;
+  deleteCampaign: (id: string) => Promise<void>;
+  updateClientNote: (phone: string, notes: string) => Promise<void>;
   loading: boolean;
   getBarberWalletBalance: (barberId: string) => number;
   addAttendance: (attendance: Omit<Attendance, 'id'>) => Promise<void>;
@@ -317,6 +342,9 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   const [deposits, setDeposits] = useState<Deposit[]>([]);
   const [payrollRequests, setPayrollRequests] = useState<PayrollRequest[]>([]);
   const [payrollPayments, setPayrollPayments] = useState<PayrollPayment[]>([]);
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [registeredClients, setRegisteredClients] = useState<any[]>([]);
+  const [clientNotes, setClientNotes] = useState<ClientNote[]>([]);
   const [loading, setLoading] = useState(true);
 
   const sendPush = async (recipientId: string, title: string, message: string, redirectUrl: string) => {
@@ -340,7 +368,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     if (!tenantId) return;
 
     let loaded = 0;
-    const total = 11;
+    const total = 14;
     const essential = ['services', 'barbers', 'businessInfo'];
     const loadedEssential = new Set<string>();
 
@@ -440,11 +468,26 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       markLoaded();
     }, () => markLoaded());
 
+    const unsubCampaigns = onSnapshot(query(collection(db, 'campaigns'), where('tenantId', '==', tenantId)), (snapshot) => {
+      setCampaigns(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Campaign)));
+      markLoaded();
+    }, () => markLoaded());
+
+    const unsubClients = onSnapshot(query(collection(db, 'users'), where('tenantId', '==', tenantId), where('role', '==', 'client')), (snapshot) => {
+      setRegisteredClients(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+      markLoaded();
+    }, () => markLoaded());
+
+    const unsubNotes = onSnapshot(query(collection(db, 'client_notes'), where('tenantId', '==', tenantId)), (snapshot) => {
+      setClientNotes(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ClientNote)));
+      markLoaded();
+    }, () => markLoaded());
+
     return () => {
       clearTimeout(timeout);
       unsubServices(); unsubBarbers(); unsubBookings(); unsubInfo();
       unsubGallery(); unsubProducts(); unsubSales(); unsubAttendance(); unsubSettlements(); unsubExpenses(); unsubDeposits();
-      unsubPayrollReqs(); unsubPayrollPays();
+      unsubPayrollReqs(); unsubPayrollPays(); unsubCampaigns(); unsubClients(); unsubNotes();
     };
   }, [tenantId]);
 
@@ -679,6 +722,31 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       ...sale,
       date: toLocalYYYYMMDD(new Date()),
       time: new Date().toTimeString().split(' ')[0].substring(0, 5),
+      tenantId
+    });
+  };
+
+  const addCampaign = async (campaign: Omit<Campaign, 'id' | 'createdAt' | 'tenantId'>) => {
+    if (!tenantId) return;
+    await addDoc(collection(db, 'campaigns'), {
+      ...campaign,
+      tenantId,
+      createdAt: new Date().toISOString()
+    });
+  };
+
+  const deleteCampaign = async (id: string) => {
+    await deleteDoc(doc(db, 'campaigns', id));
+  };
+
+  const updateClientNote = async (phone: string, notes: string) => {
+    if (!tenantId) return;
+    const normalized = phone.replace(/[^0-9+]/g, '');
+    if (!normalized) return;
+    const docId = `${tenantId}_${normalized}`;
+    await setDoc(doc(db, 'client_notes', docId), {
+      phone: normalized,
+      notes,
       tenantId
     });
   };
@@ -937,6 +1005,8 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   const value = useMemo(() => ({
     services, barbers, bookings, businessInfo, gallery, products, sales,
     attendance, settlements, expenses, deposits, payrollRequests, payrollPayments, loading,
+    campaigns, registeredClients, addCampaign, deleteCampaign,
+    clientNotes, updateClientNote,
     addService, updateService, deleteService,
     addBarber, updateBarber, deleteBarber,
     addBooking, updateBookingStatus, updateBooking, deleteBooking,
@@ -950,7 +1020,8 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     getAvailableBarbers, getAvailableTimeSlots, getBarberWalletBalance
   }), [
     services, barbers, bookings, businessInfo, gallery, products, sales,
-    attendance, settlements, expenses, deposits, payrollRequests, payrollPayments, loading, totalExpenses, totalDeposits, caisseBalance
+    attendance, settlements, expenses, deposits, payrollRequests, payrollPayments, loading, totalExpenses, totalDeposits, caisseBalance,
+    campaigns, registeredClients, clientNotes
   ]);
 
   return (

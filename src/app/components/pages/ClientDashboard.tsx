@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { Calendar, Clock, User, Star, LogOut, History, CreditCard, Scissors } from 'lucide-react';
+import { Calendar, Clock, User, Star, LogOut, History, CreditCard, Scissors, Percent, Copy } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useBusiness } from '../context/BusinessContext';
 import { useTenant } from '../context/TenantContext';
@@ -13,7 +13,7 @@ import { useEffect } from 'react';
 export default function ClientDashboard() {
   const { user, logout } = useAuth();
   const tenant = useTenant();
-  const { bookings, services, barbers, loading } = useBusiness();
+  const { bookings, services, barbers, campaigns, loading } = useBusiness();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('bookings');
   const [bookingOpen, setBookingOpen] = useState(false);
@@ -74,6 +74,33 @@ export default function ClientDashboard() {
     [myBookings]
   );
 
+  const clientSegment = useMemo(() => {
+    const totalVisits = myBookings.length;
+    const lastVisit = myBookings
+      .filter(b => b.status === 'completed')
+      .reduce((latest, b) => !latest || b.date > latest ? b.date : latest, null as string | null);
+    
+    const daysSinceLastVisit = lastVisit 
+      ? Math.floor((Date.now() - new Date(lastVisit).getTime()) / (1000 * 60 * 60 * 24))
+      : 999;
+    
+    const createdDaysAgo = user?.createdAt 
+      ? Math.floor((Date.now() - new Date(user.createdAt).getTime()) / (1000 * 60 * 60 * 24))
+      : 999;
+
+    if (totalVisits > 5) return 'vip';
+    if (daysSinceLastVisit > 30 && lastVisit !== null) return 'inactive';
+    if (createdDaysAgo <= 14) return 'new';
+    return 'active';
+  }, [myBookings, user]);
+
+  const myCampaigns = useMemo(() => {
+    return (campaigns || []).filter(camp => {
+      if (camp.status === 'inactive') return false;
+      return camp.segment === 'all' || camp.segment === clientSegment;
+    });
+  }, [campaigns, clientSegment]);
+
   const getBarberName = (barberId: string) => barbers.find(b => b.id === barberId)?.name || 'Coiffeur';
   const getServiceName = (serviceId: string) => services.find(s => s.id === serviceId)?.name || 'Service';
   const getServicePrice = (serviceId: string) => services.find(s => s.id === serviceId)?.price || '—';
@@ -123,6 +150,7 @@ export default function ClientDashboard() {
           {[
             { id: 'bookings', icon: Calendar, label: 'Réservations' },
             { id: 'history', icon: History, label: 'Historique' },
+            { id: 'promotions', icon: Percent, label: 'Promotions' },
           ].map(tab => (
             <button
               key={tab.id}
@@ -217,6 +245,63 @@ export default function ClientDashboard() {
                     {[...Array(5)].map((_, i) => <Star key={i} className="w-4 h-4 fill-current" />)}
                   </div>
                 </div>
+              </motion.div>
+            ))}
+          </div>
+        )}
+
+        {/* Promotions */}
+        {activeTab === 'promotions' && (
+          <div className="space-y-4">
+            <h2 className="text-2xl font-bold text-white mb-2">Offres & Promotions</h2>
+            
+            {!loading && myCampaigns.length === 0 && (
+              <div className="text-center py-16 bg-white/5 rounded-2xl border border-white/10">
+                <Percent className="w-12 h-12 text-[#D4AF37]/40 mx-auto mb-4" />
+                <p className="text-white/60">Aucune offre promotionnelle disponible pour le moment.</p>
+              </div>
+            )}
+
+            {myCampaigns.map(camp => (
+              <motion.div 
+                key={camp.id} 
+                initial={{ opacity: 0, y: 16 }} 
+                animate={{ opacity: 1, y: 0 }} 
+                className="bg-gradient-to-br from-[#141414] to-[#1a1a1a] rounded-2xl border border-[#D4AF37]/20 p-6 flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex justify-between items-start">
+                    <span className="px-2.5 py-0.5 rounded-full text-[9px] font-bold bg-[#D4AF37]/10 text-[#D4AF37] border border-[#D4AF37]/20 uppercase tracking-wider">
+                      Offre Spéciale
+                    </span>
+                    {camp.couponCode && (
+                      <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 uppercase tracking-wider">
+                        -{camp.discountAmount}%
+                      </span>
+                    )}
+                  </div>
+                  <h3 className="text-lg font-bold text-white mt-3">{camp.title}</h3>
+                  <p className="text-white/60 text-xs mt-2 leading-relaxed">{camp.description}</p>
+                </div>
+
+                {camp.couponCode && (
+                  <div className="bg-white/5 border border-white/5 p-3.5 rounded-xl flex items-center justify-between mt-4">
+                    <div>
+                      <p className="text-[8px] text-white/30 font-black uppercase tracking-wider font-bold">Code promo</p>
+                      <p className="text-sm font-black text-[#D4AF37] tracking-wider select-all">{camp.couponCode}</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(camp.couponCode || '');
+                        toast.success('Code promotionnel copié !');
+                      }}
+                      className="flex items-center gap-1 px-3 py-1.5 bg-[#D4AF37]/10 hover:bg-[#D4AF37] text-[#D4AF37] hover:text-black rounded-lg text-xs font-bold transition-all"
+                      title="Copier le code"
+                    >
+                      <Copy className="w-3.5 h-3.5" /> Copier
+                    </button>
+                  </div>
+                )}
               </motion.div>
             ))}
           </div>
