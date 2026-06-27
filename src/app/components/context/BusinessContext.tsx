@@ -739,7 +739,15 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   };
 
   const getAvailableBarbers = (date: string, time: string, serviceId?: string) => {
-    const dayOfWeek = new Date(date).getDay(); // 0 = Sunday, 1 = Monday, etc.
+    const [year, month, day] = date.split('-').map(Number);
+    const dayOfWeek = new Date(year, month - 1, day).getDay();
+    const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const dayKey = dayNames[dayOfWeek];
+
+    const weeklyHours = businessInfo.weeklyHours || defaultBusinessInfo.weeklyHours;
+    const dayHours = weeklyHours ? (weeklyHours as any)[dayKey] : null;
+    const salonOpen = dayHours && dayHours.isOpen ? dayHours.open : '09:00';
+    const salonClose = dayHours && dayHours.isOpen ? dayHours.close : '18:00';
 
     return barbers.filter(barber => {
       if (barber.archived || barber.status === 'offline' || barber.status === 'break') return false;
@@ -749,8 +757,8 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       if (!activeDays.includes(dayOfWeek)) return false;
 
       // 2. Working Hours (Shift) Check
-      const [sh, sm] = (barber.shiftStart || '09:00').split(':').map(Number);
-      const [eh, em] = (barber.shiftEnd || '18:00').split(':').map(Number);
+      const [sh, sm] = (barber.shiftStart || salonOpen).split(':').map(Number);
+      const [eh, em] = (barber.shiftEnd || salonClose).split(':').map(Number);
       const shiftStartMin = sh * 60 + sm;
       const shiftEndMin = eh * 60 + em;
 

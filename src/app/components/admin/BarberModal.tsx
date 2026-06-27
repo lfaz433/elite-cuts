@@ -101,6 +101,40 @@ const BarberModal = ({
                 </div>
               </div>
 
+              {/* Working Shift Hours Section */}
+              {(() => {
+                const times = [];
+                for (let h = 6; h <= 23; h++) {
+                  const hStr = h.toString().padStart(2, '0');
+                  times.push(`${hStr}:00`);
+                  times.push(`${hStr}:30`);
+                }
+                return (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-white/60 text-xs mb-2">Heure Début Shift</label>
+                      <select
+                        value={formData.shiftStart || '09:00'}
+                        onChange={e => setFormData({ ...formData, shiftStart: e.target.value })}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white focus:border-[#D4AF37] outline-none transition-colors text-xs"
+                      >
+                        {times.map(t => <option key={t} value={t} className="bg-[#141414]">{t}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-white/60 text-xs mb-2">Heure Fin Shift</label>
+                      <select
+                        value={formData.shiftEnd || '18:00'}
+                        onChange={e => setFormData({ ...formData, shiftEnd: e.target.value })}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white focus:border-[#D4AF37] outline-none transition-colors text-xs"
+                      >
+                        {times.map(t => <option key={t} value={t} className="bg-[#141414]">{t}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                );
+              })()}
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-white/60 text-sm mb-2">Téléphone</label>
