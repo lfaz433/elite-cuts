@@ -872,7 +872,13 @@ export default function BarberDashboard() {
                       <div className="space-y-1 text-right">
                         <p className="text-[10px] text-white/35 font-bold uppercase tracking-wider">Détails Service</p>
                         <p className="text-white/70 font-semibold">
-                          {services.find(s => s.id === b.serviceId)?.price || '€20'} • {services.find(s => s.id === b.serviceId)?.duration || '30 min'}
+                          {services.find(s => s.id === b.serviceId)?.price || '€20'} • {(() => {
+                            const dur = services.find(s => s.id === b.serviceId)?.duration;
+                            if (!dur) return '30 min';
+                            const trimmed = dur.trim();
+                            if (/^\d+$/.test(trimmed)) return `${trimmed} min`;
+                            return trimmed;
+                          })()}
                         </p>
                         <div className="flex items-center justify-end gap-1.5 flex-wrap mt-1">
                           {b.paymentStatus === 'paid' ? (

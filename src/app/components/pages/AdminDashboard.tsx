@@ -237,9 +237,6 @@ export default function AdminDashboard() {
       const facebookInput = document.getElementById('settings-facebook') as HTMLInputElement;
       const websiteInput = document.getElementById('settings-website') as HTMLInputElement;
       const coordsInput = document.getElementById('settings-coords') as HTMLInputElement;
-      const weekdaysInput = document.getElementById('settings-weekdays') as HTMLInputElement;
-      const weekendsInput = document.getElementById('settings-weekends') as HTMLInputElement;
-
       const updated: any = {};
       if (nameInput) updated.name = nameInput.value;
       if (phoneInput) updated.phone = phoneInput.value;
@@ -249,12 +246,38 @@ export default function AdminDashboard() {
       if (tiktokInput) updated.tiktok = tiktokInput.value;
       if (facebookInput) updated.facebook = facebookInput.value;
       if (websiteInput) updated.website = websiteInput.value;
-      if (weekdaysInput || weekendsInput) {
+      
+      if (weeklyHoursState) {
+        updated.weeklyHours = weeklyHoursState;
+        
+        // Auto-compile hours strings for backwards compatibility and landing page
+        const monFriEqual = 
+          weeklyHoursState.monday.open === weeklyHoursState.friday.open &&
+          weeklyHoursState.monday.close === weeklyHoursState.friday.close &&
+          weeklyHoursState.monday.isOpen === weeklyHoursState.friday.isOpen;
+          
+        let weekdaysText = '';
+        if (monFriEqual) {
+          weekdaysText = weeklyHoursState.monday.isOpen 
+            ? `${weeklyHoursState.monday.open} - ${weeklyHoursState.monday.close}` 
+            : 'Fermé';
+        } else {
+          weekdaysText = `Lun-Ven: variable`;
+        }
+
+        const satText = weeklyHoursState.saturday.isOpen 
+          ? `${weeklyHoursState.saturday.open}-${weeklyHoursState.saturday.close}` 
+          : 'Fermé';
+        const sunText = weeklyHoursState.sunday.isOpen 
+          ? `${weeklyHoursState.sunday.open}-${weeklyHoursState.sunday.close}` 
+          : 'Fermé';
+          
         updated.hours = {
-          weekdays: weekdaysInput ? weekdaysInput.value : businessInfo.hours?.weekdays || '',
-          weekends: weekendsInput ? weekendsInput.value : businessInfo.hours?.weekends || ''
+          weekdays: weekdaysText,
+          weekends: `Sam: ${satText} | Dim: ${sunText}`
         };
       }
+
       if (coordsInput) {
         const parts = coordsInput.value.split(',');
         if (parts.length === 2) {
@@ -404,6 +427,31 @@ export default function AdminDashboard() {
   const [calendarView, setCalendarView] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(new Date());
   const [calendarSelectedDate, setCalendarSelectedDate] = useState<string>('');
+
+  const [weeklyHoursState, setWeeklyHoursState] = useState<any>(null);
+
+  useEffect(() => {
+    if (businessInfo && businessInfo.weeklyHours) {
+      setWeeklyHoursState(businessInfo.weeklyHours);
+    } else {
+      setWeeklyHoursState({
+        monday: { isOpen: true, open: '09:00', close: '19:00' },
+        tuesday: { isOpen: true, open: '09:00', close: '19:00' },
+        wednesday: { isOpen: true, open: '09:00', close: '19:00' },
+        thursday: { isOpen: true, open: '09:00', close: '19:00' },
+        friday: { isOpen: true, open: '09:00', close: '19:00' },
+        saturday: { isOpen: true, open: '09:00', close: '18:00' },
+        sunday: { isOpen: false, open: '09:00', close: '18:00' },
+      });
+    }
+  }, [businessInfo]);
+
+  const formatDuration = (dur: string | undefined) => {
+    if (!dur) return '30 min';
+    const trimmed = dur.trim();
+    if (/^\d+$/.test(trimmed)) return `${trimmed} min`;
+    return trimmed;
+  };
 
   const calendarBookingsByDate = useMemo(() => {
     return finalBookings.reduce((acc, b) => {
@@ -1002,7 +1050,7 @@ export default function AdminDashboard() {
                             {services.find(s => s.id === booking.serviceId)?.name || 'Service Personnalisé'}
                           </span>
                           <span className="text-white/60 text-xs font-semibold">
-                            {services.find(s => s.id === booking.serviceId)?.price || '€20'} • {services.find(s => s.id === booking.serviceId)?.duration || '30 min'}
+                            {services.find(s => s.id === booking.serviceId)?.price || '€20'} • {formatDuration(services.find(s => s.id === booking.serviceId)?.duration)}
                           </span>
                         </div>
 
@@ -1140,7 +1188,7 @@ export default function AdminDashboard() {
                                   {services.find(s => s.id === booking.serviceId)?.name || 'Service Personnalisé'}
                                 </span>
                                 <span className="text-white/60 text-xs font-semibold">
-                                  {services.find(s => s.id === booking.serviceId)?.price || '€20'} • {services.find(s => s.id === booking.serviceId)?.duration || '30 min'}
+                                  {services.find(s => s.id === booking.serviceId)?.price || '€20'} • {formatDuration(services.find(s => s.id === booking.serviceId)?.duration)}
                                 </span>
                               </div>
       
@@ -1300,7 +1348,7 @@ export default function AdminDashboard() {
                           <img src={service.image} className="w-20 h-20 rounded-2xl object-cover group-hover:scale-105 transition-transform" onError={(e) => { (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=150&h=150&fit=crop'; }} />
                           <div>
                             <h4 className="font-bold text-lg">{service.name}</h4>
-                            <p className="text-xs text-white/40 font-bold uppercase tracking-widest">{service.duration} • <span className="text-[#D4AF37]">€{service.price}</span></p>
+                            <p className="text-xs text-white/40 font-bold uppercase tracking-widest">{formatDuration(service.duration)} • <span className="text-[#D4AF37]">€{service.price}</span></p>
                           </div>
                         </div>
                         <div className="flex gap-2">
@@ -2109,22 +2157,109 @@ export default function AdminDashboard() {
                     {/* Hours & Logo */}
                     <div className="space-y-8">
                        <div className="bg-[#141414] border border-white/5 p-8 rounded-[2.5rem] space-y-6">
-                        <div className="flex items-center gap-3 mb-4">
+                        <div className="flex items-center gap-3 mb-6">
                           <div className="w-10 h-10 rounded-xl bg-[#D4AF37]/10 flex items-center justify-center">
                             <Clock className="w-5 h-5 text-[#D4AF37]" />
                           </div>
-                          <h3 className="text-xl font-bold">Horaires d'Ouverture</h3>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                           <div>
-                            <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">En Semaine (Lun-Ven)</label>
-                            <input id="settings-weekdays" defaultValue={businessInfo.hours?.weekdays || ''} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" placeholder="ex: 9h-19h" />
-                          </div>
-                          <div>
-                            <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Week-end (Sam-Dim)</label>
-                            <input id="settings-weekends" defaultValue={businessInfo.hours?.weekends || ''} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" placeholder="ex: 10h-17h" />
+                            <h3 className="text-xl font-bold">Horaires d'Ouverture</h3>
+                            <p className="text-xs text-white/40 mt-0.5">Définissez les heures d'ouverture quotidiennes de votre salon.</p>
                           </div>
                         </div>
+                        
+                        {weeklyHoursState && (
+                          <div className="space-y-4">
+                            {[
+                              { key: 'monday', label: 'Lundi' },
+                              { key: 'tuesday', label: 'Mardi' },
+                              { key: 'wednesday', label: 'Mercredi' },
+                              { key: 'thursday', label: 'Jeudi' },
+                              { key: 'friday', label: 'Vendredi' },
+                              { key: 'saturday', label: 'Samedi' },
+                              { key: 'sunday', label: 'Dimanche' }
+                            ].map(({ key, label }) => {
+                              const dayInfo = weeklyHoursState[key] || { isOpen: true, open: '09:00', close: '19:00' };
+                              
+                              // Generate time options from 06:00 to 23:30
+                              const times = [];
+                              for (let h = 6; h <= 23; h++) {
+                                const hStr = h.toString().padStart(2, '0');
+                                times.push(`${hStr}:00`);
+                                times.push(`${hStr}:30`);
+                              }
+
+                              return (
+                                <div key={key} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-white/[0.02] border border-white/5 rounded-2xl gap-4 hover:border-white/10 transition-colors">
+                                  {/* Day Label */}
+                                  <div className="flex items-center gap-4 min-w-[120px]">
+                                    <span className="font-black text-sm uppercase tracking-wider text-white">{label}</span>
+                                  </div>
+
+                                  {/* Open/Closed Toggle */}
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setWeeklyHoursState({
+                                          ...weeklyHoursState,
+                                          [key]: { ...dayInfo, isOpen: !dayInfo.isOpen }
+                                        });
+                                      }}
+                                      className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all border ${
+                                        dayInfo.isOpen
+                                          ? 'bg-[#D4AF37]/10 text-[#D4AF37] border-[#D4AF37]/20 hover:bg-[#D4AF37]/20'
+                                          : 'bg-red-500/10 text-red-500 border-red-500/20 hover:bg-red-500/20'
+                                      }`}
+                                    >
+                                      {dayInfo.isOpen ? 'Ouvert' : 'Fermé'}
+                                    </button>
+                                  </div>
+
+                                  {/* Hours select fields */}
+                                  <div className="flex items-center gap-3">
+                                    {dayInfo.isOpen ? (
+                                      <>
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="text-[10px] text-white/30 font-bold uppercase">De</span>
+                                          <select
+                                            value={dayInfo.open}
+                                            onChange={(e) => {
+                                              setWeeklyHoursState({
+                                                ...weeklyHoursState,
+                                                [key]: { ...dayInfo, open: e.target.value }
+                                              });
+                                            }}
+                                            className="bg-[#1a1a1a] border border-white/10 rounded-xl px-3 py-2 text-sm text-white font-bold focus:border-[#D4AF37] outline-none"
+                                          >
+                                            {times.map(t => <option key={t} value={t}>{t}</option>)}
+                                          </select>
+                                        </div>
+
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="text-[10px] text-white/30 font-bold uppercase">À</span>
+                                          <select
+                                            value={dayInfo.close}
+                                            onChange={(e) => {
+                                              setWeeklyHoursState({
+                                                ...weeklyHoursState,
+                                                [key]: { ...dayInfo, close: e.target.value }
+                                              });
+                                            }}
+                                            className="bg-[#1a1a1a] border border-white/10 rounded-xl px-3 py-2 text-sm text-white font-bold focus:border-[#D4AF37] outline-none"
+                                          >
+                                            {times.map(t => <option key={t} value={t}>{t}</option>)}
+                                          </select>
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <span className="text-xs text-white/30 italic py-2">Salon fermé toute la journée</span>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
 
                       {/* Global QR & Share */}

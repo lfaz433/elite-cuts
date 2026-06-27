@@ -144,6 +144,22 @@ export interface Sale {
   notes?: string;
 }
 
+export interface DailyHours {
+  isOpen: boolean;
+  open: string;
+  close: string;
+}
+
+export interface WeeklyHours {
+  monday: DailyHours;
+  tuesday: DailyHours;
+  wednesday: DailyHours;
+  thursday: DailyHours;
+  friday: DailyHours;
+  saturday: DailyHours;
+  sunday: DailyHours;
+}
+
 export interface BusinessInfo {
   name: string;
   address: string;
@@ -155,6 +171,7 @@ export interface BusinessInfo {
     weekdays: string;
     weekends: string;
   };
+  weeklyHours?: WeeklyHours;
   socials: {
     instagram?: string;
     facebook?: string;
@@ -250,8 +267,8 @@ interface BusinessContextType {
   seedDatabase: () => Promise<void>;
   sendPush: (recipientId: string, title: string, message: string, redirectUrl: string) => Promise<void>;
   updateBarberStatus: (id: string, status: Barber['status']) => Promise<void>;
-  getAvailableBarbers: (date: string, time: string) => Barber[];
-  getAvailableTimeSlots: (date: string, barberId: string) => string[];
+  getAvailableBarbers: (date: string, time: string, serviceId?: string) => Barber[];
+  getAvailableTimeSlots: (date: string, barberId: string, serviceId?: string) => string[];
 }
 
 const defaultBusinessInfo: BusinessInfo = {
@@ -262,6 +279,15 @@ const defaultBusinessInfo: BusinessInfo = {
   hours: {
     weekdays: '9:00 - 18:00',
     weekends: 'Fermé',
+  },
+  weeklyHours: {
+    monday: { isOpen: true, open: '09:00', close: '19:00' },
+    tuesday: { isOpen: true, open: '09:00', close: '19:00' },
+    wednesday: { isOpen: true, open: '09:00', close: '19:00' },
+    thursday: { isOpen: true, open: '09:00', close: '19:00' },
+    friday: { isOpen: true, open: '09:00', close: '19:00' },
+    saturday: { isOpen: true, open: '09:00', close: '18:00' },
+    sunday: { isOpen: false, open: '09:00', close: '18:00' },
   },
   socials: {},
   showStatsSection: false,
@@ -759,10 +785,28 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   };
 
   const getAvailableTimeSlots = (date: string, barberId: string, serviceId?: string) => {
+    const [year, month, day] = date.split('-').map(Number);
+    const dayOfWeek = new Date(year, month - 1, day).getDay();
+    const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const dayKey = dayNames[dayOfWeek];
+
+    const weeklyHours = businessInfo.weeklyHours || defaultBusinessInfo.weeklyHours;
+    const dayHours = weeklyHours ? (weeklyHours as any)[dayKey] : null;
+
+    if (!dayHours || !dayHours.isOpen) {
+      return []; // Salon is closed on this day
+    }
+
     const baseSlots = [];
-    for (let h = 9; h <= 18; h++) {
-      baseSlots.push(`${h.toString().padStart(2, '0')}:00`);
-      baseSlots.push(`${h.toString().padStart(2, '0')}:30`);
+    const [openH, openM] = dayHours.open.split(':').map(Number);
+    const [closeH, closeM] = dayHours.close.split(':').map(Number);
+    const startMin = openH * 60 + openM;
+    const endMin = closeH * 60 + closeM;
+
+    for (let m = startMin; m < endMin; m += 30) {
+      const slotH = Math.floor(m / 60);
+      const slotM = m % 60;
+      baseSlots.push(`${slotH.toString().padStart(2, '0')}:${slotM.toString().padStart(2, '0')}`);
     }
 
     // Filter out past slots if the date is today
