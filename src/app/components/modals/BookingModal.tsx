@@ -7,7 +7,7 @@ import PhoneInput from 'react-phone-input-2';
 import 'react-phone-input-2/lib/style.css';
 
 export default function BookingModal({ onClose }: { onClose: () => void }) {
-  const { services, barbers, bookings, addBooking, getAvailableTimeSlots, getAvailableBarbers } = useBusiness();
+  const { services, barbers, bookings, addBooking, getAvailableTimeSlots, getAvailableBarbers, businessInfo } = useBusiness();
   const { user } = useAuth();
 
   const [step, setStep] = useState(1);
