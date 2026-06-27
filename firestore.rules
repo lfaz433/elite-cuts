@@ -10,10 +10,10 @@ service cloud.firestore {
     }
 
     // Helper: checks if user is logged in and belongs to the specified tenant
-    function isMemberOfTenant(tenantId) {
+    function isMemberOfTenant(tId) {
       return request.auth != null && (
-        getUserData().tenantId == tenantId ||
-        request.auth.token.tenantId == tenantId
+        getUserData().tenantId == tId ||
+        request.auth.token.tenantId == tId
       );
     }
 
@@ -30,12 +30,15 @@ service cloud.firestore {
         || isMemberOfTenant(tenantId)
         || (request.auth != null && request.resource.data.ownerUid == request.auth.uid);
       allow update, delete: if isSuperAdmin() || isMemberOfTenant(tenantId);
-      
-      // 1.1 Per-tenant business info subcollection
-      match /businessInfo/{docId} {
-        allow read: if true; // Public: needed for landing page branding
-        allow write: if isSuperAdmin() || isMemberOfTenant(tenantId);
-      }
+    }
+
+    // 1.1 Per-tenant business info subcollection
+    match /tenants/{tenantId}/businessInfo/{docId} {
+      allow read: if true; // Public: needed for landing page branding
+      allow write: if isSuperAdmin() || (request.auth != null && (
+        getUserData().tenantId == tenantId ||
+        request.auth.token.tenantId == tenantId
+      ));
     }
 
     // 1.5 Subdomains Reservation Collection

@@ -1,11 +1,15 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { ImageIcon, Save, Plus, X, Eye, EyeOff } from 'lucide-react';
+import { ImageIcon, Save, Plus, X, Eye, EyeOff, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export const BrandingSection = ({ businessInfo, updateBusinessInfo, handleImageUpload }: any) => {
   const [formData, setFormData] = useState(businessInfo);
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const [isUploadingHero, setIsUploadingHero] = useState(false);
+  const [logoUploadSuccess, setLogoUploadSuccess] = useState(false);
+  const [heroUploadSuccess, setHeroUploadSuccess] = useState(false);
 
   useEffect(() => {
     if (businessInfo) {
@@ -41,23 +45,75 @@ export const BrandingSection = ({ businessInfo, updateBusinessInfo, handleImageU
 
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const url = await handleImageUpload(file);
+    if (!file) return;
+    
+    setIsUploadingLogo(true);
+    setLogoUploadSuccess(false);
+    
+    if (file.size > 5 * 1024 * 1024) {
+      toast.warning("Image volumineuse détectée. Compression en cours...");
+    }
+    
+    try {
+      // Logo: 400px max, high quality
+      const url = await handleImageUpload(file, 400, 0.8);
       setFormData({ ...formData, logo: url });
+      setLogoUploadSuccess(true);
+      toast.success("Logo uploadé avec succès !");
+      setTimeout(() => setLogoUploadSuccess(false), 3000);
+    } catch (err: any) {
+      console.error('Logo upload error:', err);
+      toast.error(err?.message || "Erreur lors de l'upload du logo. Essayez une image plus petite.");
+    } finally {
+      setIsUploadingLogo(false);
     }
   };
 
   const handleHeroUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const url = await handleImageUpload(file);
+    if (!file) return;
+    
+    setIsUploadingHero(true);
+    setHeroUploadSuccess(false);
+    
+    if (file.size > 5 * 1024 * 1024) {
+      toast.warning("Image volumineuse détectée. Compression en cours...");
+    }
+    
+    try {
+      // Hero: 1200px max, good quality for full-width display
+      const url = await handleImageUpload(file, 1200, 0.7);
       setFormData({ ...formData, heroImage: url });
+      setHeroUploadSuccess(true);
+      toast.success("Image hero uploadée avec succès !");
+      setTimeout(() => setHeroUploadSuccess(false), 3000);
+    } catch (err: any) {
+      console.error('Hero upload error:', err);
+      toast.error(err?.message || "Erreur lors de l'upload de l'image hero. Essayez une image plus petite.");
+    } finally {
+      setIsUploadingHero(false);
     }
   };
+
+  const isUploading = isUploadingLogo || isUploadingHero;
 
   return (
     <div className="space-y-8 max-w-4xl">
       <form onSubmit={handleSubmit} className="space-y-8">
+        {/* Salon Name */}
+        <div className="bg-[#141414] p-6 rounded-3xl border border-[#D4AF37]/10">
+          <h3 className="font-bold text-lg mb-4">Nom du Salon</h3>
+          <div>
+            <label className="block text-white/40 text-sm mb-2">Nom affiché sur la page d'accueil</label>
+            <input 
+              value={formData.name || ''} 
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold text-lg" 
+              placeholder="Ex: Elite Cuts Barbershop"
+            />
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           {/* Hero Section */}
           <div className="space-y-4 bg-[#141414] p-6 rounded-3xl border border-[#D4AF37]/10">
@@ -83,11 +139,28 @@ export const BrandingSection = ({ businessInfo, updateBusinessInfo, handleImageU
                 <label className="block text-white/40 text-sm mb-2">Image Hero</label>
                 <div className="relative aspect-video rounded-xl overflow-hidden bg-white/5 group border border-dashed border-white/20">
                   <img src={formData.heroImage} className="w-full h-full object-cover" />
-                  <label className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
-                    <ImageIcon className="w-8 h-8 mb-2" />
-                    <span className="text-sm font-bold">Changer l'image</span>
-                    <input type="file" className="hidden" accept="image/*" onChange={handleHeroUpload} />
-                  </label>
+                  
+                  {/* Upload overlay */}
+                  {isUploadingHero ? (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70">
+                      <Loader2 className="w-10 h-10 text-[#D4AF37] animate-spin mb-2" />
+                      <span className="text-sm font-bold text-white/80">Compression en cours...</span>
+                    </div>
+                  ) : (
+                    <label className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
+                      <ImageIcon className="w-8 h-8 mb-2" />
+                      <span className="text-sm font-bold">Changer l'image</span>
+                      <input type="file" className="hidden" accept="image/*" onChange={handleHeroUpload} />
+                    </label>
+                  )}
+                  
+                  {/* Success badge */}
+                  {heroUploadSuccess && (
+                    <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-emerald-500/90 text-white text-xs font-bold px-3 py-1.5 rounded-full animate-pulse">
+                      <CheckCircle className="w-4 h-4" />
+                      Uploadé !
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -100,15 +173,30 @@ export const BrandingSection = ({ businessInfo, updateBusinessInfo, handleImageU
               <div>
                 <label className="block text-white/40 text-sm mb-2">Logo du Salon</label>
                 <div className="relative w-32 h-32 rounded-2xl overflow-hidden bg-white/5 group border border-dashed border-white/20 flex items-center justify-center">
-                  {formData.logo ? (
+                  {isUploadingLogo ? (
+                    <div className="flex flex-col items-center justify-center">
+                      <Loader2 className="w-8 h-8 text-[#D4AF37] animate-spin" />
+                      <span className="text-[9px] mt-1 text-white/50">Upload...</span>
+                    </div>
+                  ) : formData.logo ? (
                     <img src={formData.logo} className="w-full h-full object-contain p-4" />
                   ) : (
                     <ImageIcon className="w-8 h-8 text-white/20" />
                   )}
-                  <label className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
-                    <span className="text-[10px] font-bold">Upload</span>
-                    <input type="file" className="hidden" accept="image/*" onChange={handleLogoUpload} />
-                  </label>
+                  
+                  {!isUploadingLogo && (
+                    <label className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
+                      <span className="text-[10px] font-bold">Upload</span>
+                      <input type="file" className="hidden" accept="image/*" onChange={handleLogoUpload} />
+                    </label>
+                  )}
+                  
+                  {/* Success badge */}
+                  {logoUploadSuccess && (
+                    <div className="absolute -top-1 -right-1 bg-emerald-500 text-white rounded-full p-1">
+                      <CheckCircle className="w-4 h-4" />
+                    </div>
+                  )}
                 </div>
               </div>
               <div>
@@ -174,11 +262,11 @@ export const BrandingSection = ({ businessInfo, updateBusinessInfo, handleImageU
 
         <button 
           type="submit" 
-          disabled={isSaving}
-          className="flex items-center gap-2 px-8 py-4 bg-[#D4AF37] text-black font-bold rounded-2xl hover:scale-105 transition-all shadow-xl shadow-[#D4AF37]/20"
+          disabled={isSaving || isUploading}
+          className="flex items-center gap-2 px-8 py-4 bg-[#D4AF37] text-black font-bold rounded-2xl hover:scale-105 transition-all shadow-xl shadow-[#D4AF37]/20 disabled:opacity-50 disabled:hover:scale-100"
         >
           {isSaving ? <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin" /> : <Save className="w-5 h-5" />}
-          Enregistrer les modifications
+          {isUploading ? "Upload en cours..." : isSaving ? "Enregistrement..." : "Enregistrer les modifications"}
         </button>
       </form>
     </div>

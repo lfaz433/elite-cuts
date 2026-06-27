@@ -76,7 +76,7 @@ const FinanceReport = lazy(() => import('../admin/FinanceReport').then(m => ({ d
 const ExpenseModal = lazy(() => import('../modals/ExpenseModal'));
 const DepositModal = lazy(() => import('../modals/DepositModal'));
 
-const compressImage = (file: File): Promise<string> => {
+const compressImage = (file: File, maxDim: number = 400, quality: number = 0.5): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
@@ -85,17 +85,29 @@ const compressImage = (file: File): Promise<string> => {
       img.src = event.target?.result as string;
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 400; // Smaller for faster storage
-        const MAX_HEIGHT = 400;
         let width = img.width;
         let height = img.height;
-        if (width > height) { if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; } }
-        else { if (height > MAX_HEIGHT) { width *= MAX_HEIGHT / height; height = MAX_HEIGHT; } }
+        if (width > height) { if (width > maxDim) { height *= maxDim / width; width = maxDim; } }
+        else { if (height > maxDim) { width *= maxDim / height; height = maxDim; } }
         canvas.width = width;
         canvas.height = height;
         const ctx = canvas.getContext('2d');
         ctx?.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', 0.5)); // Lower quality for performance
+        const result = canvas.toDataURL('image/jpeg', quality);
+        // Validate base64 size — Firestore docs have a 1MB limit
+        const sizeInBytes = Math.round((result.length * 3) / 4);
+        if (sizeInBytes > 700_000) {
+          // Re-compress with lower quality to fit within Firestore limits
+          const fallback = canvas.toDataURL('image/jpeg', 0.3);
+          const fallbackSize = Math.round((fallback.length * 3) / 4);
+          if (fallbackSize > 700_000) {
+            reject(new Error('Image trop volumineuse même après compression. Essayez une image plus petite ou de moindre résolution.'));
+            return;
+          }
+          resolve(fallback);
+          return;
+        }
+        resolve(result);
       };
       img.onerror = (error) => reject(error);
     };
@@ -297,8 +309,8 @@ export default function AdminDashboard() {
     });
   };
 
-  const handleImageUpload = async (file: File): Promise<string> => {
-    return await compressImage(file);
+  const handleImageUpload = async (file: File, maxDim?: number, quality?: number): Promise<string> => {
+    return await compressImage(file, maxDim, quality);
   };
 
   // Returns a local YYYY-MM-DD string for today (avoids UTC offset bug)
@@ -2009,22 +2021,22 @@ export default function AdminDashboard() {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
                           <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Nom du Salon</label>
-                          <input id="settings-name" defaultValue={businessInfo.name} onBlur={(e) => updateBusinessInfo({ name: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" />
+                          <input id="settings-name" defaultValue={businessInfo.name} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" />
                         </div>
                         <div>
                           <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Téléphone</label>
-                          <input id="settings-phone" defaultValue={businessInfo.phone} onBlur={(e) => updateBusinessInfo({ phone: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" />
+                          <input id="settings-phone" defaultValue={businessInfo.phone} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" />
                         </div>
                       </div>
                       
                       <div>
                         <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2 text-[#D4AF37]">Adresse E-mail (Admin Login)</label>
-                        <input id="settings-email" defaultValue={businessInfo.email} onBlur={(e) => updateBusinessInfo({ email: e.target.value })} className="w-full bg-white/10 border border-[#D4AF37]/30 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" />
+                        <input id="settings-email" defaultValue={businessInfo.email} className="w-full bg-white/10 border border-[#D4AF37]/30 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" />
                       </div>
                       
                       <div>
                         <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Adresse Physique</label>
-                        <input id="settings-address" defaultValue={businessInfo.address} onBlur={(e) => updateBusinessInfo({ address: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" />
+                        <input id="settings-address" defaultValue={businessInfo.address} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" />
                       </div>
 
                       <div className="space-y-4 pt-4 border-t border-white/5">
@@ -2035,7 +2047,7 @@ export default function AdminDashboard() {
                             <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Instagram</label>
                             <div className="flex gap-2">
                                <div className="bg-white/5 p-3 rounded-xl border border-white/10 flex items-center justify-center w-11"><Instagram className="w-5 h-5 text-pink-500" /></div>
-                               <input id="settings-instagram" defaultValue={businessInfo.instagram} onBlur={(e) => updateBusinessInfo({ instagram: e.target.value })} className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold text-xs" placeholder="https://instagram.com/..." />
+                               <input id="settings-instagram" defaultValue={businessInfo.instagram} className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold text-xs" placeholder="https://instagram.com/..." />
                             </div>
                           </div>
 
@@ -2043,7 +2055,7 @@ export default function AdminDashboard() {
                             <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">TikTok</label>
                             <div className="flex gap-2">
                                <div className="bg-white/5 p-3 rounded-xl border border-white/10 flex items-center justify-center w-11"><Link className="w-5 h-5 text-amber-500" /></div>
-                               <input id="settings-tiktok" defaultValue={businessInfo.tiktok} onBlur={(e) => updateBusinessInfo({ tiktok: e.target.value })} className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold text-xs" placeholder="https://tiktok.com/@..." />
+                               <input id="settings-tiktok" defaultValue={businessInfo.tiktok} className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold text-xs" placeholder="https://tiktok.com/@..." />
                             </div>
                           </div>
 
@@ -2051,7 +2063,7 @@ export default function AdminDashboard() {
                             <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Facebook</label>
                             <div className="flex gap-2">
                                <div className="bg-white/5 p-3 rounded-xl border border-white/10 flex items-center justify-center w-11"><Facebook className="w-5 h-5 text-blue-500" /></div>
-                               <input id="settings-facebook" defaultValue={businessInfo.facebook} onBlur={(e) => updateBusinessInfo({ facebook: e.target.value })} className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold text-xs" placeholder="https://facebook.com/..." />
+                               <input id="settings-facebook" defaultValue={businessInfo.facebook} className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold text-xs" placeholder="https://facebook.com/..." />
                             </div>
                           </div>
 
@@ -2059,7 +2071,7 @@ export default function AdminDashboard() {
                             <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Site Web</label>
                             <div className="flex gap-2">
                                <div className="bg-white/5 p-3 rounded-xl border border-white/10 flex items-center justify-center w-11"><Globe className="w-5 h-5 text-green-400" /></div>
-                               <input id="settings-website" defaultValue={businessInfo.website} onBlur={(e) => updateBusinessInfo({ website: e.target.value })} className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold text-xs" placeholder="https://..." />
+                               <input id="settings-website" defaultValue={businessInfo.website} className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold text-xs" placeholder="https://..." />
                             </div>
                           </div>
                         </div>
@@ -2106,11 +2118,11 @@ export default function AdminDashboard() {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                           <div>
                             <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">En Semaine (Lun-Ven)</label>
-                            <input id="settings-weekdays" defaultValue={businessInfo.hours?.weekdays || ''} onBlur={(e) => updateBusinessInfo({ hours: { ...(businessInfo.hours || {}), weekdays: e.target.value } })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" placeholder="ex: 9h-19h" />
+                            <input id="settings-weekdays" defaultValue={businessInfo.hours?.weekdays || ''} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" placeholder="ex: 9h-19h" />
                           </div>
                           <div>
                             <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Week-end (Sam-Dim)</label>
-                            <input id="settings-weekends" defaultValue={businessInfo.hours?.weekends || ''} onBlur={(e) => updateBusinessInfo({ hours: { ...(businessInfo.hours || {}), weekends: e.target.value } })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" placeholder="ex: 10h-17h" />
+                            <input id="settings-weekends" defaultValue={businessInfo.hours?.weekends || ''} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" placeholder="ex: 10h-17h" />
                           </div>
                         </div>
                       </div>
