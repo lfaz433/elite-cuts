@@ -473,10 +473,53 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       markLoaded();
     }, () => markLoaded());
 
-    const unsubClients = onSnapshot(query(collection(db, 'users'), where('tenantId', '==', tenantId), where('role', '==', 'client')), (snapshot) => {
-      setRegisteredClients(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+    // registeredClients: query by subdomain to handle duplicate tenant docs for same subdomain
+    // First get all tenantIds for this subdomain, then fetch users
+    const resolveClientsForSubdomain = async () => {
+      try {
+        // Find all tenantIds matching our subdomain
+        const tenantQuery = query(collection(db, 'tenants'), where('subdomain', '==', subdomain));
+        const tenantSnap = await getDocs(tenantQuery);
+        const allTenantIds = tenantSnap.docs.map(d => d.id);
+        // Also always include the current tenantId
+        if (!allTenantIds.includes(tenantId)) allTenantIds.push(tenantId);
+
+        // Firestore 'in' supports up to 30 values
+        const chunks: string[][] = [];
+        for (let i = 0; i < allTenantIds.length; i += 10) {
+          chunks.push(allTenantIds.slice(i, i + 10));
+        }
+
+        const allClients: any[] = [];
+        for (const chunk of chunks) {
+          const q = query(
+            collection(db, 'users'),
+            where('tenantId', 'in', chunk),
+            where('role', '==', 'client')
+          );
+          const snap = await getDocs(q);
+          snap.docs.forEach(d => allClients.push({ id: d.id, ...d.data() }));
+        }
+        // Deduplicate by UID
+        const seen = new Set<string>();
+        const unique = allClients.filter(c => {
+          if (seen.has(c.id)) return false;
+          seen.add(c.id);
+          return true;
+        });
+        setRegisteredClients(unique);
+      } catch (e) {
+        console.error('[BusinessContext] Error fetching registered clients:', e);
+      }
       markLoaded();
-    }, () => markLoaded());
+    };
+    resolveClientsForSubdomain();
+
+    // Also subscribe to clients for this exact tenantId (for real-time updates)
+    const unsubClients = onSnapshot(query(collection(db, 'users'), where('tenantId', '==', tenantId), where('role', '==', 'client')), (snapshot) => {
+      // Re-run the full multi-tenant resolution on any change
+      resolveClientsForSubdomain();
+    }, () => {});
 
     const unsubNotes = onSnapshot(query(collection(db, 'client_notes'), where('tenantId', '==', tenantId)), (snapshot) => {
       setClientNotes(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ClientNote)));
