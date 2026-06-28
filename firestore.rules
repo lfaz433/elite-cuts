@@ -102,18 +102,15 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isSuperAdmin() 
         || (request.auth != null && request.auth.uid == userId)
-        || (request.auth != null && getUserData().role == "admin" && (
-             !exists(/databases/$(database)/documents/users/$(userId)) 
-             || get(/databases/$(database)/documents/users/$(userId)).data.tenantId == getUserData().tenantId
-           ));
+        || (request.auth != null && getUserData().role == "admin" && resource.data.tenantId == getUserData().tenantId);
       allow write: if isSuperAdmin() 
         || (request.auth != null && request.auth.uid == userId)
         || (request.auth != null && getUserData().role == "admin" && (
              // for updates, verify they belong to the same tenant
-             (exists(/databases/$(database)/documents/users/$(userId)) && get(/databases/$(database)/documents/users/$(userId)).data.tenantId == getUserData().tenantId)
+             (resource != null && resource.data.tenantId == getUserData().tenantId)
              ||
              // for creation, verify the new document has the admin's tenantId
-             (!exists(/databases/$(database)/documents/users/$(userId)) && request.resource.data.tenantId == getUserData().tenantId)
+             (resource == null && request.resource.data.tenantId == getUserData().tenantId)
            ));
     }
 
