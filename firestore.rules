@@ -102,15 +102,16 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isSuperAdmin() 
         || (request.auth != null && request.auth.uid == userId)
-        || (request.auth != null && getUserData().role == "admin" && resource.data.tenantId == getUserData().tenantId);
+        || (request.auth != null && 
+            exists(/databases/$(database)/documents/tenants/$(resource.data.tenantId)) && 
+            get(/databases/$(database)/documents/tenants/$(resource.data.tenantId)).data.ownerUid == request.auth.uid
+           );
       allow write: if isSuperAdmin() 
         || (request.auth != null && request.auth.uid == userId)
-        || (request.auth != null && getUserData().role == "admin" && (
-             // for updates, verify they belong to the same tenant
-             (resource != null && resource.data.tenantId == getUserData().tenantId)
+        || (request.auth != null && (
+             (resource != null && exists(/databases/$(database)/documents/tenants/$(resource.data.tenantId)) && get(/databases/$(database)/documents/tenants/$(resource.data.tenantId)).data.ownerUid == request.auth.uid)
              ||
-             // for creation, verify the new document has the admin's tenantId
-             (resource == null && request.resource.data.tenantId == getUserData().tenantId)
+             (resource == null && exists(/databases/$(database)/documents/tenants/$(request.resource.data.tenantId)) && get(/databases/$(database)/documents/tenants/$(request.resource.data.tenantId)).data.ownerUid == request.auth.uid)
            ));
     }
 
