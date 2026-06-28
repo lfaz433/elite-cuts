@@ -11,12 +11,15 @@ import { doc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../../lib/firebase';
 import { useBusiness } from '../context/BusinessContext';
 import { useTenant } from '../context/TenantContext';
+import { useAuth } from '../context/AuthContext';
 
 export default function ClientsTab() {
   const { 
     bookings, services, barbers, registeredClients, 
-    clientNotes, updateClientNote, campaigns, addCampaign, deleteCampaign 
+    clientNotes, updateClientNote, campaigns, addCampaign, deleteCampaign,
+    clientsLoadError
   } = useBusiness();
+  const { user: authUser } = useAuth();
   const { tenantId } = useTenant();
 
   const [activeSubTab, setActiveSubTab] = useState<'registered' | 'guests' | 'marketing'>('registered');
@@ -1009,6 +1012,34 @@ export default function ClientsTab() {
             </motion.div>
           </div>
         )}
+      {/* Debug Info Panel */}
+      <div className="mt-12 bg-black/40 border border-white/5 p-6 rounded-[2rem] text-xs font-mono text-white/50 space-y-2">
+        <p className="font-black text-[#D4AF37] uppercase tracking-wider text-sm mb-3 flex items-center gap-2">
+          ⚙️ Diagnostic de Synchronisation Clients (Debug)
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-1">
+            <p>• Sous-domaine actif : <span className="text-white font-bold">{useTenant().subdomain}</span></p>
+            <p>• Tenant ID actif : <span className="text-white font-bold">{useTenant().tenantId}</span></p>
+            <p>• Admin connecté UID : <span className="text-white font-bold">{authUser?.uid || 'aucun'}</span></p>
+            <p>• Admin tenantId profil : <span className="text-white font-bold">{authUser?.tenantId || 'aucun'}</span></p>
+          </div>
+          <div className="space-y-1">
+            <p>• Clients inscrits dans l'état local : <span className="text-white font-bold">{registeredClients?.length || 0}</span></p>
+            <p>• Total réservations chargées : <span className="text-white font-bold">{bookings?.length || 0}</span></p>
+            <p>• Statut Firestore : {clientsLoadError ? (
+              <span className="text-red-400 font-bold bg-red-400/10 px-2 py-0.5 rounded border border-red-500/20">
+                Erreur : {clientsLoadError}
+              </span>
+            ) : (
+              <span className="text-emerald-400 font-bold bg-emerald-400/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                Connecté (OK)
+              </span>
+            )}</p>
+          </div>
+        </div>
+      </div>
+      
       </AnimatePresence>
     </motion.div>
   );

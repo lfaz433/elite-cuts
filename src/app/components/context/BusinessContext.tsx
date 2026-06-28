@@ -262,6 +262,7 @@ interface BusinessContextType {
   deleteCampaign: (id: string) => Promise<void>;
   updateClientNote: (phone: string, notes: string, isVip?: boolean) => Promise<void>;
   loading: boolean;
+  clientsLoadError?: string | null;
   getBarberWalletBalance: (barberId: string) => number;
   addAttendance: (attendance: Omit<Attendance, 'id'>) => Promise<void>;
   addSettlement: (settlement: Omit<Settlement, 'id' | 'createdAt'>) => Promise<void>;
@@ -345,6 +346,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [registeredClients, setRegisteredClients] = useState<any[]>([]);
   const [clientNotes, setClientNotes] = useState<ClientNote[]>([]);
+  const [clientsLoadError, setClientsLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const sendPush = async (recipientId: string, title: string, message: string, redirectUrl: string) => {
@@ -481,10 +483,12 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       ),
       (snapshot) => {
         setRegisteredClients(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+        setClientsLoadError(null);
         markLoaded();
       },
       (error) => {
         console.error('[BusinessContext] Error fetching registered clients:', error);
+        setClientsLoadError(error.message || String(error));
         markLoaded();
       }
     );
@@ -1021,7 +1025,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     services, barbers, bookings, businessInfo, gallery, products, sales,
     attendance, settlements, expenses, deposits, payrollRequests, payrollPayments, loading,
     campaigns, registeredClients, addCampaign, deleteCampaign,
-    clientNotes, updateClientNote,
+    clientNotes, updateClientNote, clientsLoadError,
     addService, updateService, deleteService,
     addBarber, updateBarber, deleteBarber,
     addBooking, updateBookingStatus, updateBooking, deleteBooking,
@@ -1036,7 +1040,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   }), [
     services, barbers, bookings, businessInfo, gallery, products, sales,
     attendance, settlements, expenses, deposits, payrollRequests, payrollPayments, loading, totalExpenses, totalDeposits, caisseBalance,
-    campaigns, registeredClients, clientNotes
+    campaigns, registeredClients, clientNotes, clientsLoadError
   ]);
 
   return (
