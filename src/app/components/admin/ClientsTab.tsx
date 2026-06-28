@@ -2,18 +2,24 @@ import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Search, User, Calendar, DollarSign, Megaphone, 
-  Clock, Plus, Trash2, Scissors, Award, X, Copy, Mail, Phone 
+  Clock, Plus, Trash2, Scissors, Award, X, Copy, Mail, Phone,
+  UserCheck, UserX, Crown, Eye, EyeOff
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { doc, setDoc } from 'firebase/firestore';
+import { auth, db } from '../../lib/firebase';
 import { useBusiness } from '../context/BusinessContext';
+import { useTenant } from '../context/TenantContext';
 
 export default function ClientsTab() {
   const { 
     bookings, services, barbers, registeredClients, 
     clientNotes, updateClientNote, campaigns, addCampaign, deleteCampaign 
   } = useBusiness();
+  const { tenantId } = useTenant();
 
-  const [activeSubTab, setActiveSubTab] = useState<'directory' | 'marketing'>('directory');
+  const [activeSubTab, setActiveSubTab] = useState<'registered' | 'guests' | 'marketing'>('registered');
   const [searchQuery, setSearchQuery] = useState('');
   const [segmentFilter, setSegmentFilter] = useState<'all' | 'vip' | 'new' | 'inactive'>('all');
   const [selectedClient, setSelectedClient] = useState<any>(null);
@@ -22,6 +28,15 @@ export default function ClientsTab() {
   const [editingNotes, setEditingNotes] = useState('');
   const [editingVip, setEditingVip] = useState(false);
   const [isSavingNotes, setIsSavingNotes] = useState(false);
+
+  // Add Client Modal state
+  const [showAddClient, setShowAddClient] = useState(false);
+  const [newClientName, setNewClientName] = useState('');
+  const [newClientEmail, setNewClientEmail] = useState('');
+  const [newClientPhone, setNewClientPhone] = useState('');
+  const [newClientPassword, setNewClientPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [isCreatingClient, setIsCreatingClient] = useState(false);
 
   // Campaign builder state
   const [campaignTitle, setCampaignTitle] = useState('');
@@ -72,7 +87,7 @@ export default function ClientsTab() {
 
     // 2. Process all bookings to aggregate stats and discover unregistered clients
     (bookings || []).forEach(b => {
-      if (b.status === 'rejected') return; // Skip cancelled appointments
+      if (b.status === 'rejected') return;
       
       const normalizedPhone = b.clientPhone ? b.clientPhone.replace(/[^0-9+]/g, '') : '';
       
@@ -194,28 +209,31 @@ export default function ClientsTab() {
     });
   }, [registeredClients, bookings, services, barbers, clientNotes]);
 
+  const registeredList = useMemo(() => compiledClients.filter(c => c.isRegistered), [compiledClients]);
+  const guestList = useMemo(() => compiledClients.filter(c => !c.isRegistered), [compiledClients]);
+
   // --- Filtering & Searching ---
-  const filteredClients = useMemo(() => {
-    return compiledClients.filter(c => {
+  const filterClients = (list: any[]) => {
+    return list.filter(c => {
       const matchesQuery = 
         c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         c.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
         c.phone.includes(searchQuery);
-
       const matchesSegment = segmentFilter === 'all' || c.segment === segmentFilter;
-
       return matchesQuery && matchesSegment;
     });
-  }, [compiledClients, searchQuery, segmentFilter]);
+  };
 
-  // --- Metrics Ribbon Values ---
-  const metrics = useMemo(() => {
-    const total = compiledClients.length;
-    const vip = compiledClients.filter(c => c.segment === 'vip').length;
-    const isNew = compiledClients.filter(c => c.segment === 'new').length;
-    const inactive = compiledClients.filter(c => c.segment === 'inactive').length;
-    return { total, vip, isNew, inactive };
-  }, [compiledClients]);
+  const filteredRegistered = useMemo(() => filterClients(registeredList), [registeredList, searchQuery, segmentFilter]);
+  const filteredGuests = useMemo(() => filterClients(guestList), [guestList, searchQuery, segmentFilter]);
+
+  // --- Metrics ---
+  const metrics = useMemo(() => ({
+    registered: registeredList.length,
+    guests: guestList.length,
+    vip: compiledClients.filter(c => c.segment === 'vip').length,
+    inactive: compiledClients.filter(c => c.segment === 'inactive').length,
+  }), [compiledClients, registeredList, guestList]);
 
   const handleOpenClientDetail = (client: any) => {
     setSelectedClient(client);
@@ -229,8 +247,6 @@ export default function ClientsTab() {
     try {
       await updateClientNote(selectedClient.normalizedPhone || selectedClient.phone, editingNotes, editingVip);
       toast.success("Notes du client mises à jour !");
-      
-      // Update in local selection state
       setSelectedClient((prev: any) => ({ 
         ...prev, 
         notes: editingNotes,
@@ -238,10 +254,53 @@ export default function ClientsTab() {
         segment: (editingVip || prev.totalVisits > 5) ? 'vip' : prev.segment
       }));
     } catch (err: any) {
-      console.error(err);
       toast.error("Erreur lors de l'enregistrement des notes.");
     } finally {
       setIsSavingNotes(false);
+    }
+  };
+
+  const handleCreateClient = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newClientName || !newClientEmail || !newClientPassword) {
+      toast.error("Veuillez remplir tous les champs obligatoires.");
+      return;
+    }
+    if (newClientPassword.length < 6) {
+      toast.error("Le mot de passe doit contenir au moins 6 caractères.");
+      return;
+    }
+    setIsCreatingClient(true);
+    try {
+      // Create Firebase Auth account
+      const userCredential = await createUserWithEmailAndPassword(auth, newClientEmail.trim().toLowerCase(), newClientPassword);
+      const firebaseUser = userCredential.user;
+
+      // Save to Firestore users collection
+      await setDoc(doc(db, 'users', firebaseUser.uid), {
+        uid: firebaseUser.uid,
+        email: newClientEmail.trim().toLowerCase(),
+        name: newClientName.trim(),
+        phone: newClientPhone.trim(),
+        role: 'client',
+        createdAt: new Date().toISOString(),
+        tenantId: tenantId
+      });
+
+      toast.success(`✅ Compte créé pour ${newClientName} ! Il pourra se connecter avec son email et mot de passe.`);
+      setShowAddClient(false);
+      setNewClientName('');
+      setNewClientEmail('');
+      setNewClientPhone('');
+      setNewClientPassword('');
+    } catch (err: any) {
+      let msg = "Erreur lors de la création du compte.";
+      if (err.code === 'auth/email-already-in-use') msg = "Cet email est déjà utilisé.";
+      else if (err.code === 'auth/invalid-email') msg = "Email invalide.";
+      else if (err.code === 'auth/weak-password') msg = "Mot de passe trop faible (min. 6 caractères).";
+      toast.error(msg);
+    } finally {
+      setIsCreatingClient(false);
     }
   };
 
@@ -267,7 +326,6 @@ export default function ClientsTab() {
       setCampaignCode('');
       setCampaignDiscount(10);
     } catch (err: any) {
-      console.error(err);
       toast.error("Erreur lors de la création de la campagne.");
     } finally {
       setIsSubmittingCampaign(false);
@@ -280,7 +338,6 @@ export default function ClientsTab() {
       await deleteCampaign(id);
       toast.success("Campagne désactivée.");
     } catch (err: any) {
-      console.error(err);
       toast.error("Erreur lors de la désactivation.");
     }
   };
@@ -288,10 +345,10 @@ export default function ClientsTab() {
   // --- Display Names Mapping ---
   const segmentLabels: Record<string, string> = {
     all: 'Tous les Clients',
-    vip: 'VIP / Super Clients',
-    new: 'Nouveaux (14j)',
-    inactive: 'À Relancer (30j+)',
-    active: 'Actifs'
+    vip: 'VIP',
+    new: 'Nouveau',
+    inactive: 'Inactif',
+    active: 'Actif'
   };
 
   const segmentColors: Record<string, string> = {
@@ -301,6 +358,77 @@ export default function ClientsTab() {
     active: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
   };
 
+  // Shared client table renderer
+  const renderClientTable = (clients: any[], emptyMsg: string) => (
+    <div className="bg-[#141414] border border-white/5 rounded-[2rem] overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="border-b border-white/5 text-white/30 text-[10px] font-black uppercase tracking-widest bg-white/[0.01]">
+              <th className="py-5 px-6">Client</th>
+              <th className="py-5 px-6">Segment</th>
+              <th className="py-5 px-6 text-center">Visites</th>
+              <th className="py-5 px-6 text-right">Dépensé</th>
+              <th className="py-5 px-6">Coiffeur Favori</th>
+              <th className="py-5 px-6">Dernière Visite</th>
+              <th className="py-5 px-6 text-center">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/5">
+            {clients.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="py-16 text-center">
+                  <User className="w-10 h-10 text-white/10 mx-auto mb-3" />
+                  <p className="text-white/30 font-medium italic text-sm">{emptyMsg}</p>
+                </td>
+              </tr>
+            ) : (
+              clients.map((client, idx) => (
+                <tr key={idx} className="hover:bg-white/[0.02] transition-colors text-sm group">
+                  <td className="py-4 px-6">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-9 h-9 rounded-xl font-bold flex items-center justify-center border uppercase text-sm
+                        ${client.isRegistered ? 'bg-[#D4AF37]/10 text-[#D4AF37] border-[#D4AF37]/20' : 'bg-white/5 text-white/60 border-white/10'}`}>
+                        {client.name.substring(0, 2)}
+                      </div>
+                      <div>
+                        <div className="font-bold text-white group-hover:text-[#D4AF37] transition-colors flex items-center gap-1.5">
+                          {client.name}
+                          {client.manualVip && <Crown className="w-3 h-3 text-amber-400" />}
+                        </div>
+                        <div className="text-white/40 text-xs mt-0.5 truncate max-w-[200px]">{client.email}</div>
+                        <div className="text-white/30 text-xs">{client.phone}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="py-4 px-6">
+                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${segmentColors[client.segment]}`}>
+                      {segmentLabels[client.segment]}
+                    </span>
+                  </td>
+                  <td className="py-4 px-6 text-center font-extrabold text-white">{client.totalVisits}</td>
+                  <td className="py-4 px-6 text-right font-black text-[#D4AF37]">€{client.totalSpent.toFixed(2)}</td>
+                  <td className="py-4 px-6 font-semibold text-white/80">{client.favoriteBarber}</td>
+                  <td className="py-4 px-6 text-white/60 font-medium">
+                    {client.lastVisit ? new Date(client.lastVisit).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                  </td>
+                  <td className="py-4 px-6 text-center">
+                    <button
+                      onClick={() => handleOpenClientDetail(client)}
+                      className="px-4 py-2 bg-white/5 hover:bg-[#D4AF37] hover:text-black rounded-xl font-bold text-xs uppercase tracking-wider transition-all"
+                    >
+                      Détails
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-8 pb-20">
       
@@ -308,50 +436,78 @@ export default function ClientsTab() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-3xl font-black uppercase tracking-tight">Espace Clients & Marketing</h2>
-          <p className="text-white/40 text-sm mt-1">Gérez votre base de clients, analysez leur assiduité et créez des campagnes de fidélisation.</p>
+          <p className="text-white/40 text-sm mt-1">Gérez votre base de clients inscrits et invités, et créez des campagnes de fidélisation.</p>
         </div>
-        
-        {/* Navigation buttons inside Clients page */}
-        <div className="flex bg-white/5 p-1 rounded-2xl border border-white/5">
-          <button 
-            onClick={() => setActiveSubTab('directory')}
-            className={`px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all ${activeSubTab === 'directory' ? 'bg-[#D4AF37] text-black shadow-lg shadow-[#D4AF37]/10' : 'text-white/40 hover:text-white'}`}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowAddClient(true)}
+            className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black rounded-2xl font-black text-xs uppercase tracking-wider shadow-lg shadow-[#D4AF37]/20 hover:shadow-[#D4AF37]/40 transition-all active:scale-95"
           >
-            Fichier Clients
-          </button>
-          <button 
-            onClick={() => setActiveSubTab('marketing')}
-            className={`px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all ${activeSubTab === 'marketing' ? 'bg-[#D4AF37] text-black shadow-lg shadow-[#D4AF37]/10' : 'text-white/40 hover:text-white'}`}
-          >
-            Campagnes Marketing
+            <Plus className="w-4 h-4" /> Ajouter un Client
           </button>
         </div>
       </div>
 
-      {/* --- SUB TAB 1: CLIENT DIRECTORY --- */}
-      {activeSubTab === 'directory' && (
-        <div className="space-y-6">
-          
-          {/* Key metrics */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            {[
-              { label: 'Total Clients', val: metrics.total, desc: 'Profils uniques compilés', Icon: User, col: '#D4AF37' },
-              { label: 'VIP (Super Clients)', val: metrics.vip, desc: 'Plus de 5 rendez-vous', Icon: Award, col: '#fbbf24' },
-              { label: 'Nouveaux', val: metrics.isNew, desc: 'Inscrits ou venus depuis 14j', Icon: Calendar, col: '#34d399' },
-              { label: 'Inactifs à Relancer', val: metrics.inactive, desc: 'Aucune visite depuis 30j', Icon: Clock, col: '#f87171' },
-            ].map((m, i) => (
-              <div key={i} className="bg-[#141414] border border-white/5 p-5 rounded-[1.8rem] relative overflow-hidden group">
-                <div className="p-2.5 rounded-xl w-fit mb-3 transition-transform group-hover:scale-110" style={{ background: `${m.col}15`, color: m.col }}>
-                  <m.Icon className="w-5 h-5" />
-                </div>
-                <p className="text-white/30 text-[9px] font-black uppercase tracking-wider">{m.label}</p>
-                <p className="text-3xl font-black mt-1" style={{ color: m.col }}>{m.val}</p>
-                <p className="text-[10px] text-white/40 mt-1 italic">{m.desc}</p>
+      {/* Navigation Sub-tabs */}
+      <div className="flex bg-white/5 p-1 rounded-2xl border border-white/5 w-fit">
+        <button 
+          onClick={() => setActiveSubTab('registered')}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all ${activeSubTab === 'registered' ? 'bg-[#D4AF37] text-black shadow-lg' : 'text-white/40 hover:text-white'}`}
+        >
+          <UserCheck className="w-3.5 h-3.5" />
+          Clients Inscrits
+          <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-black ${activeSubTab === 'registered' ? 'bg-black/20' : 'bg-white/10'}`}>{metrics.registered}</span>
+        </button>
+        <button 
+          onClick={() => setActiveSubTab('guests')}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all ${activeSubTab === 'guests' ? 'bg-[#D4AF37] text-black shadow-lg' : 'text-white/40 hover:text-white'}`}
+        >
+          <UserX className="w-3.5 h-3.5" />
+          Clients Invités
+          <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-black ${activeSubTab === 'guests' ? 'bg-black/20' : 'bg-white/10'}`}>{metrics.guests}</span>
+        </button>
+        <button 
+          onClick={() => setActiveSubTab('marketing')}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all ${activeSubTab === 'marketing' ? 'bg-[#D4AF37] text-black shadow-lg' : 'text-white/40 hover:text-white'}`}
+        >
+          <Megaphone className="w-3.5 h-3.5" />
+          Campagnes
+        </button>
+      </div>
+
+      {/* --- Metrics Ribbon (for client tabs) --- */}
+      {activeSubTab !== 'marketing' && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {[
+            { label: 'Inscrits', val: metrics.registered, desc: 'Comptes créés', Icon: UserCheck, col: '#D4AF37' },
+            { label: 'Invités', val: metrics.guests, desc: 'Sans compte', Icon: UserX, col: '#60a5fa' },
+            { label: 'VIP', val: metrics.vip, desc: '5+ visites ou badge manuel', Icon: Crown, col: '#fbbf24' },
+            { label: 'Inactifs', val: metrics.inactive, desc: 'Sans visite depuis 30j', Icon: Clock, col: '#f87171' },
+          ].map((m, i) => (
+            <div key={i} className="bg-[#141414] border border-white/5 p-5 rounded-[1.8rem] relative overflow-hidden group">
+              <div className="p-2.5 rounded-xl w-fit mb-3 transition-transform group-hover:scale-110" style={{ background: `${m.col}15`, color: m.col }}>
+                <m.Icon className="w-5 h-5" />
               </div>
-            ))}
+              <p className="text-white/30 text-[9px] font-black uppercase tracking-wider">{m.label}</p>
+              <p className="text-3xl font-black mt-1" style={{ color: m.col }}>{m.val}</p>
+              <p className="text-[10px] text-white/40 mt-1 italic">{m.desc}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* --- SUB TAB: REGISTERED CLIENTS --- */}
+      {activeSubTab === 'registered' && (
+        <div className="space-y-6">
+          {/* Info Banner */}
+          <div className="bg-[#D4AF37]/5 border border-[#D4AF37]/20 rounded-2xl px-5 py-3 flex items-center gap-3">
+            <UserCheck className="w-5 h-5 text-[#D4AF37] shrink-0" />
+            <p className="text-sm text-white/70">
+              <span className="font-bold text-[#D4AF37]">Clients Inscrits</span> — Ces clients ont créé un compte sur votre application. Ils peuvent se connecter et consulter leur historique.
+            </p>
           </div>
 
-          {/* Search & Filter Bar */}
+          {/* Search & Filter */}
           <div className="bg-[#141414] border border-white/5 p-4 rounded-[1.8rem] flex flex-col md:flex-row gap-4 items-center justify-between">
             <div className="relative w-full md:w-96">
               <Search className="absolute left-4 top-3.5 w-4 h-4 text-white/30" />
@@ -363,7 +519,6 @@ export default function ClientsTab() {
                 className="w-full bg-white/5 border border-white/10 rounded-2xl pl-10 pr-4 py-3 outline-none text-white focus:border-[#D4AF37] font-semibold text-sm transition-all"
               />
             </div>
-            
             <div className="flex items-center gap-3 w-full md:w-auto">
               <span className="text-xs text-white/40 font-bold uppercase tracking-wider shrink-0 hidden sm:inline">Segment :</span>
               <select
@@ -372,96 +527,60 @@ export default function ClientsTab() {
                 className="w-full md:w-56 bg-white/5 border border-white/10 rounded-2xl px-4 py-3 outline-none text-white focus:border-[#D4AF37] font-bold text-xs"
               >
                 <option value="all" className="bg-[#141414]">Tous les clients</option>
-                <option value="vip" className="bg-[#141414]">VIP (Super Clients)</option>
+                <option value="vip" className="bg-[#141414]">VIP</option>
                 <option value="new" className="bg-[#141414]">Nouveaux</option>
-                <option value="inactive" className="bg-[#141414]">Inactifs (À relancer)</option>
+                <option value="inactive" className="bg-[#141414]">Inactifs</option>
               </select>
             </div>
           </div>
 
-          {/* Clients List Table */}
-          <div className="bg-[#141414] border border-white/5 rounded-[2rem] overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-white/5 text-white/30 text-[10px] font-black uppercase tracking-widest bg-white/[0.01]">
-                    <th className="py-5 px-6">Client</th>
-                    <th className="py-5 px-6">Statut / Segment</th>
-                    <th className="py-5 px-6 text-center">Rendez-vous</th>
-                    <th className="py-5 px-6 text-right">Montant Dépensé</th>
-                    <th className="py-5 px-6">Coiffeur Favori</th>
-                    <th className="py-5 px-6">Dernière Visite</th>
-                    <th className="py-5 px-6 text-center">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/5">
-                  {filteredClients.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="py-12 text-center text-white/30 font-medium italic text-sm">
-                        Aucun client trouvé correspondant aux critères.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredClients.map((client, idx) => (
-                      <tr key={idx} className="hover:bg-white/[0.02] transition-colors text-sm group">
-                        <td className="py-4.5 px-6">
-                          <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-xl bg-white/5 text-white font-bold flex items-center justify-center border border-white/10 uppercase">
-                              {client.name.substring(0, 2)}
-                            </div>
-                            <div>
-                              <div className="font-bold text-white group-hover:text-[#D4AF37] transition-colors">{client.name}</div>
-                              <div className="text-white/40 text-xs mt-0.5">{client.email} • {client.phone}</div>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="py-4.5 px-6">
-                          <div className="flex flex-wrap gap-1.5">
-                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${segmentColors[client.segment]}`}>
-                              {segmentLabels[client.segment]}
-                            </span>
-                            {client.isRegistered ? (
-                              <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-[#D4AF37]/10 text-[#D4AF37] border border-[#D4AF37]/20 uppercase">
-                                Enregistré
-                              </span>
-                            ) : (
-                              <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-white/5 text-white/40 border border-white/10 uppercase">
-                                Invité
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-4.5 px-6 text-center font-extrabold text-white">
-                          {client.totalVisits}
-                        </td>
-                        <td className="py-4.5 px-6 text-right font-black text-[#D4AF37]">
-                          €{client.totalSpent.toFixed(2)}
-                        </td>
-                        <td className="py-4.5 px-6 font-semibold text-white/80">
-                          {client.favoriteBarber}
-                        </td>
-                        <td className="py-4.5 px-6 text-white/60 font-medium">
-                          {client.lastVisit ? new Date(client.lastVisit).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
-                        </td>
-                        <td className="py-4.5 px-6 text-center">
-                          <button
-                            onClick={() => handleOpenClientDetail(client)}
-                            className="px-4 py-2 bg-white/5 hover:bg-[#D4AF37] hover:text-black rounded-xl font-bold text-xs uppercase tracking-wider transition-all"
-                          >
-                            Détails & Notes
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          {renderClientTable(filteredRegistered, "Aucun client inscrit trouvé. Utilisez le bouton « Ajouter un Client » pour créer des comptes.")}
         </div>
       )}
 
-      {/* --- SUB TAB 2: MARKETING CAMPAIGNS --- */}
+      {/* --- SUB TAB: GUEST CLIENTS --- */}
+      {activeSubTab === 'guests' && (
+        <div className="space-y-6">
+          {/* Info Banner */}
+          <div className="bg-blue-500/5 border border-blue-500/20 rounded-2xl px-5 py-3 flex items-center gap-3">
+            <UserX className="w-5 h-5 text-blue-400 shrink-0" />
+            <p className="text-sm text-white/70">
+              <span className="font-bold text-blue-400">Clients Invités</span> — Ces clients ont pris rendez-vous sans créer de compte. Ils n'ont pas accès à leur espace personnel.
+            </p>
+          </div>
+
+          {/* Search & Filter */}
+          <div className="bg-[#141414] border border-white/5 p-4 rounded-[1.8rem] flex flex-col md:flex-row gap-4 items-center justify-between">
+            <div className="relative w-full md:w-96">
+              <Search className="absolute left-4 top-3.5 w-4 h-4 text-white/30" />
+              <input
+                type="text"
+                placeholder="Rechercher par nom, email, téléphone..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded-2xl pl-10 pr-4 py-3 outline-none text-white focus:border-[#D4AF37] font-semibold text-sm transition-all"
+              />
+            </div>
+            <div className="flex items-center gap-3 w-full md:w-auto">
+              <span className="text-xs text-white/40 font-bold uppercase tracking-wider shrink-0 hidden sm:inline">Segment :</span>
+              <select
+                value={segmentFilter}
+                onChange={e => setSegmentFilter(e.target.value as any)}
+                className="w-full md:w-56 bg-white/5 border border-white/10 rounded-2xl px-4 py-3 outline-none text-white focus:border-[#D4AF37] font-bold text-xs"
+              >
+                <option value="all" className="bg-[#141414]">Tous les clients</option>
+                <option value="vip" className="bg-[#141414]">VIP</option>
+                <option value="new" className="bg-[#141414]">Nouveaux</option>
+                <option value="inactive" className="bg-[#141414]">Inactifs</option>
+              </select>
+            </div>
+          </div>
+
+          {renderClientTable(filteredGuests, "Aucun client invité trouvé. Les clients qui réservent sans compte apparaîtront ici.")}
+        </div>
+      )}
+
+      {/* --- SUB TAB: MARKETING CAMPAIGNS --- */}
       {activeSubTab === 'marketing' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           
@@ -503,63 +622,49 @@ export default function ClientsTab() {
               </div>
 
               <div>
-                <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-1.5">Segment Cible</label>
+                <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-1.5">Cibler le Segment</label>
                 <select
                   value={campaignSegment}
                   onChange={e => setCampaignSegment(e.target.value as any)}
                   className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none text-white focus:border-[#D4AF37] font-bold text-xs"
                 >
-                  <option value="all">Tous les clients</option>
-                  <option value="vip">Super Clients (VIP)</option>
-                  <option value="new">Nouveaux clients</option>
-                  <option value="inactive">Clients inactifs</option>
+                  <option value="all" className="bg-[#141414]">Tous les clients</option>
+                  <option value="vip" className="bg-[#141414]">VIP uniquement</option>
+                  <option value="new" className="bg-[#141414]">Nouveaux clients</option>
+                  <option value="inactive" className="bg-[#141414]">Clients inactifs</option>
                 </select>
               </div>
 
-              <div className="pt-2 border-t border-white/5">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-white/40 text-xs font-bold uppercase tracking-wider">Créer un code promo ?</span>
-                  <input 
-                    type="checkbox"
-                    checked={!!campaignCode}
-                    onChange={(e) => setCampaignCode(e.target.checked ? 'CODE' : '')}
-                    className="w-4 h-4 accent-[#D4AF37] cursor-pointer"
-                  />
-                </div>
-
-                {campaignCode !== '' && (
-                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-4 pt-1">
-                    <div>
-                      <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-1.5">Code de Coupon</label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="Ex: VIP15"
-                        value={campaignCode === 'CODE' ? '' : campaignCode}
-                        onChange={e => setCampaignCode(e.target.value.toUpperCase())}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none text-[#D4AF37] focus:border-[#D4AF37] font-black text-sm transition-all tracking-wider"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-1.5">Montant de Remise (%)</label>
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="range"
-                          min="5"
-                          max="50"
-                          step="5"
-                          value={campaignDiscount}
-                          onChange={e => setCampaignDiscount(parseInt(e.target.value))}
-                          className="flex-1 accent-[#D4AF37]"
-                        />
-                        <span className="w-12 text-center text-sm font-black text-[#D4AF37] bg-[#D4AF37]/10 py-1.5 rounded-lg border border-[#D4AF37]/20">
-                          {campaignDiscount}%
-                        </span>
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
+              <div>
+                <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-1.5">Code Promo (optionnel)</label>
+                <input
+                  type="text"
+                  placeholder="Ex: ELITE15"
+                  value={campaignCode}
+                  onChange={e => setCampaignCode(e.target.value.toUpperCase())}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none text-[#D4AF37] focus:border-[#D4AF37] font-black text-sm transition-all tracking-wider"
+                />
               </div>
+
+              {campaignCode && (
+                <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }}>
+                  <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-1.5">Montant de Remise (%)</label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="range"
+                      min="5"
+                      max="50"
+                      step="5"
+                      value={campaignDiscount}
+                      onChange={e => setCampaignDiscount(parseInt(e.target.value))}
+                      className="flex-1 accent-[#D4AF37]"
+                    />
+                    <span className="w-12 text-center text-sm font-black text-[#D4AF37] bg-[#D4AF37]/10 py-1.5 rounded-lg border border-[#D4AF37]/20">
+                      {campaignDiscount}%
+                    </span>
+                  </div>
+                </motion.div>
+              )}
 
               <button
                 type="submit"
@@ -588,8 +693,8 @@ export default function ClientsTab() {
                   <div key={camp.id} className="bg-[#141414] border border-white/5 p-6 rounded-[2rem] space-y-4 hover:border-[#D4AF37]/20 transition-all flex flex-col justify-between">
                     <div>
                       <div className="flex justify-between items-start gap-2">
-                        <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-bold border uppercase tracking-wider ${segmentColors[camp.segment]}`}>
-                          Cible : {segmentLabels[camp.segment]}
+                        <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-bold border uppercase tracking-wider ${segmentColors[camp.segment] || 'bg-white/5 text-white/40 border-white/10'}`}>
+                          Cible : {segmentLabels[camp.segment] || camp.segment}
                         </span>
                         <button
                           onClick={() => handleDeleteCampaign(camp.id)}
@@ -624,6 +729,104 @@ export default function ClientsTab() {
         </div>
       )}
 
+      {/* --- ADD CLIENT MODAL --- */}
+      <AnimatePresence>
+        {showAddClient && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-[#141414] border border-[#D4AF37]/20 rounded-[2rem] w-full max-w-md p-8 relative"
+            >
+              <button
+                onClick={() => setShowAddClient(false)}
+                className="absolute top-5 right-5 p-2 bg-white/5 hover:bg-white/10 rounded-xl transition-all text-white/40 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-11 h-11 rounded-xl bg-[#D4AF37]/10 flex items-center justify-center">
+                  <UserCheck className="w-5 h-5 text-[#D4AF37]" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-white">Nouveau Client</h3>
+                  <p className="text-xs text-white/40">Créer un compte client inscrit</p>
+                </div>
+              </div>
+
+              <form onSubmit={handleCreateClient} className="space-y-4">
+                <div>
+                  <label className="block text-white/40 text-[10px] font-black uppercase tracking-widest mb-1.5">Nom Complet *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: Jean Dupont"
+                    value={newClientName}
+                    onChange={e => setNewClientName(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none text-white focus:border-[#D4AF37] font-medium text-sm transition-all"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-white/40 text-[10px] font-black uppercase tracking-widest mb-1.5">Email *</label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="jean@exemple.com"
+                    value={newClientEmail}
+                    onChange={e => setNewClientEmail(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none text-white focus:border-[#D4AF37] font-medium text-sm transition-all"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-white/40 text-[10px] font-black uppercase tracking-widest mb-1.5">Téléphone</label>
+                  <input
+                    type="tel"
+                    placeholder="+33 6 00 00 00 00"
+                    value={newClientPhone}
+                    onChange={e => setNewClientPhone(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none text-white focus:border-[#D4AF37] font-medium text-sm transition-all"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-white/40 text-[10px] font-black uppercase tracking-widest mb-1.5">Mot de Passe *</label>
+                  <div className="relative">
+                    <input
+                      type={showNewPassword ? 'text' : 'password'}
+                      required
+                      placeholder="Min. 6 caractères"
+                      value={newClientPassword}
+                      onChange={e => setNewClientPassword(e.target.value)}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl pl-4 pr-12 py-3 outline-none text-white focus:border-[#D4AF37] font-medium text-sm transition-all"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPassword(!showNewPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white transition-colors"
+                    >
+                      {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  <p className="text-white/25 text-[10px] mt-1.5">Le client pourra se connecter avec ces identifiants.</p>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isCreatingClient}
+                  className="w-full py-3.5 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] disabled:opacity-60 text-black rounded-xl font-black text-sm uppercase tracking-wider transition-all active:scale-95 mt-2"
+                >
+                  {isCreatingClient ? 'Création en cours...' : '✓ Créer le Compte Client'}
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* --- CLIENT DETAIL & HISTORY DRAWER/MODAL --- */}
       <AnimatePresence>
         {selectedClient && (
@@ -647,14 +850,28 @@ export default function ClientsTab() {
                 <div className="space-y-6">
                   {/* Avatar Profile */}
                   <div className="flex flex-col items-center text-center space-y-3">
-                    <div className="w-20 h-20 rounded-[1.8rem] bg-[#D4AF37]/10 text-[#D4AF37] border border-[#D4AF37]/20 font-black text-2xl flex items-center justify-center uppercase shadow-2xl">
+                    <div className={`w-20 h-20 rounded-[1.8rem] font-black text-2xl flex items-center justify-center uppercase shadow-2xl border
+                      ${selectedClient.isRegistered 
+                        ? 'bg-[#D4AF37]/10 text-[#D4AF37] border-[#D4AF37]/20' 
+                        : 'bg-white/5 text-white/60 border-white/10'}`}>
                       {selectedClient.name.substring(0, 2)}
                     </div>
                     <div>
-                      <h3 className="text-xl font-bold text-white leading-tight">{selectedClient.name}</h3>
-                      <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-bold border uppercase tracking-wider inline-block mt-2 ${segmentColors[selectedClient.segment]}`}>
-                        {segmentLabels[selectedClient.segment]}
-                      </span>
+                      <h3 className="text-xl font-bold text-white leading-tight flex items-center gap-2 justify-center">
+                        {selectedClient.name}
+                        {selectedClient.manualVip && <Crown className="w-4 h-4 text-amber-400" />}
+                      </h3>
+                      <div className="flex items-center justify-center gap-1.5 mt-2 flex-wrap">
+                        <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-bold border uppercase tracking-wider ${segmentColors[selectedClient.segment]}`}>
+                          {segmentLabels[selectedClient.segment]}
+                        </span>
+                        <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-bold border uppercase tracking-wider
+                          ${selectedClient.isRegistered 
+                            ? 'bg-[#D4AF37]/10 text-[#D4AF37] border-[#D4AF37]/20' 
+                            : 'bg-blue-500/10 text-blue-400 border-blue-500/20'}`}>
+                          {selectedClient.isRegistered ? '✓ Inscrit' : 'Invité'}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
@@ -670,7 +887,7 @@ export default function ClientsTab() {
                     </div>
                     <div className="flex items-center gap-2.5">
                       <Calendar className="w-4 h-4 text-[#D4AF37] shrink-0" />
-                      <span>Inscrit : {selectedClient.createdAt ? new Date(selectedClient.createdAt).toLocaleDateString('fr-FR') : '—'}</span>
+                      <span>{selectedClient.isRegistered ? 'Inscrit' : 'Premier RDV'} : {selectedClient.createdAt ? new Date(selectedClient.createdAt).toLocaleDateString('fr-FR') : '—'}</span>
                     </div>
                   </div>
 
@@ -690,7 +907,7 @@ export default function ClientsTab() {
                 {/* Admin Notes Section */}
                 <div className="space-y-3 pt-6 md:pt-4">
                   <div className="flex items-center justify-between mb-2">
-                    <label className="text-white/30 text-[10px] font-black uppercase tracking-widest">Notes du Coiffeur (Admin)</label>
+                    <label className="text-white/30 text-[10px] font-black uppercase tracking-widest">Notes Admin</label>
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input 
                         type="checkbox" 
@@ -698,12 +915,14 @@ export default function ClientsTab() {
                         onChange={(e) => setEditingVip(e.target.checked)}
                         className="accent-[#D4AF37] w-3.5 h-3.5 cursor-pointer"
                       />
-                      <span className="text-[10px] text-[#D4AF37] font-bold uppercase tracking-wider">Client VIP</span>
+                      <span className="text-[10px] text-[#D4AF37] font-bold uppercase tracking-wider flex items-center gap-1">
+                        <Crown className="w-3 h-3" /> VIP Manuel
+                      </span>
                     </label>
                   </div>
                   <textarea
                     rows={4}
-                    placeholder="Ajoutez des notes privées sur les préférences de ce client (ex: longueur du sabot, boisson favorite...)"
+                    placeholder="Notes privées sur les préférences du client..."
                     value={editingNotes}
                     onChange={e => setEditingNotes(e.target.value)}
                     className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 outline-none text-white focus:border-[#D4AF37] font-medium text-xs resize-none"
@@ -713,7 +932,7 @@ export default function ClientsTab() {
                     disabled={isSavingNotes}
                     className="w-full py-3 bg-[#D4AF37] disabled:bg-[#D4AF37]/50 text-black rounded-xl font-black text-xs uppercase tracking-wider transition-all"
                   >
-                    {isSavingNotes ? 'Enregistrement...' : '✓ Enregistrer les Notes'}
+                    {isSavingNotes ? 'Enregistrement...' : '✓ Enregistrer'}
                   </button>
                 </div>
               </div>
