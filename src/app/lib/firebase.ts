@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import { getFirestore, enableMultiTabIndexedDbPersistence } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { getFunctions } from 'firebase/functions';
 
@@ -16,5 +16,19 @@ export const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
+
+// Enable offline persistence
+try {
+  enableMultiTabIndexedDbPersistence(db).catch((err) => {
+    if (err.code == 'failed-precondition') {
+      console.warn('Persistence failed: Multiple tabs open');
+    } else if (err.code == 'unimplemented') {
+      console.warn('Persistence not supported by this browser');
+    }
+  });
+} catch (e) {
+  console.warn('Persistence error:', e);
+}
+
 export const auth = getAuth(app);
 export const functions = getFunctions(app);
