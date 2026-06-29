@@ -321,14 +321,19 @@ export default function ClientsTab() {
     }
     setIsSubmittingCampaign(true);
     try {
-      await addCampaign({
+      const campaignData: any = {
         title: campaignTitle,
         description: campaignDesc,
-        couponCode: campaignCode || undefined,
-        discountAmount: campaignCode ? campaignDiscount : undefined,
         segment: campaignSegment,
         status: 'active'
-      });
+      };
+      
+      if (campaignCode) {
+        campaignData.couponCode = campaignCode;
+        campaignData.discountAmount = campaignDiscount;
+      }
+      
+      await addCampaign(campaignData);
       toast.success("🎉 Campagne marketing créée avec succès ! Les clients cibles la verront sur leur espace.");
       setCampaignTitle('');
       setCampaignDesc('');
