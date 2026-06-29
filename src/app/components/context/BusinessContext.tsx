@@ -754,13 +754,18 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     await deleteDoc(doc(db, 'campaigns', id));
   };
 
-  const updateClientNote = async (phone: string, notes: string, isVip?: boolean) => {
+  const updateClientNote = async (clientIdOrPhone: string, notes: string, isVip?: boolean) => {
     if (!tenantId) return;
-    const normalized = phone.replace(/[^0-9+]/g, '');
-    if (!normalized) return;
-    const docId = `${tenantId}_${normalized}`;
+    
+    // Attempt to normalize if it looks like a phone, otherwise use it directly (e.g., uid, email)
+    const normalized = clientIdOrPhone.replace(/[^0-9+]/g, '');
+    const finalId = (normalized && normalized.length >= 8) ? normalized : clientIdOrPhone;
+    
+    if (!finalId || finalId === '—') return;
+    
+    const docId = `${tenantId}_${finalId}`;
     const payload: any = {
-      phone: normalized,
+      phone: finalId, // store the key here (even if it's an email/uid) to map it later
       notes,
       tenantId
     };

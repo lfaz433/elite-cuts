@@ -67,7 +67,7 @@ export default function ClientsTab() {
       if (c.email) emailMap.set(c.email, clientKey);
       if (normalizedPhone) phoneMap.set(normalizedPhone, clientKey);
 
-      const noteDoc = clientNotes?.find(n => n.phone === normalizedPhone);
+      const noteDoc = clientNotes?.find(n => n.phone === clientKey || (normalizedPhone && n.phone === normalizedPhone));
 
       clientsMap.set(clientKey, {
         id: c.uid,
@@ -105,7 +105,7 @@ export default function ClientsTab() {
       let clientProfile = clientsMap.get(clientKey);
       
       if (!clientProfile) {
-        const noteDoc = clientNotes?.find(n => n.phone === normalizedPhone);
+        const noteDoc = clientNotes?.find(n => n.phone === clientKey || (normalizedPhone && n.phone === normalizedPhone));
 
         clientProfile = {
           id: b.clientId || `guest_${Math.random().toString(36).substring(2, 11)}`,
@@ -248,7 +248,13 @@ export default function ClientsTab() {
     if (!selectedClient) return;
     setIsSavingNotes(true);
     try {
-      await updateClientNote(selectedClient.normalizedPhone || selectedClient.phone, editingNotes, editingVip);
+      const clientIdentifier = (selectedClient.normalizedPhone && selectedClient.normalizedPhone.length >= 8) 
+        ? selectedClient.normalizedPhone 
+        : (selectedClient.email && selectedClient.email !== '—') 
+          ? selectedClient.email 
+          : selectedClient.id;
+
+      await updateClientNote(clientIdentifier, editingNotes, editingVip);
       toast.success("Notes du client mises à jour !");
       setSelectedClient((prev: any) => ({ 
         ...prev, 
