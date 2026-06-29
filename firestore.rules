@@ -102,10 +102,7 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isSuperAdmin() 
         || (request.auth != null && request.auth.uid == userId)
-        || (request.auth != null && 
-            exists(/databases/$(database)/documents/tenants/$(resource.data.tenantId)) && 
-            get(/databases/$(database)/documents/tenants/$(resource.data.tenantId)).data.ownerUid == request.auth.uid
-           )
+        || (request.auth != null && getUserData().tenantId == resource.data.tenantId)
         // Temporary migration rule: allow reading 'platform' users
         || (request.auth != null && resource.data.tenantId == 'platform');
       allow write: if isSuperAdmin() 
