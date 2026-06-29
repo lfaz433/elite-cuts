@@ -15,6 +15,7 @@ const CONTENT = {
     sections: [
       { id: 'demarrage', icon: <Rocket size={18} />, title: '🚀 Démarrage rapide' },
       { id: 'reservations', icon: <Calendar size={18} />, title: '📅 Réservations' },
+      { id: 'clients', icon: <Users size={18} />, title: '⭐ Clients & Marketing' },
       { id: 'equipe', icon: <Users size={18} />, title: "👥 Gestion d'équipe" },
       { id: 'caisse', icon: <DollarSign size={18} />, title: '💰 Caisse & Ventes' },
       { id: 'rapports', icon: <BarChart3 size={18} />, title: '📊 Rapports & Analytiques' },
@@ -49,6 +50,17 @@ const CONTENT = {
         ],
         sub4: "Caisse & Encaissement",
         sub4desc: "Une fois le service terminé, marquez la réservation comme 'Complétée' pour enregistrer le paiement dans votre caisse."
+      },
+      clients: {
+        title: "Clients & Marketing",
+        sub1: "Fichier Client (CRM)",
+        sub1desc: "Tous les clients ayant pris rendez-vous s'ajoutent automatiquement à votre base de données. Vous pouvez consulter l'historique de leurs visites et leurs coordonnées.",
+        sub2: "Statut VIP & Notes",
+        sub2desc: "Les clients fidèles (plus de 5 visites) deviennent automatiquement VIP. Vous pouvez aussi marquer manuellement un client comme VIP et ajouter des notes personnelles sur ses préférences.",
+        sub3: "Campagnes Marketing",
+        sub3desc: "Créez des campagnes ciblées avec des codes promo pour fidéliser vos clients. Vous pouvez cibler des segments spécifiques (Tous, Nouveaux, VIP, Inactifs).",
+        sub4: "Suivi des statistiques",
+        sub4desc: "Suivez en un coup d'œil le nombre total de clients, les VIP, et les clients inactifs pour adapter votre stratégie."
       },
       equipe: {
         title: "Gérer vos coiffeurs",
@@ -140,6 +152,7 @@ const CONTENT = {
     sections: [
       { id: 'demarrage', icon: <Rocket size={18} />, title: '🚀 Quick Start' },
       { id: 'reservations', icon: <Calendar size={18} />, title: '📅 Bookings' },
+      { id: 'clients', icon: <Users size={18} />, title: '⭐ Clients & Marketing' },
       { id: 'equipe', icon: <Users size={18} />, title: '👥 Team Management' },
       { id: 'caisse', icon: <DollarSign size={18} />, title: '💰 Point of Sale' },
       { id: 'rapports', icon: <BarChart3 size={18} />, title: '📊 Reports & Analytics' },
@@ -174,6 +187,17 @@ const CONTENT = {
         ],
         sub4: "Checkout & Payment",
         sub4desc: "Once the service is finished, mark the booking as 'Completed' to record the payment in your register."
+      },
+      clients: {
+        title: "Clients & Marketing",
+        sub1: "Client Database (CRM)",
+        sub1desc: "All clients who have booked an appointment are automatically added to your database. You can view their visit history and contact details.",
+        sub2: "VIP Status & Notes",
+        sub2desc: "Loyal clients (more than 5 visits) automatically become VIP. You can also manually mark a client as VIP and add personal notes about their preferences.",
+        sub3: "Marketing Campaigns",
+        sub3desc: "Create targeted campaigns with promo codes to retain your clients. You can target specific segments (All, New, VIP, Inactive).",
+        sub4: "Stats Tracking",
+        sub4desc: "Track at a glance the total number of clients, VIPs, and inactive clients to adapt your strategy."
       },
       equipe: {
         title: "Manage your Barbers",
@@ -446,6 +470,33 @@ export default function DocsPage() {
               <div>
                 <h3 className="text-xl font-bold mb-3">{c.reservations.sub4}</h3>
                 <p className="text-white/60 leading-relaxed">{c.reservations.sub4desc}</p>
+              </div>
+            </div>
+          </section>
+
+          {/* Section: Clients */}
+          <section id="clients" className="scroll-mt-12">
+            <h2 className="text-3xl font-bold mb-8 pl-4 border-l-4 border-[#D4AF37]">{c.clients.title}</h2>
+            
+            <div className="space-y-10">
+              <div>
+                <h3 className="text-xl font-bold mb-3">{c.clients.sub1}</h3>
+                <p className="text-white/60 leading-relaxed">{c.clients.sub1desc}</p>
+              </div>
+              
+              <div>
+                <h3 className="text-xl font-bold mb-3">{c.clients.sub2}</h3>
+                <p className="text-white/60 leading-relaxed">{c.clients.sub2desc}</p>
+              </div>
+
+              <div>
+                <h3 className="text-xl font-bold mb-3">{c.clients.sub3}</h3>
+                <p className="text-white/60 leading-relaxed">{c.clients.sub3desc}</p>
+              </div>
+
+              <div>
+                <h3 className="text-xl font-bold mb-3">{c.clients.sub4}</h3>
+                <p className="text-white/60 leading-relaxed">{c.clients.sub4desc}</p>
               </div>
             </div>
           </section>
