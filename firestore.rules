@@ -117,6 +117,12 @@ service cloud.firestore {
            ));
     }
 
+    // 3.4 Client Notes Collection (Tenant-scoped)
+    match /client_notes/{noteId} {
+      allow read, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
+    }
+
     // 3.5 Audit Logs Collection (Admins can create audit logs, superadmins can manage)
     match /audit_logs/{logId} {
       allow read: if isSuperAdmin();
