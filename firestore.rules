@@ -98,6 +98,11 @@ service cloud.firestore {
       allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
     }
 
+    match /campaigns/{campaignId} {
+      allow read, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
+    }
+
     // 3. User Profiles Collection (Owner-only access, tenant admin access)
     match /users/{userId} {
       allow read: if isSuperAdmin() 
