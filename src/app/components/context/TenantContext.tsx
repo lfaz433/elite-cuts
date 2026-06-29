@@ -73,29 +73,6 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
       const subdomain = getSubdomain();
       const hostname = window.location.hostname;
       const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
-
-      if (subdomain === 'elite-cuts-default') {
-        const fallbackTenant = {
-          tenantId: 'platform',
-          subdomain: 'elite-cuts-default',
-          name: "Barberboard Platform",
-          branding: { primaryColor: "#D4AF37", logoUrl: "", businessName: "Barberboard" },
-          subscription: { 
-            status: "active" as const, 
-            planId: "pro",
-            trialEndsAt: 0,
-            currentPeriodEnd: 0
-          },
-          settings: { maxBarbersLimit: 100, allowOnlineBooking: true },
-          onboardingComplete: true
-        };
-        
-        setTenant(fallbackTenant);
-        initialTenantRef.current = fallbackTenant;
-        setIsLoading(false);
-        return;
-      }
-
       try {
         const tenantsRef = collection(db, 'tenants');
         const q = query(tenantsRef, where('subdomain', '==', subdomain));
@@ -107,6 +84,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         const querySnapshot = await Promise.race([getDocs(q), timeoutPromise]) as Awaited<ReturnType<typeof getDocs>>;
 
         if (!querySnapshot.empty) {
+
           const doc = querySnapshot.docs[0];
           const data = doc.data();
           const fetchedTenant = {
@@ -126,6 +104,24 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
           };
           setTenant(fetchedTenant);
           initialTenantRef.current = fetchedTenant;
+        } else if (subdomain === 'elite-cuts-default') {
+          const fallbackTenant = {
+            tenantId: 'platform',
+            subdomain: 'elite-cuts-default',
+            name: "Barberboard Platform",
+            branding: { primaryColor: "#D4AF37", logoUrl: "", businessName: "Barberboard" },
+            subscription: { 
+              status: "active" as const, 
+              planId: "pro",
+              trialEndsAt: 0,
+              currentPeriodEnd: 0
+            },
+            settings: { maxBarbersLimit: 100, allowOnlineBooking: true },
+            onboardingComplete: true
+          };
+          
+          setTenant(fallbackTenant);
+          initialTenantRef.current = fallbackTenant;
         } else {
           setError('Barbershop not found');
         }

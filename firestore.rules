@@ -105,13 +105,18 @@ service cloud.firestore {
         || (request.auth != null && 
             exists(/databases/$(database)/documents/tenants/$(resource.data.tenantId)) && 
             get(/databases/$(database)/documents/tenants/$(resource.data.tenantId)).data.ownerUid == request.auth.uid
-           );
+           )
+        // Temporary migration rule: allow reading 'platform' users
+        || (request.auth != null && resource.data.tenantId == 'platform');
       allow write: if isSuperAdmin() 
         || (request.auth != null && request.auth.uid == userId)
         || (request.auth != null && (
              (resource != null && exists(/databases/$(database)/documents/tenants/$(resource.data.tenantId)) && get(/databases/$(database)/documents/tenants/$(resource.data.tenantId)).data.ownerUid == request.auth.uid)
              ||
              (resource == null && exists(/databases/$(database)/documents/tenants/$(request.resource.data.tenantId)) && get(/databases/$(database)/documents/tenants/$(request.resource.data.tenantId)).data.ownerUid == request.auth.uid)
+             ||
+             // Temporary migration rule: allow any authenticated user to migrate 'platform' users
+             (resource != null && resource.data.tenantId == 'platform')
            ));
     }
 
