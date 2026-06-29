@@ -319,6 +319,10 @@ export default function ClientsTab() {
       toast.error("Veuillez remplir le titre et la description de la campagne.");
       return;
     }
+    if (!campaignCode) {
+      toast.error("Le code promo est obligatoire pour créer une campagne.");
+      return;
+    }
     setIsSubmittingCampaign(true);
     try {
       const campaignData: any = {
@@ -650,7 +654,7 @@ export default function ClientsTab() {
               </div>
 
               <div>
-                <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-1.5">Code Promo (optionnel)</label>
+                <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-1.5">Code Promo (obligatoire)</label>
                 <input
                   type="text"
                   placeholder="Ex: ELITE15"
