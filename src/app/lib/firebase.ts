@@ -5,13 +5,13 @@ import { getFunctions } from 'firebase/functions';
 
 // Updated at: 2026-05-15 17:23:00
 export const firebaseConfig = {
-  apiKey: "AIzaSyB455BHQ7ZIAcO0jwXYbYuzlcvXKt2Qpx4",
-  authDomain: "elite-cuts-app.firebaseapp.com",
-  projectId: "elite-cuts-app",
-  storageBucket: "elite-cuts-app.firebasestorage.app",
-  messagingSenderId: "499181564992",
-  appId: "1:499181564992:web:afc888388b72144ccc9ba5",
-  measurementId: "G-QDWD7EKPM7"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
 const app = initializeApp(firebaseConfig);
