@@ -102,7 +102,7 @@ export interface Booking {
   barberId: string;
   date: string;
   time: string;
-  status: 'pending' | 'approved' | 'rejected' | 'completed' | 'archived';
+  status: 'pending' | 'approved' | 'rejected' | 'completed' | 'cancelled' | 'archived';
   createdAt: string;
   pricePaid?: number;
   tip?: number;
@@ -374,6 +374,28 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const requestBookingTransition = async (id: string, status: string) => {
+    if (!tenantId || !auth.currentUser) throw new Error('Authenticated tenant required');
+    const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID?.trim();
+    if (!projectId) throw new Error('Firebase project is not configured');
+    const idToken = await auth.currentUser.getIdToken();
+    const response = await fetch(
+      `https://us-central1-${projectId}.cloudfunctions.net/transitionBookingStatus`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ bookingId: id, status }),
+      },
+    );
+    if (!response.ok) {
+      throw new Error((await response.text()) || 'Booking status update failed');
+    }
+    return response.json() as Promise<{ notificationIds?: string[] }>;
+  };
+
   useEffect(() => {
     if (!tenantId) return;
 
@@ -582,14 +604,40 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    const docRef = await addDoc(collection(db, 'bookings'), {
-      ...booking,
-      status: booking.status || 'pending',
-      createdAt: new Date().toISOString(),
-      unreadAdmin: true,
-      unreadBarber: true,
-      tenantId
-    });
+    if (!tenantId) throw new Error('Tenant is required');
+    const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID?.trim();
+    if (!projectId) throw new Error('Firebase project is not configured');
+    const requestedStatus = booking.status ?? 'pending';
+    const bookingPayload: Record<string, unknown> = { ...booking };
+    for (const serverOwnedField of [
+      'id', 'status', 'tenantId', 'locationId', 'clientId', 'createdAt',
+      'completedAt', 'statusUpdatedAt', 'statusUpdatedBy', 'unreadAdmin', 'unreadBarber',
+    ]) {
+      delete bookingPayload[serverOwnedField];
+    }
+    const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+    const response = await fetch(
+      `https://us-central1-${projectId}.cloudfunctions.net/createBookingRequest`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {}),
+        },
+        body: JSON.stringify({ tenantId, booking: bookingPayload }),
+      },
+    );
+    if (!response.ok) {
+      throw new Error((await response.text()) || 'Booking creation failed');
+    }
+    const { bookingId } = await response.json() as { bookingId: string };
+
+    if (requestedStatus !== 'pending') {
+      if (requestedStatus === 'completed') {
+        await requestBookingTransition(bookingId, 'approved');
+      }
+      await requestBookingTransition(bookingId, requestedStatus);
+    }
 
     try {
       const targetService = services.find(s => s.id === booking.serviceId);
@@ -600,7 +648,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
         type: 'NEW_RESERVATION',
         title: 'Nouvelle Réservation',
         message: `${booking.clientName} a réservé pour le ${booking.date} à ${booking.time}`,
-        reservationId: docRef.id,
+        reservationId: bookingId,
         read: false,
         createdAt: Date.now(),
         expiresAt: Date.now() + (30 * 24 * 60 * 60 * 1000),
@@ -614,7 +662,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
           type: 'NEW_RESERVATION',
           title: 'Nouvelle Réservation',
           message: `${booking.clientName} a réservé pour le ${booking.date} à ${booking.time}`,
-          reservationId: docRef.id,
+          reservationId: bookingId,
           read: false,
           createdAt: Date.now(),
           expiresAt: Date.now() + (30 * 24 * 60 * 60 * 1000),
@@ -644,27 +692,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   };
 
   const updateBookingStatus = async (id: string, status: Booking['status'], actor?: 'admin' | 'barber') => {
-    if (!tenantId || !auth.currentUser) throw new Error('Authenticated tenant required');
-    const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID?.trim();
-    if (!projectId) throw new Error('Firebase project is not configured');
-
-    const idToken = await auth.currentUser.getIdToken();
-    const response = await fetch(
-      `https://us-central1-${projectId}.cloudfunctions.net/transitionBookingStatus`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${idToken}`,
-        },
-        body: JSON.stringify({ bookingId: id, status }),
-      },
-    );
-    if (!response.ok) {
-      throw new Error((await response.text()) || 'Booking status update failed');
-    }
-
-    const result = await response.json() as { notificationIds?: string[] };
+    const result = await requestBookingTransition(id, status);
     if (actor === 'admin' || actor === 'barber') {
       await updateDoc(doc(db, 'bookings', id), actor === 'admin'
         ? { unreadBarber: true }
@@ -684,7 +712,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   };
 
   const deleteBooking = async (id: string) => {
-    await deleteDoc(doc(db, 'bookings', id));
+    await requestBookingTransition(id, 'cancelled');
   };
 
   const updateBusinessInfo = async (info: Partial<BusinessInfo>) => {

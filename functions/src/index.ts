@@ -2,6 +2,7 @@ import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import Stripe from 'stripe';
 import { requireMembership } from './authz';
+import { createBooking } from './bookingCreate';
 import {
   assertTransition,
   isStoredBookingStatus,
@@ -10,6 +11,7 @@ import {
 import { bootstrapTenantOwnerFunction } from './bootstrapTenant';
 import { assertTransitionTransactionState } from './bookingTransitionState';
 import { verifyFirebaseIdToken } from './httpAuth';
+import { resolvePushRecipient } from './pushRecipient';
 
 if (admin.apps.length === 0) {
   admin.initializeApp();
@@ -142,6 +144,40 @@ export const createCheckoutSessionHandler = async (
 
 export const createCheckoutSession = functions.https.onRequest(createCheckoutSessionHandler);
 
+export const createBookingHandler = async (
+  req: functions.https.Request,
+  res: functions.Response,
+): Promise<void> => {
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+  if (req.method === 'OPTIONS') {
+    res.status(204).send('');
+    return;
+  }
+  if (req.method !== 'POST') {
+    res.status(405).send('Method Not Allowed');
+    return;
+  }
+
+  const tenantId = req.body?.tenantId;
+  if (typeof tenantId !== 'string') {
+    res.status(400).send('tenantId is required');
+    return;
+  }
+  const decodedToken = await verifyFirebaseIdToken(req);
+  try {
+    const result = await createBooking(tenantId, decodedToken?.uid ?? null, req.body?.booking, db);
+    res.status(201).json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Booking creation failed';
+    const status = message.includes('does not belong') || message === 'Tenant not found' ? 409 : 400;
+    res.status(status).send(message);
+  }
+};
+
+export const createBookingRequest = functions.https.onRequest(createBookingHandler);
+
 export const transitionBookingStatusHandler = async (
   req: functions.https.Request,
   res: functions.Response,
@@ -202,6 +238,15 @@ export const transitionBookingStatusHandler = async (
       return;
     }
 
+    const normalizedRequestedStatus = normalizeBookingStatus(nextStatus);
+    const recipientKind = normalizedRequestedStatus === 'completed' ? 'barber' : 'client';
+    const recipientAlias = normalizedRequestedStatus === 'completed'
+      ? initialData?.barberId
+      : initialData?.clientId;
+    const recipientAssociation = ['confirmed', 'declined', 'completed'].includes(normalizedRequestedStatus)
+      ? await resolvePushRecipient(db, locationId, recipientAlias, recipientKind)
+      : null;
+
     const notificationId = await db.runTransaction(async transaction => {
       const membershipRef = db.collection('memberships').doc(authorizedMembership.id);
       const [snapshot, membershipSnapshot] = await Promise.all([
@@ -237,12 +282,12 @@ export const transitionBookingStatusHandler = async (
       });
 
       const normalizedNextStatus = normalizeBookingStatus(nextStatus);
-      const recipientId = normalizedNextStatus === 'completed'
+      const currentRecipientAlias = normalizedNextStatus === 'completed'
         ? currentData?.barberId
         : currentData?.clientId;
       if (
-        typeof recipientId !== 'string'
-        || !recipientId.trim()
+        !recipientAssociation
+        || currentRecipientAlias !== recipientAssociation.sourceAlias
         || !['confirmed', 'declined', 'completed'].includes(normalizedNextStatus)
       ) {
         return null;
@@ -276,7 +321,9 @@ export const transitionBookingStatusHandler = async (
         ...delivery,
         serverIssued: true,
         tenantId,
-        recipientId,
+        locationId,
+        recipientId: recipientAssociation.userId,
+        recipientMembershipId: recipientAssociation.membershipId,
         reservationId: bookingId,
         read: false,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),

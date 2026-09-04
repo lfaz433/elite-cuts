@@ -102,3 +102,25 @@ test('a client cannot promote its own notification into a server-issued push tar
     serverIssued: true,
   }));
 });
+
+test('an unauthenticated client cannot create a booking with arbitrary scope and status', async () => {
+  const db = testEnv.unauthenticatedContext().firestore();
+
+  await assertFails(setDoc(doc(db, 'bookings', 'forged-booking'), {
+    tenantId: 'tenant-victim',
+    locationId: 'location-victim',
+    status: 'completed',
+    clientName: 'Forged',
+  }));
+});
+
+test('a tenant member cannot directly delete a booking', async () => {
+  await seedBooking();
+  const db = testEnv.authenticatedContext('manager-a', {
+    sub: 'manager-a',
+    tenantId: 'tenant-a',
+  }).firestore();
+
+  const { deleteDoc } = require('firebase/firestore');
+  await assertFails(deleteDoc(doc(db, 'bookings', 'booking-a')));
+});
