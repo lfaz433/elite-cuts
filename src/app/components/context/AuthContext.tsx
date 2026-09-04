@@ -13,6 +13,7 @@ import {
   MembershipSummary,
   SessionUser,
 } from '../../lib/session';
+import { membershipForLocation } from '../../lib/sessionAccess';
 import { useTenant } from './TenantContext';
 
 type LegacyRole = 'client' | 'admin' | 'barber' | 'superadmin';
@@ -53,11 +54,6 @@ function legacyClaimRole(claim: unknown): LegacyRole {
   return 'client';
 }
 
-function selectMembership(memberships: MembershipSummary[], activeTenantId: string) {
-  return memberships.find((membership) => membership.locationId === activeTenantId)
-    ?? memberships[0];
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -77,7 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           loadSessionUser(firebaseUser),
           firebaseUser.getIdTokenResult(),
         ]);
-        const activeMembership = selectMembership(session.memberships, tenantId);
+        const activeMembership = membershipForLocation(session.memberships, tenantId);
         const isPlatformAdmin = token.claims.superadmin === true || token.claims.platformAdmin === true;
         const role = isPlatformAdmin
           ? 'superadmin'
