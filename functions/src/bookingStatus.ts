@@ -7,6 +7,9 @@ export type BookingStatus =
   | 'completed'
   | 'payment_failed';
 
+export type LegacyBookingStatus = 'pending' | 'approved' | 'rejected' | 'completed';
+export type StoredBookingStatus = BookingStatus | LegacyBookingStatus;
+
 const transitions: Record<BookingStatus, readonly BookingStatus[]> = {
   draft: ['pending_approval', 'confirmed', 'cancelled'],
   pending_approval: ['confirmed', 'declined', 'cancelled'],
@@ -19,6 +22,22 @@ const transitions: Record<BookingStatus, readonly BookingStatus[]> = {
 
 export function isBookingStatus(value: unknown): value is BookingStatus {
   return typeof value === 'string' && value in transitions;
+}
+
+export function isStoredBookingStatus(value: unknown): value is StoredBookingStatus {
+  return isBookingStatus(value)
+    || value === 'pending'
+    || value === 'approved'
+    || value === 'rejected';
+}
+
+export function normalizeBookingStatus(status: StoredBookingStatus): BookingStatus {
+  switch (status) {
+    case 'pending': return 'pending_approval';
+    case 'approved': return 'confirmed';
+    case 'rejected': return 'declined';
+    default: return status;
+  }
 }
 
 export function assertTransition(from: BookingStatus, to: BookingStatus): void {

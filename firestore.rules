@@ -81,7 +81,18 @@ service cloud.firestore {
     match /bookings/{bookingId} {
       allow read: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
       allow create: if true; // guests can create bookings
-      allow update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      // Status transitions are exclusive to the authenticated server endpoint.
+      // Admin SDK writes bypass rules; no browser role may mutate transition or
+      // scope fields directly.
+      allow update: if (isSuperAdmin() || isMemberOfTenant(resource.data.tenantId))
+        && request.resource.data.tenantId == resource.data.tenantId
+        && request.resource.data.get('locationId', null) == resource.data.get('locationId', null)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'status',
+          'statusUpdatedAt',
+          'statusUpdatedBy'
+        ]);
+      allow delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
     }
 
     match /barbers/{barberId} {
@@ -162,10 +173,20 @@ service cloud.firestore {
 
     // 4. Notifications Collection
     match /notifications/{notificationId} {
-      allow read, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId) || 
-                                    (request.auth != null && request.auth.uid == resource.data.recipientId);
-      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId) || 
-                                    (request.auth != null && request.auth.uid == request.resource.data.recipientId);
+      function canAccessNotification(data) {
+        return isSuperAdmin() || isMemberOfTenant(data.tenantId) ||
+          (request.auth != null && request.auth.uid == data.recipientId);
+      }
+
+      allow read, delete: if canAccessNotification(resource.data);
+      allow create: if canAccessNotification(request.resource.data)
+        && request.resource.data.get('serverIssued', false) != true;
+      allow update: if canAccessNotification(resource.data)
+        && request.resource.data.get('serverIssued', false) == resource.data.get('serverIssued', false)
+        && (
+          resource.data.get('serverIssued', false) != true
+          || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
+        );
     }
 
     // 5. Payroll Collections

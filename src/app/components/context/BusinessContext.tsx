@@ -109,6 +109,7 @@ export interface Booking {
   paymentMethod?: 'cash' | 'card';
   notes?: string;
   paymentStatus?: 'paid' | 'unpaid';
+  balanceSettledAt?: string;
   type?: 'avec-rdv' | 'sans-rdv';
   unreadAdmin?: boolean;
   unreadBarber?: boolean;
@@ -291,7 +292,7 @@ interface BusinessContextType {
   totalDeposits: number;
   caisseBalance: number;
   seedDatabase: () => Promise<void>;
-  sendPush: (recipientId: string, title: string, message: string, redirectUrl: string) => Promise<void>;
+  sendPush: (notificationId: string, ...unsupportedLegacyArguments: string[]) => Promise<void>;
   updateBarberStatus: (id: string, status: Barber['status']) => Promise<void>;
   getAvailableBarbers: (date: string, time: string, serviceId?: string) => Barber[];
   getAvailableTimeSlots: (date: string, barberId: string, serviceId?: string) => string[];
@@ -349,8 +350,11 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   const [clientsLoadError, setClientsLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const sendPush = async (recipientId: string, title: string, message: string, redirectUrl: string) => {
-    if (!recipientId || !tenantId || !auth.currentUser) return;
+  const sendPush = async (notificationId: string, ...unsupportedLegacyArguments: string[]) => {
+    // Legacy callers supplied arbitrary recipient/content. Those requests are
+    // intentionally not sent; only server-issued notification IDs are valid.
+    if (unsupportedLegacyArguments.length > 0) return;
+    if (!notificationId || !tenantId || !auth.currentUser) return;
     try {
       const idToken = await auth.currentUser.getIdToken();
       await fetch('/api/send-push', {
@@ -360,10 +364,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
           'Authorization': `Bearer ${idToken}`
         },
         body: JSON.stringify({
-          recipientId,
-          title,
-          body: message,
-          data: { url: redirectUrl },
+          notificationId,
           tenantId,
         })
       });
@@ -643,66 +644,43 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   };
 
   const updateBookingStatus = async (id: string, status: Booking['status'], actor?: 'admin' | 'barber') => {
-    const updateData: any = { status };
-    if (actor === 'admin') updateData.unreadBarber = true;
-    if (actor === 'barber') updateData.unreadAdmin = true;
-    await updateDoc(doc(db, 'bookings', id), updateData);
+    if (!tenantId || !auth.currentUser) throw new Error('Authenticated tenant required');
+    const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID?.trim();
+    if (!projectId) throw new Error('Firebase project is not configured');
 
-    try {
-      const booking = bookings.find(b => b.id === id);
-      if (booking && (status === 'approved' || status === 'rejected' || status === 'completed')) {
-        const clientAlias = booking.clientId || booking.clientEmail || booking.clientPhone;
-        
-        // Write to Notifications
-        if (clientAlias) {
-          await addDoc(collection(db, 'notifications'), {
-            recipientId: clientAlias,
-            type: status.toUpperCase(),
-            title: status === 'approved' ? 'Réservation Confirmée' : 'Réservation Rejetée',
-            message: status === 'approved' ? `Votre rdv du ${booking.date} est confirmé!` : `Désolé, votre rdv a été rejeté.`,
-            reservationId: id,
-            read: false,
-            createdAt: Date.now(),
-            expiresAt: Date.now() + (30 * 24 * 60 * 60 * 1000),
-            tenantId
-          });
-        }
+    const idToken = await auth.currentUser.getIdToken();
+    const response = await fetch(
+      `https://us-central1-${projectId}.cloudfunctions.net/transitionBookingStatus`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ bookingId: id, status }),
+      },
+    );
+    if (!response.ok) {
+      throw new Error((await response.text()) || 'Booking status update failed');
+    }
 
-        // Push Notifications
-        try {
-          if (status === 'approved' && booking.clientId) {
-            await sendPush(
-              booking.clientId,
-              '✅ Réservation confirmée',
-              `Votre réservation est confirmée pour le ${booking.date} à ${booking.time}`,
-              `/client`
-            );
-          } else if (status === 'rejected' && booking.clientId) {
-            await sendPush(
-              booking.clientId,
-              '❌ Réservation annulée',
-              `Votre réservation du ${booking.date} à ${booking.time} a été annulée`,
-              `/client`
-            );
-          } else if (status === 'completed') {
-            await sendPush(
-              booking.barberId,
-              '💰 Service enregistré',
-              `Service ${booking.pricePaid ? `€${booking.pricePaid}` : ''} ajouté à votre portefeuille`,
-              `/barber/gains`
-            );
-          }
-        } catch (e) {
-          console.error("Error sending push on status update:", e);
-        }
-      }
-    } catch (e) {
-      console.error('Failed to trigger push notification:', e);
+    const result = await response.json() as { notificationIds?: string[] };
+    if (actor === 'admin' || actor === 'barber') {
+      await updateDoc(doc(db, 'bookings', id), actor === 'admin'
+        ? { unreadBarber: true }
+        : { unreadAdmin: true });
+    }
+    for (const notificationId of result.notificationIds ?? []) {
+      await sendPush(notificationId);
     }
   };
 
   const updateBooking = async (id: string, updated: Partial<Booking>) => {
-    await updateDoc(doc(db, 'bookings', id), updated);
+    const { status, ...nonTransitionFields } = updated;
+    if (status) await updateBookingStatus(id, status);
+    if (Object.keys(nonTransitionFields).length > 0) {
+      await updateDoc(doc(db, 'bookings', id), nonTransitionFields);
+    }
   };
 
   const deleteBooking = async (id: string) => {
@@ -822,9 +800,9 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
 
   const resetBarberBalance = async (barberId: string) => {
     try {
-      const barberBookings = bookings.filter(b => b.barberId === barberId && (b.status === 'completed' || b.status === 'approved'));
+      const barberBookings = bookings.filter(b => b.barberId === barberId && !b.balanceSettledAt && (b.status === 'completed' || b.status === 'approved'));
       for (const b of barberBookings) {
-        await updateDoc(doc(db, 'bookings', b.id), { status: 'archived' });
+        await updateDoc(doc(db, 'bookings', b.id), { balanceSettledAt: new Date().toISOString() });
       }
     } catch (error) {
       console.error("Error resetting balance:", error);
@@ -834,9 +812,9 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
 
   const resetAllBalances = async () => {
     try {
-      const activeBookings = bookings.filter(b => b.status === 'completed' || b.status === 'approved');
+      const activeBookings = bookings.filter(b => !b.balanceSettledAt && (b.status === 'completed' || b.status === 'approved'));
       for (const b of activeBookings) {
-        await updateDoc(doc(db, 'bookings', b.id), { status: 'archived' });
+        await updateDoc(doc(db, 'bookings', b.id), { balanceSettledAt: new Date().toISOString() });
       }
     } catch (error) {
       console.error("Error resetting all balances:", error);
@@ -1019,7 +997,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     const rate = (barber?.commissionRate || 50) / 100;
     
     const earned = (bookings || [])
-      .filter(b => b.barberId === barberId && b.status === 'completed')
+      .filter(b => b.barberId === barberId && b.status === 'completed' && !b.balanceSettledAt)
       .reduce((sum, b) => {
         const commission = Number(b.pricePaid || 0) * rate;
         const tip = Number(b.tip || 0);

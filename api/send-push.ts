@@ -1,5 +1,6 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
-import { hasMembershipPermission, verifyFirebaseIdToken } from './utils/firebaseAdmin.js';
+import { adminDb, hasMembershipPermission, verifyFirebaseIdToken } from './utils/firebaseAdmin.js';
+import { resolvePushTarget } from './utils/pushTarget.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Only allow POST requests
@@ -13,12 +14,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { recipientId, title, body, data, tenantId } = req.body ?? {};
+    const { notificationId, tenantId } = req.body ?? {};
 
     if (
-      typeof recipientId !== 'string' ||
-      typeof title !== 'string' ||
-      typeof body !== 'string' ||
+      typeof notificationId !== 'string' ||
       typeof tenantId !== 'string'
     ) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -32,6 +31,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
+    let target;
+    try {
+      target = await resolvePushTarget(adminDb, tenantId, notificationId);
+    } catch (error) {
+      console.warn('Push target rejected:', error);
+      return res.status(403).json({ error: 'Invalid push target' });
+    }
+
     const ONE_SIGNAL_APP_ID = process.env.ONESIGNAL_APP_ID?.trim();
     const ONE_SIGNAL_REST_API_KEY = process.env.ONESIGNAL_REST_API_KEY?.trim();
 
@@ -39,11 +46,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       console.error('OneSignal credentials missing');
       return res.status(500).json({ error: 'Server misconfiguration: Missing OneSignal credentials' });
     }
-
-    const requestedUrl = typeof data?.url === 'string' ? data.url : '/';
-    const redirectUrl = requestedUrl.startsWith('/') && !requestedUrl.startsWith('//')
-      ? requestedUrl
-      : '/';
 
     const response = await fetch('https://onesignal.com/api/v1/notifications', {
       method: 'POST',
@@ -53,10 +55,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       },
       body: JSON.stringify({
         app_id: ONE_SIGNAL_APP_ID,
-        include_external_user_ids: [recipientId],
-        contents: { en: body, fr: body },
-        headings: { en: title, fr: title },
-        url: redirectUrl,
+        include_external_user_ids: [target.recipientId],
+        contents: { en: target.body, fr: target.body },
+        headings: { en: target.title, fr: target.title },
+        url: target.redirectUrl,
       }),
     });
 
