@@ -1,11 +1,18 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import Stripe from 'stripe';
+import { requireMembership } from './authz';
+import { assertTransition, isBookingStatus } from './bookingStatus';
+import { bootstrapTenantOwnerFunction } from './bootstrapTenant';
+import { verifyFirebaseIdToken } from './httpAuth';
 
 admin.initializeApp();
 const db = admin.firestore();
 
 export { requireMembership } from './authz';
+export { assertTransition, BookingStatus, isBookingStatus } from './bookingStatus';
+export { verifyFirebaseIdToken } from './httpAuth';
+export const bootstrapTenantOwner = bootstrapTenantOwnerFunction;
 
 function getStripe(): Stripe {
   const key = process.env.STRIPE_SECRET_KEY;
@@ -19,7 +26,7 @@ export const createCheckoutSession = functions.https.onRequest(async (req, res) 
   // CORS configuration
   res.set('Access-Control-Allow-Origin', '*');
   res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.set('Access-Control-Allow-Headers', 'Content-Type');
+  res.set('Access-Control-Allow-Headers', 'Authorization, Content-Type');
 
   if (req.method === 'OPTIONS') {
     res.status(204).send('');
@@ -32,10 +39,23 @@ export const createCheckoutSession = functions.https.onRequest(async (req, res) 
   }
 
   try {
-    const { tenantId, planId, subdomain } = req.body;
+    const decodedToken = await verifyFirebaseIdToken(req);
+    if (!decodedToken) {
+      res.status(401).send('Unauthorized');
+      return;
+    }
 
-    if (!tenantId || !planId || !subdomain) {
-      res.status(400).send('Bad Request: Missing tenantId, planId, or subdomain');
+    const { tenantId, planId } = req.body;
+
+    if (typeof tenantId !== 'string' || typeof planId !== 'string') {
+      res.status(400).send('Bad Request: Missing tenantId or planId');
+      return;
+    }
+
+    try {
+      await requireMembership(decodedToken.uid, tenantId, 'manageBilling');
+    } catch {
+      res.status(403).send('Forbidden');
       return;
     }
 
@@ -63,6 +83,18 @@ export const createCheckoutSession = functions.https.onRequest(async (req, res) 
     }
 
     const tenantData = tenantSnap.data();
+    const subdomain = tenantData?.subdomain;
+    if (typeof subdomain !== 'string' || !/^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?$/.test(subdomain)) {
+      res.status(409).send('Tenant has no valid subdomain');
+      return;
+    }
+
+    const mainDomain = process.env.MAIN_DOMAIN?.trim();
+    if (!mainDomain) {
+      res.status(500).send('MAIN_DOMAIN environment variable is not defined');
+      return;
+    }
+
     let stripeCustomerId = tenantData?.stripeCustomerId;
 
     const stripe = getStripe();
@@ -86,8 +118,8 @@ export const createCheckoutSession = functions.https.onRequest(async (req, res) 
           quantity: 1
         }
       ],
-      success_url: `https://${subdomain}.barberboard.pro/billing?success=true`,
-      cancel_url: `https://${subdomain}.barberboard.pro/billing`,
+      success_url: `https://${subdomain}.${mainDomain}/billing?success=true`,
+      cancel_url: `https://${subdomain}.${mainDomain}/billing`,
       metadata: { tenantId }
     });
 
@@ -98,25 +130,102 @@ export const createCheckoutSession = functions.https.onRequest(async (req, res) 
   }
 });
 
+export const transitionBookingStatus = functions.https.onRequest(async (req, res) => {
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    res.status(204).send('');
+    return;
+  }
+
+  if (req.method !== 'POST') {
+    res.status(405).send('Method Not Allowed');
+    return;
+  }
+
+  const decodedToken = await verifyFirebaseIdToken(req);
+  if (!decodedToken) {
+    res.status(401).send('Unauthorized');
+    return;
+  }
+
+  const bookingId = req.body?.bookingId;
+  const nextStatus = req.body?.status;
+  if (typeof bookingId !== 'string' || !isBookingStatus(nextStatus)) {
+    res.status(400).send('Invalid booking status request');
+    return;
+  }
+
+  const bookingRef = db.collection('bookings').doc(bookingId);
+
+  try {
+    const initialSnapshot = await bookingRef.get();
+    if (!initialSnapshot.exists) {
+      res.status(404).send('Booking not found');
+      return;
+    }
+
+    const locationId = initialSnapshot.data()?.locationId ?? initialSnapshot.data()?.tenantId;
+    if (typeof locationId !== 'string') {
+      res.status(409).send('Booking has no location');
+      return;
+    }
+
+    try {
+      await requireMembership(decodedToken.uid, locationId, 'manageBookings');
+    } catch {
+      res.status(403).send('Forbidden');
+      return;
+    }
+
+    await db.runTransaction(async transaction => {
+      const snapshot = await transaction.get(bookingRef);
+      const currentStatus = snapshot.data()?.status;
+      if (!isBookingStatus(currentStatus)) {
+        throw new Error('Booking has an invalid current status');
+      }
+      assertTransition(currentStatus, nextStatus);
+      transaction.update(bookingRef, {
+        status: nextStatus,
+        statusUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        statusUpdatedBy: decodedToken.uid,
+      });
+    });
+
+    res.status(200).json({ bookingId, status: nextStatus });
+  } catch (error) {
+    functions.logger.warn('Booking transition rejected', error);
+    res.status(409).send(error instanceof Error ? error.message : 'Invalid booking transition');
+  }
+});
+
 export const stripeWebhook = functions.https.onRequest(async (req, res) => {
-  const stripe = getStripe();
-  const sig = req.headers['stripe-signature'] as string;
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET || '';
+  const signatureValue = req.headers['stripe-signature'];
+  const signature = Array.isArray(signatureValue) ? signatureValue[0] : signatureValue;
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
+  const stripeSecretKey = process.env.STRIPE_SECRET_KEY?.trim();
+
+  if (!webhookSecret || !stripeSecretKey) {
+    functions.logger.error('Stripe webhook configuration is incomplete.');
+    res.status(500).send('Webhook is not configured.');
+    return;
+  }
+
+  if (!signature) {
+    res.status(400).send('Stripe signature is required.');
+    return;
+  }
 
   let event: Stripe.Event;
 
-  if (webhookSecret === 'placeholder_will_replace_after_deploy') {
-    functions.logger.warn('Skipping Stripe webhook signature check (development bypass activated).');
-    event = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-  } else {
-    try {
-      const rawBody = req.rawBody;
-      event = stripe.webhooks.constructEvent(rawBody, sig, webhookSecret);
-    } catch (err: any) {
-      functions.logger.error('Stripe webhook signature validation failed.', err);
-      res.status(400).send(`Webhook Signature Error: ${err.message}`);
-      return;
-    }
+  try {
+    event = getStripe().webhooks.constructEvent(req.rawBody, signature, webhookSecret);
+  } catch (err: any) {
+    functions.logger.error('Stripe webhook signature validation failed.', err);
+    res.status(400).send(`Webhook Signature Error: ${err.message}`);
+    return;
   }
 
   try {
@@ -186,4 +295,3 @@ export const stripeWebhook = functions.https.onRequest(async (req, res) => {
     res.status(500).send('Internal Server Error');
   }
 });
-

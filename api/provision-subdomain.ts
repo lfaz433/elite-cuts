@@ -1,5 +1,6 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
-import { adminAuth, adminDb } from './utils/firebaseAdmin.js';
+import { DocumentReference, FieldValue } from 'firebase-admin/firestore';
+import { adminDb, verifyFirebaseIdToken } from './utils/firebaseAdmin.js';
 
 // Validation regex directly matching the shared validator
 const subdomainRegex = /^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?$/;
@@ -16,17 +17,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Unauthorized: Missing or invalid Authorization header' });
-  }
-
-  const token = authHeader.split('Bearer ')[1];
-  let decodedToken;
-  try {
-    decodedToken = await adminAuth.verifyIdToken(token);
-  } catch (err) {
-    console.error('Token verification failed:', err);
+  const decodedToken = await verifyFirebaseIdToken(req);
+  if (!decodedToken) {
     return res.status(401).json({ error: 'Unauthorized: Token verification failed' });
   }
 
@@ -40,38 +32,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: 'Invalid or reserved subdomain' });
   }
 
-  // Ensure the caller actually owns this tenant (using REST API to avoid needing Service Account credentials)
+  let tenantRef: DocumentReference;
   try {
-    const firestoreApiUrl = `https://firestore.googleapis.com/v1/projects/elite-cuts-app/databases/(default)/documents`;
-    
-    const tenantResponse = await fetch(`${firestoreApiUrl}/tenants/${tenantId}`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    
-    if (tenantResponse.status === 404) {
+    tenantRef = adminDb.collection('tenants').doc(tenantId);
+    const tenantSnapshot = await tenantRef.get();
+    if (!tenantSnapshot.exists) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
-    
-    if (!tenantResponse.ok) {
-      throw new Error(`Failed to fetch tenant: ${tenantResponse.statusText}`);
-    }
-    
-    const tenantDoc = await tenantResponse.json();
-    const ownerUid = tenantDoc.fields?.ownerUid?.stringValue;
 
-    // Check superadmin status
-    let isSuperAdmin = false;
-    const userResponse = await fetch(`${firestoreApiUrl}/users/${decodedToken.uid}`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    
-    if (userResponse.ok) {
-      const userDoc = await userResponse.json();
-      isSuperAdmin = userDoc.fields?.role?.stringValue === 'superadmin';
-    }
-
-    if (!isSuperAdmin && ownerUid !== decodedToken.uid) {
+    const tenantData = tenantSnapshot.data();
+    const ownerUid = tenantData?.ownerUid;
+    const isPlatformAdmin = decodedToken.superadmin === true || decodedToken.platformAdmin === true;
+    if (!isPlatformAdmin && ownerUid !== decodedToken.uid) {
       return res.status(403).json({ error: 'Forbidden: You do not own this tenant' });
+    }
+    if (tenantData?.subdomain !== subdomain) {
+      return res.status(409).json({ error: 'Subdomain does not belong to this tenant' });
     }
   } catch (err) {
     console.error('Tenant verification failed:', err);
@@ -81,11 +57,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const VERCEL_TOKEN = process.env.VERCEL_TOKEN?.trim();
   const VERCEL_PROJECT_ID = process.env.VERCEL_PROJECT_ID?.trim();
   const VERCEL_TEAM_ID = process.env.VERCEL_TEAM_ID?.trim();
-  const MAIN_DOMAIN = process.env.VITE_MAIN_DOMAIN?.trim() || 'barberboard.pro';
+  const MAIN_DOMAIN = process.env.VITE_MAIN_DOMAIN?.trim();
 
-  if (!VERCEL_TOKEN || !VERCEL_PROJECT_ID) {
+  const persistDomainResult = async (status: string, verified: boolean) => {
+    await tenantRef.set({
+      domain: {
+        subdomain,
+        status,
+        vercelVerified: verified,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+    }, { merge: true });
+  };
+
+  if (!VERCEL_TOKEN || !VERCEL_PROJECT_ID || !MAIN_DOMAIN) {
     console.error('Vercel configuration missing');
-    return res.status(500).json({ error: 'Server misconfiguration: Missing Vercel credentials' });
+    await persistDomainResult('failed', false);
+    return res.status(500).json({ error: 'Server misconfiguration: Missing domain or Vercel credentials' });
   }
 
   const fqdn = `${subdomain}.${MAIN_DOMAIN}`;
@@ -108,30 +96,41 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // Idempotency: Treat "already exists" / "already assigned" as success
     if (!response.ok) {
-      if (result.error?.code === 'domain_already_in_use' || result.error?.code === 'domain_already_assigned') {
+      if (result.error?.code === 'domain_already_assigned') {
+        await persistDomainResult('active', true);
         return res.status(200).json({ 
           ok: true, 
           domain: fqdn,
           verified: true,
           status: 'active',
-          message: 'Domain already assigned to this project'
+          message: 'Domain already assigned to this project',
+          persisted: true,
         });
       }
       console.error('Vercel API Error:', result);
+      await persistDomainResult('failed', false);
       return res.status(response.status).json({ error: 'Failed to provision subdomain', details: result });
     }
 
-    // Success response parsing
+    const verified = result.verified === true;
+    const status = verified ? 'active' : 'pending_verification';
+    await persistDomainResult(status, verified);
     return res.status(200).json({
       ok: true,
       domain: fqdn,
-      verified: result.verified === true,
-      status: 'active',
-      verification: result.verification || null
+      verified,
+      status,
+      verification: result.verification || null,
+      persisted: true,
     });
 
   } catch (error) {
     console.error('Provisioning error:', error);
+    try {
+      await persistDomainResult('failed', false);
+    } catch (persistenceError) {
+      console.error('Could not persist provisioning failure:', persistenceError);
+    }
     return res.status(500).json({ error: 'Internal Server Error' });
   }
 }

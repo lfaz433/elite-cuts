@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useMemo, ReactNode } from 'react';
-import { db } from '../../lib/firebase';
+import { auth, db } from '../../lib/firebase';
 import { 
   collection, 
   onSnapshot, 
@@ -350,15 +350,22 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const sendPush = async (recipientId: string, title: string, message: string, redirectUrl: string) => {
-    if (!recipientId) return;
+    if (!recipientId || !tenantId || !auth.currentUser) return;
     try {
+      const idToken = await auth.currentUser.getIdToken();
       await fetch('/api/send-push', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer internal'
+          'Authorization': `Bearer ${idToken}`
         },
-        body: JSON.stringify({ recipientId, title, body: message, data: { url: redirectUrl } })
+        body: JSON.stringify({
+          recipientId,
+          title,
+          body: message,
+          data: { url: redirectUrl },
+          tenantId,
+        })
       });
     } catch (e) {
       console.error('Push failed silently:', e);

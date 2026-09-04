@@ -1,4 +1,5 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
+import { hasMembershipPermission, verifyFirebaseIdToken } from './utils/firebaseAdmin.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Only allow POST requests
@@ -6,31 +7,43 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
-  // Basic security validation: Only authenticated requests
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  const decodedToken = await verifyFirebaseIdToken(req);
+  if (!decodedToken) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  // In a real app, verify the bearer token here to ensure it's from your valid clients.
-  // For simplicity, we assume if it reaches here and has a Bearer token, it's valid.
-
   try {
-    const { recipientId, title, body, data, notificationId, type } = req.body;
+    const { recipientId, title, body, data, tenantId } = req.body ?? {};
 
-    if (!recipientId || !title || !body) {
+    if (
+      typeof recipientId !== 'string' ||
+      typeof title !== 'string' ||
+      typeof body !== 'string' ||
+      typeof tenantId !== 'string'
+    ) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    const ONE_SIGNAL_APP_ID = "812f9b44-12d9-4391-97b7-6f0b2798987d";
-    const ONE_SIGNAL_REST_API_KEY = process.env.ONESIGNAL_REST_API_KEY?.trim();
+    const isAuthorized = decodedToken.superadmin === true
+      || decodedToken.platformAdmin === true
+      || await hasMembershipPermission(decodedToken.uid, tenantId, 'manageBookings');
 
-    if (!ONE_SIGNAL_REST_API_KEY) {
-      console.error('OneSignal credentials missing');
-      return res.status(500).json({ error: 'Server misconfiguration: Missing REST API KEY' });
+    if (!isAuthorized) {
+      return res.status(403).json({ error: 'Forbidden' });
     }
 
-    const redirectUrl = data?.url || '/';
+    const ONE_SIGNAL_APP_ID = process.env.ONESIGNAL_APP_ID?.trim();
+    const ONE_SIGNAL_REST_API_KEY = process.env.ONESIGNAL_REST_API_KEY?.trim();
+
+    if (!ONE_SIGNAL_APP_ID || !ONE_SIGNAL_REST_API_KEY) {
+      console.error('OneSignal credentials missing');
+      return res.status(500).json({ error: 'Server misconfiguration: Missing OneSignal credentials' });
+    }
+
+    const requestedUrl = typeof data?.url === 'string' ? data.url : '/';
+    const redirectUrl = requestedUrl.startsWith('/') && !requestedUrl.startsWith('//')
+      ? requestedUrl
+      : '/';
 
     const response = await fetch('https://onesignal.com/api/v1/notifications', {
       method: 'POST',

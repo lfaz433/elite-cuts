@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { X, Calendar, User, Phone, Mail, CheckCircle2, ChevronRight, ChevronLeft } from 'lucide-react';
 import { useBusiness, toLocalYYYYMMDD } from '../context/BusinessContext';
 import { useAuth } from '../context/AuthContext';
@@ -18,6 +18,8 @@ export default function BookingModal({ onClose }: { onClose: () => void }) {
   const [clientInfo, setClientInfo] = useState({ name: '', email: '', phone: '' });
   const [isSuccess, setIsSuccess] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
+  const pendingSubmission = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -106,6 +108,7 @@ export default function BookingModal({ onClose }: { onClose: () => void }) {
     e.preventDefault();
     if (isSubmitting || !clientInfo.name || !clientInfo.email || !clientInfo.phone) return;
     setIsSubmitting(true);
+    setSubmissionError(null);
     
     try {
       let finalBarberId = selectedBarberId;
@@ -135,12 +138,15 @@ export default function BookingModal({ onClose }: { onClose: () => void }) {
         clientId: user?.uid || null,
       };
 
-      // Wrap in a promise race to prevent infinite hanging if Firebase connection drops
+      // A retry waits on the same in-flight write after a timeout, preventing duplicate bookings.
+      const bookingOperation = pendingSubmission.current ?? addBooking(bookingData);
+      pendingSubmission.current = bookingOperation;
       await Promise.race([
-        addBooking(bookingData),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 8000))
+        bookingOperation,
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 8000))
       ]);
-      
+
+      pendingSubmission.current = null;
       setIsSuccess(true);
       toast.success('✅ Réservation envoyée avec succès !');
       setTimeout(() => {
@@ -149,13 +155,14 @@ export default function BookingModal({ onClose }: { onClose: () => void }) {
       }, 3000);
     } catch (error) {
       console.error(error);
-      // Even on timeout, the booking might be created locally. We still show success for UX.
-      setIsSuccess(true);
-      toast.success('✅ Réservation enregistrée !');
-      setTimeout(() => {
-        setIsSuccess(false);
-        onClose();
-      }, 3000);
+      const message = error instanceof Error && error.message === 'Timeout'
+        ? 'La réservation prend plus de temps que prévu. Vérifiez votre connexion puis réessayez.'
+        : 'La réservation n’a pas pu être confirmée. Corrigez le problème puis réessayez.';
+      if (!(error instanceof Error && error.message === 'Timeout')) {
+        pendingSubmission.current = null;
+      }
+      setSubmissionError(message);
+      toast.error(message);
     } finally {
       setIsSubmitting(false);
     }
@@ -471,6 +478,18 @@ export default function BookingModal({ onClose }: { onClose: () => void }) {
           {/* Step 4: Client Info */}
           {step === 4 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {submissionError && (
+                <div role="alert" style={{ padding: 14, borderRadius: 12, border: '1px solid rgba(239,68,68,0.35)', background: 'rgba(239,68,68,0.1)', color: '#fca5a5', fontSize: 14 }}>
+                  <p style={{ marginBottom: 10 }}>{submissionError}</p>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    style={{ padding: '9px 14px', border: '1px solid rgba(252,165,165,0.45)', borderRadius: 9, background: 'rgba(239,68,68,0.12)', color: 'white', fontWeight: 700, cursor: isSubmitting ? 'wait' : 'pointer' }}
+                  >
+                    {isSubmitting ? 'Nouvelle tentative…' : 'Réessayer'}
+                  </button>
+                </div>
+              )}
               {[
                 { label: 'Nom complet', key: 'name', type: 'text', placeholder: 'Votre nom', Icon: User },
                 { label: 'Email', key: 'email', type: 'email', placeholder: 'votre@email.com', Icon: Mail },

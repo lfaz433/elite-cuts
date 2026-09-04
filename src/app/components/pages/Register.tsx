@@ -2,17 +2,21 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Scissors, Check, AlertTriangle, ArrowRight, ArrowLeft, Loader2, Sparkles, Shield, User, Globe, Store } from 'lucide-react';
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { doc, setDoc, collection, getDocs, query, where } from 'firebase/firestore';
-import { auth, db, functions } from '../../lib/firebase';
+import { doc, setDoc, collection, getDocs, query, serverTimestamp, where } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
+import { auth, db, functions } from '../../lib/firebase';
 import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import PhoneInput from 'react-phone-input-2';
 import 'react-phone-input-2/lib/style.css';
 
+import { loadSessionUser } from '../../lib/session';
 import { validateSubdomain } from '../../lib/validators';
 
 type PlanId = 'basic' | 'pro' | 'enterprise';
+type ProvisionStatus = 'pending' | 'pending_verification' | 'active' | 'failed';
+
+const MAIN_DOMAIN = import.meta.env.VITE_MAIN_DOMAIN?.trim().toLowerCase() || '';
 
 interface Plan {
   id: PlanId;
@@ -22,6 +26,12 @@ interface Plan {
   limit: number;
   features: string[];
   recommended?: boolean;
+}
+
+interface BootstrapTenantResult {
+  tenantId: string;
+  locationId: string;
+  membershipId: string;
 }
 
 const PLANS: Plan[] = [
@@ -56,6 +66,10 @@ export default function Register() {
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [registrationOutcome, setRegistrationOutcome] = useState<{
+    tenantId: string;
+    status: Exclude<ProvisionStatus, 'active'>;
+  } | null>(null);
 
   // Form states
   const [shopName, setShopName] = useState('');
@@ -162,93 +176,71 @@ export default function Register() {
   };
 
   const handleSubmit = async () => {
+    if (registrationOutcome) {
+      toast.info('Votre salon est déjà créé et son domaine reste en attente.');
+      return;
+    }
+    if (!MAIN_DOMAIN) {
+      toast.error('Le domaine principal n’est pas configuré.');
+      return;
+    }
+
     setLoading(true);
     let createdUser: any = null;
-    let provisionStatus = 'pending';
+    let tenantBootstrapped = false;
+    let provisionStatus: ProvisionStatus = 'pending';
     let isVercelVerified = false;
 
     try {
-      // 1. Generate unique Tenant Doc ID
-      const newTenantId = doc(collection(db, 'tenants')).id;
-
-      // 2. Create Firebase Auth user
+      // 1. Create Firebase Auth user
       const cleanEmail = ownerEmail.trim().toLowerCase();
       const userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, ownerPassword);
       createdUser = userCredential.user;
 
-      // Pre-populate localStorage immediately so that AuthContext's onAuthStateChanged (which fires asynchronously
-      // in the next tick) resolves role: 'admin' right away.
-      localStorage.setItem(`user_profile_${createdUser.uid}`, JSON.stringify({
-        id: createdUser.uid,
-        uid: createdUser.uid,
-        email: cleanEmail,
-        name: ownerName,
-        role: 'admin',
-        tenantId: newTenantId
-      }));
-
-      // 3. Update displayName in Firebase Auth profile
+      // 2. Update displayName in Firebase Auth profile
       await updateProfile(createdUser, { displayName: ownerName });
 
-      // 4. Write user document to Firestore FIRST — this must happen before any other
-      //    Firestore write, because Security Rules use getUserData() to verify identity.
+      // 3. Store identity fields only. Server-managed membership records grant authority.
       const userProfile = {
         uid: createdUser.uid,
         email: cleanEmail,
         name: ownerName,
-        role: 'admin',
-        tenantId: newTenantId,
-        createdAt: new Date().toISOString()
+        displayName: ownerName,
+        createdAt: serverTimestamp(),
       };
       await setDoc(doc(db, 'users', createdUser.uid), userProfile);
 
-      // 5. Reserve subdomain — now safe because user doc exists
-      try {
-        await setDoc(doc(db, 'subdomains', subdomain), {
-          ownerUid: createdUser.uid,
-          tenantId: newTenantId,
-          createdAt: new Date().toISOString()
-        });
-      } catch (subErr) {
-        // Non-fatal: log but do not abort the entire registration
-        console.warn('Subdomain reservation failed (non-fatal):', subErr);
+      // 4. Atomically create the tenant, reservation, and fixed owner membership on the server.
+      const bootstrap = httpsCallable<Record<string, unknown>, BootstrapTenantResult>(
+        functions,
+        'bootstrapTenantOwner',
+      );
+      const bootstrapResponse = await bootstrap({
+        subdomain,
+        shopName,
+        shopPhone,
+        shopAddress,
+        planId: selectedPlan,
+      });
+      const { tenantId: newTenantId, locationId, membershipId } = bootstrapResponse.data;
+      if (!newTenantId || locationId !== newTenantId || !membershipId) {
+        throw new Error('Le serveur a renvoyé un espace salon invalide.');
+      }
+      tenantBootstrapped = true;
+
+      const session = await loadSessionUser(createdUser);
+      const ownerMembership = session.memberships.find(membership => (
+        membership.id === membershipId &&
+        membership.userId === createdUser.uid &&
+        membership.locationId === newTenantId &&
+        membership.status === 'active' &&
+        membership.role === 'principal_admin'
+      ));
+      if (!ownerMembership) {
+        throw new Error('L’accès administrateur du salon n’a pas pu être vérifié.');
       }
 
-      // 6. Write tenant document — user doc is now in Firestore so isMemberOfTenant() will pass
-      const tenantData = {
-        subdomain,
-        domain: {
-          subdomain,
-          status: provisionStatus,
-          vercelVerified: isVercelVerified
-        },
-        name: shopName,
-        ownerUid: createdUser.uid,
-        onboardingComplete: true, // skip the onboarding wizard — admin goes straight to dashboard
-        subscription: {
-          status: 'trialing',
-          planId: selectedPlan,
-          trialEndsAt: Date.now() + 15 * 24 * 60 * 60 * 1000
-        },
-        branding: {
-          primaryColor: '#D4AF37',
-          logoUrl: '',
-          businessName: shopName
-        },
-        settings: {
-          maxBarbersLimit: selectedPlan === 'basic' ? 2 : selectedPlan === 'pro' ? 8 : 999,
-          allowOnlineBooking: true
-        },
-        createdAt: Date.now()
-      };
-      await setDoc(doc(db, 'tenants', newTenantId), tenantData);
-
-
-
-      // 7. Force token refresh so downstream calls have fresh claims
-      await auth.currentUser?.getIdToken(true);
-
-      // 8. Call Vercel Provisioning API (non-fatal if it fails)
+      // 5. Call Vercel Provisioning API. The server persists the returned domain state.
       try {
         const idToken = await createdUser.getIdToken();
         const res = await fetch('/api/provision-subdomain', {
@@ -260,9 +252,9 @@ export default function Register() {
           body: JSON.stringify({ subdomain, tenantId: newTenantId })
         });
         const data = await res.json();
-        if (res.ok && data.ok) {
-          provisionStatus = 'active';
-          isVercelVerified = data.verified;
+        if (res.ok && data.ok && data.persisted === true) {
+          provisionStatus = data.status === 'active' ? 'active' : 'pending_verification';
+          isVercelVerified = data.verified === true;
         } else {
           provisionStatus = 'failed';
           console.error("Provisioning failed:", data.error || data);
@@ -274,21 +266,19 @@ export default function Register() {
 
       if (provisionStatus === 'failed') {
         toast.warning("Salon créé, mais la configuration du domaine a échoué. Vous pourrez réessayer depuis les paramètres.");
+      } else if (provisionStatus === 'pending_verification' || !isVercelVerified) {
+        toast.warning('Salon créé. Le domaine est enregistré et reste en attente de vérification.');
       } else {
         toast.success('Votre salon a été configuré avec succès !');
       }
       
-      const hostname = window.location.hostname;
-      if (
-        hostname === 'localhost' ||
-        hostname === '127.0.0.1' ||
-        hostname.endsWith('.vercel.app')
-      ) {
-        navigate('/admin', { replace: true });
+      if (provisionStatus === 'active' && isVercelVerified) {
+        window.location.assign(`https://${subdomain}.${MAIN_DOMAIN}/admin`);
       } else {
-        // Always redirect to 'barbeboard.pro' in production since it has wildcard subdomains configured on Vercel
-        const baseDomain = 'barbeboard.pro';
-        window.location.href = `https://${subdomain}.${baseDomain}/admin`;
+        setRegistrationOutcome({
+          tenantId: newTenantId,
+          status: provisionStatus === 'active' ? 'pending_verification' : provisionStatus,
+        });
       }
 
     } catch (err: any) {
@@ -296,7 +286,7 @@ export default function Register() {
       toast.error(err.message || 'Une erreur est survenue lors de la création.');
 
       // Rollback Auth user if database insertions failed
-      if (createdUser) {
+      if (createdUser && !tenantBootstrapped) {
         try {
           await createdUser.delete();
         } catch (delErr) {
@@ -458,13 +448,13 @@ export default function Register() {
                       className="flex-1 px-5 py-4 bg-white/5 border border-white/10 rounded-xl focus:border-[#D4AF37] outline-none text-white transition-all placeholder:text-white/20 text-right font-mono"
                     />
                     <div className="px-5 py-4 sm:py-0 bg-white/10 border border-white/10 rounded-xl flex items-center justify-center text-white/60 font-mono text-xs sm:text-sm">
-                      .{window.location.hostname.includes('barbeboard.pro') ? 'barbeboard.pro' : 'barberboard.pro'}
+                      .{MAIN_DOMAIN || 'domaine-non-configuré'}
                     </div>
                   </div>
 
                   {subdomain && (
                     <p className="text-xs text-white/40 mt-1 font-mono">
-                      Aperçu : <span className="text-[#D4AF37]">{subdomain}.{window.location.hostname.includes('barbeboard.pro') ? 'barbeboard.pro' : 'barberboard.pro'}</span>
+                      Aperçu : <span className="text-[#D4AF37]">{subdomain}.{MAIN_DOMAIN || 'domaine-non-configuré'}</span>
                     </p>
                   )}
                 </div>
@@ -620,12 +610,21 @@ export default function Register() {
           </AnimatePresence>
         </div>
 
+        {registrationOutcome && (
+          <div role="status" className="mt-8 rounded-2xl border border-amber-400/30 bg-amber-400/10 p-5 text-sm text-amber-100">
+            <p className="font-bold">Salon créé — domaine en attente</p>
+            <p className="mt-1 text-amber-100/70">
+              Votre accès administrateur est enregistré. Nous ne vous redirigerons pas tant que le domaine n’est pas confirmé.
+            </p>
+          </div>
+        )}
+
         {/* Footer Navigation Buttons */}
         <div className="flex flex-col-reverse sm:flex-row justify-between items-center gap-3 border-t border-[#D4AF37]/10 pt-8 mt-10">
           {step > 1 ? (
             <button
               onClick={handlePrev}
-              disabled={loading}
+              disabled={loading || registrationOutcome !== null}
               className="px-6 py-4 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-2xl transition-all font-bold flex items-center gap-2 text-sm disabled:opacity-40"
             >
               <ArrowLeft className="w-4 h-4" /> Retour
@@ -645,7 +644,7 @@ export default function Register() {
           ) : (
             <button
               onClick={handleSubmit}
-              disabled={loading}
+              disabled={loading || registrationOutcome !== null}
               className="px-10 py-4 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black rounded-2xl hover:shadow-xl hover:shadow-[#D4AF37]/30 transition-all font-black text-sm active:scale-95 flex items-center gap-2 disabled:opacity-40"
             >
               {loading ? (
@@ -653,6 +652,8 @@ export default function Register() {
                   <Loader2 className="w-5 h-5 animate-spin" />
                   Création en cours...
                 </>
+              ) : registrationOutcome ? (
+                <>Salon créé — en attente</>
               ) : (
                 <>
                   Créer mon Salon <Sparkles className="w-5 h-5 fill-current" />

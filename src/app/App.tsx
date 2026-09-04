@@ -14,6 +14,8 @@ import ErrorBoundary from './components/ErrorBoundary';
 import { Scissors } from 'lucide-react';
 import { lazy } from 'react';
 
+const MAIN_DOMAIN = import.meta.env.VITE_MAIN_DOMAIN?.trim().toLowerCase() || '';
+
 // Lazy load heavy dashboard components
 const ClientDashboard = lazy(() => import('./components/pages/ClientDashboard'));
 const AdminDashboard = lazy(() => import('./components/pages/AdminDashboard'));
@@ -81,15 +83,14 @@ function HomeRouter() {
   
 
 
-  // Show HomePage on: localhost, vercel preview URLs, and main domain
+  // Show HomePage on localhost, preview URLs, and the configured main domain.
   const isMainDomain = 
     hostname === 'localhost' ||
     hostname === '127.0.0.1' ||
     hostname.endsWith('.vercel.app') ||
-    hostname === 'barberboard.pro' ||
-    hostname === 'www.barberboard.pro' ||
-    hostname === 'barbeboard.pro' ||
-    hostname === 'www.barbeboard.pro';
+    (MAIN_DOMAIN !== '' && (
+      hostname === MAIN_DOMAIN || hostname === `www.${MAIN_DOMAIN}`
+    ));
   
   if (isMainDomain) {
     return <HomePage />;
