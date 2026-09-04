@@ -10,3 +10,4 @@ functions/lib/
 gcloud init/
 scratch/
 .vercel
+.worktrees/
