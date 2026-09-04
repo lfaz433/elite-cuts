@@ -14,14 +14,14 @@ const {
 const { readFileSync } = require('fs');
 const { setDoc, doc, collection, addDoc, updateDoc, getDoc } = require('firebase/firestore');
 
-const PROJECT_ID = 'elite-cuts-app';
+const PROJECT_ID = 'demo-elite-cuts-rules';
 const RULES = readFileSync('./firestore.rules', 'utf8');
 
 // ── helpers ───────────────────────────────────────────────────────────────
 // auth param: { sub: 'some-uid' } — 'sub' is required by firebase/rules-unit-testing v4+
-async function getFirestore(env, authSub) {
+async function getFirestore(env, authSub, claims = {}) {
   return authSub
-    ? env.authenticatedContext(authSub, { sub: authSub }).firestore()
+    ? env.authenticatedContext(authSub, { sub: authSub, ...claims }).firestore()
     : env.unauthenticatedContext().firestore();
 }
 
@@ -132,7 +132,7 @@ test('T4: Tenant member can create a barber for their tenant', async () => {
   const tenantId = 'salon-abc';
   await seedUser(uid, tenantId, 'admin');
 
-  const db = await getFirestore(testEnv, uid);
+  const db = await getFirestore(testEnv, uid, { tenantId });
 
   await assertSucceeds(
     addDoc(collection(db, 'barbers'), {
@@ -150,7 +150,7 @@ test('T5: User cannot create a barber for a different tenant', async () => {
   const uid = 'attacker-uid';
   await seedUser(uid, 'my-tenant', 'admin');
 
-  const db = await getFirestore(testEnv, uid);
+  const db = await getFirestore(testEnv, uid, { tenantId: 'my-tenant' });
 
   await assertFails(
     addDoc(collection(db, 'barbers'), {
@@ -201,7 +201,7 @@ test('T8: Tenant member can update their tenant (finalizing onboarding)', async 
   await seedUser(uid, tenantId, 'admin');
   await seedTenant(tenantId, uid);
 
-  const db = await getFirestore(testEnv, uid);
+  const db = await getFirestore(testEnv, uid, { tenantId });
 
   await assertSucceeds(
     updateDoc(doc(db, 'tenants', tenantId), {
@@ -221,7 +221,7 @@ test('T9: Non-member cannot update a tenant they do not belong to', async () => 
   await seedTenant(tenantId, ownerUid);
 
   await seedUser('attacker', 'other-salon', 'admin');
-  const db = await getFirestore(testEnv, 'attacker');
+  const db = await getFirestore(testEnv, 'attacker', { tenantId: 'other-salon' });
 
   await assertFails(
     updateDoc(doc(db, 'tenants', tenantId), {
@@ -239,7 +239,7 @@ test('T10: SuperAdmin can update any tenant', async () => {
   const tenantId = 'some-salon';
   await seedTenant(tenantId, 'some-owner');
 
-  const db = await getFirestore(testEnv, superUid);
+  const db = await getFirestore(testEnv, superUid, { superadmin: true });
 
   await assertSucceeds(
     updateDoc(doc(db, 'tenants', tenantId), {

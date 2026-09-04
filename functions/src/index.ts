@@ -5,6 +5,8 @@ import Stripe from 'stripe';
 admin.initializeApp();
 const db = admin.firestore();
 
+export { requireMembership } from './authz';
+
 function getStripe(): Stripe {
   const key = process.env.STRIPE_SECRET_KEY;
   if (!key) {
@@ -184,5 +186,4 @@ export const stripeWebhook = functions.https.onRequest(async (req, res) => {
     res.status(500).send('Internal Server Error');
   }
 });
-
 

@@ -40,17 +40,17 @@ const tests = [
   },
   {
     id: 'SA-4',
-    description: 'isMemberOfTenant helper exists and checks getUserData().tenantId',
+    description: 'Tenant authority comes from a server-issued custom claim',
     check: () =>
       rules.includes('function isMemberOfTenant') &&
-      rules.includes('getUserData().tenantId == tenantId'),
+      rules.includes('request.auth.token.tenantId == tId'),
   },
   {
     id: 'SA-5',
-    description: 'getUserData() safely returns {} if doc does not exist',
+    description: 'Client profile fields are not used as authorization inputs',
     check: () =>
-      rules.includes('exists(/databases') &&
-      rules.includes(': {}'),
+      !rules.includes('getUserData()') &&
+      rules.includes("match /memberships/{membershipId}"),
   },
   {
     id: 'SA-6',
