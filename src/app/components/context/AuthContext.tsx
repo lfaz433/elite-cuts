@@ -13,7 +13,7 @@ import {
   MembershipSummary,
   SessionUser,
 } from '../../lib/session';
-import { membershipForLocation } from '../../lib/sessionAccess';
+import { legacyRoleForLocation, membershipForLocation } from '../../lib/sessionAccess';
 import { useTenant } from './TenantContext';
 
 type LegacyRole = 'client' | 'admin' | 'barber' | 'superadmin';
@@ -49,11 +49,6 @@ function membershipRole(membership?: MembershipSummary): LegacyRole {
   return 'client';
 }
 
-function legacyClaimRole(claim: unknown): LegacyRole {
-  if (claim === 'admin' || claim === 'barber') return claim;
-  return 'client';
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -75,14 +70,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         ]);
         const activeMembership = membershipForLocation(session.memberships, tenantId);
         const isPlatformAdmin = token.claims.superadmin === true || token.claims.platformAdmin === true;
+        const claimedTenantId = typeof token.claims.tenantId === 'string'
+          ? token.claims.tenantId
+          : undefined;
+        const scopedClaimTenantId = claimedTenantId === tenantId
+          ? claimedTenantId
+          : undefined;
         const role = isPlatformAdmin
           ? 'superadmin'
           : activeMembership
             ? membershipRole(activeMembership)
-            : legacyClaimRole(token.claims.role);
-        const claimedTenantId = typeof token.claims.tenantId === 'string'
-          ? token.claims.tenantId
-          : undefined;
+            : legacyRoleForLocation(token.claims.role, claimedTenantId, tenantId);
 
         setUser({
           ...session,
@@ -90,7 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           name: session.displayName || (role === 'admin' ? 'Administrateur' : 'Utilisateur'),
           role,
           barberId: activeMembership?.barberId,
-          tenantId: activeMembership?.locationId ?? claimedTenantId ?? tenantId,
+          tenantId: activeMembership?.locationId ?? scopedClaimTenantId ?? tenantId,
         });
       } catch (error) {
         console.error('Auth session fetch failed:', error);
