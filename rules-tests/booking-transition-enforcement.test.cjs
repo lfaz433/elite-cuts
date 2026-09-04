@@ -124,3 +124,18 @@ test('a tenant member cannot directly delete a booking', async () => {
   const { deleteDoc } = require('firebase/firestore');
   await assertFails(deleteDoc(doc(db, 'bookings', 'booking-a')));
 });
+
+test('a tenant member cannot directly mark a booking paid or change amounts', async () => {
+  await seedBooking();
+  const db = testEnv.authenticatedContext('manager-a', {
+    sub: 'manager-a',
+    tenantId: 'tenant-a',
+  }).firestore();
+
+  await assertFails(updateDoc(doc(db, 'bookings', 'booking-a'), {
+    paymentStatus: 'paid',
+    pricePaid: 9999,
+    tip: 9999,
+    paymentMethod: 'cash',
+  }));
+});

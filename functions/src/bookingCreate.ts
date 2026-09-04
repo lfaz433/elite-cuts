@@ -9,11 +9,7 @@ export interface BookingCreateInput {
   date: string;
   time: string;
   type: 'avec-rdv' | 'sans-rdv';
-  pricePaid?: number;
-  tip?: number;
-  paymentMethod?: 'cash' | 'card';
   notes?: string;
-  paymentStatus?: 'paid' | 'unpaid';
 }
 
 const allowedKeys = new Set([
@@ -25,11 +21,7 @@ const allowedKeys = new Set([
   'date',
   'time',
   'type',
-  'pricePaid',
-  'tip',
-  'paymentMethod',
   'notes',
-  'paymentStatus',
 ]);
 
 function text(value: unknown, field: string, maxLength: number): string {
@@ -62,18 +54,6 @@ export function parseBookingCreateInput(value: unknown): BookingCreateInput {
   if (bookingType !== 'avec-rdv' && bookingType !== 'sans-rdv') {
     throw new Error('type is invalid');
   }
-  if (input.paymentMethod !== undefined && input.paymentMethod !== 'cash' && input.paymentMethod !== 'card') {
-    throw new Error('paymentMethod is invalid');
-  }
-  if (input.paymentStatus !== undefined && input.paymentStatus !== 'paid' && input.paymentStatus !== 'unpaid') {
-    throw new Error('paymentStatus is invalid');
-  }
-  for (const field of ['pricePaid', 'tip'] as const) {
-    if (input[field] !== undefined && (typeof input[field] !== 'number' || input[field] < 0)) {
-      throw new Error(`${field} is invalid`);
-    }
-  }
-
   return {
     clientName: text(input.clientName, 'clientName', 120),
     clientEmail: optionalText(input.clientEmail, 'clientEmail', 254) ?? '',
@@ -83,11 +63,7 @@ export function parseBookingCreateInput(value: unknown): BookingCreateInput {
     date,
     time,
     type: bookingType,
-    ...(typeof input.pricePaid === 'number' ? { pricePaid: input.pricePaid } : {}),
-    ...(typeof input.tip === 'number' ? { tip: input.tip } : {}),
-    ...(input.paymentMethod ? { paymentMethod: input.paymentMethod } : {}),
     ...(optionalText(input.notes, 'notes', 1000) ? { notes: optionalText(input.notes, 'notes', 1000) } : {}),
-    ...(input.paymentStatus ? { paymentStatus: input.paymentStatus } : {}),
   };
 }
 
@@ -136,6 +112,9 @@ export async function createBooking(
       locationId: tenantId,
       clientId,
       status: 'pending',
+      paymentStatus: 'unpaid',
+      pricePaid: 0,
+      tip: 0,
       unreadAdmin: true,
       unreadBarber: true,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),

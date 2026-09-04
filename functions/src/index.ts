@@ -3,6 +3,7 @@ import * as admin from 'firebase-admin';
 import Stripe from 'stripe';
 import { requireMembership } from './authz';
 import { createBooking } from './bookingCreate';
+import { recordBookingPayment } from './bookingPayment';
 import {
   assertTransition,
   isStoredBookingStatus,
@@ -177,6 +178,63 @@ export const createBookingHandler = async (
 };
 
 export const createBookingRequest = functions.https.onRequest(createBookingHandler);
+
+export const recordBookingPaymentHandler = async (
+  req: functions.https.Request,
+  res: functions.Response,
+): Promise<void> => {
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+  if (req.method === 'OPTIONS') {
+    res.status(204).send('');
+    return;
+  }
+  if (req.method !== 'POST') {
+    res.status(405).send('Method Not Allowed');
+    return;
+  }
+
+  const decodedToken = await verifyFirebaseIdToken(req);
+  if (!decodedToken) {
+    res.status(401).send('Unauthorized');
+    return;
+  }
+  const bookingId = req.body?.bookingId;
+  if (typeof bookingId !== 'string') {
+    res.status(400).send('bookingId is required');
+    return;
+  }
+
+  try {
+    const booking = await db.collection('bookings').doc(bookingId).get();
+    if (!booking.exists) {
+      res.status(404).send('Booking not found');
+      return;
+    }
+    const locationId = booking.data()?.locationId ?? booking.data()?.tenantId;
+    if (typeof locationId !== 'string') {
+      res.status(409).send('Booking has no location');
+      return;
+    }
+    const membership = await requireMembership(decodedToken.uid, locationId, 'manageBookings');
+    await recordBookingPayment(
+      decodedToken.uid,
+      bookingId,
+      locationId,
+      membership,
+      req.body?.payment,
+      db,
+    );
+    res.status(200).json({ bookingId, paymentStatus: 'paid' });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Payment recording failed';
+    const status = message.includes('Permission') || message.includes('authorization') ? 403 : 409;
+    res.status(status).send(message);
+  }
+};
+
+export const recordBookingPaymentRequest = functions.https.onRequest(recordBookingPaymentHandler);
 
 export const transitionBookingStatusHandler = async (
   req: functions.https.Request,

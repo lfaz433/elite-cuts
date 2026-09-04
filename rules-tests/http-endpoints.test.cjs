@@ -54,6 +54,16 @@ test('checkout handler rejects a request without Firebase authentication', async
   expect(response.body).toBe('Unauthorized');
 });
 
+test('booking payment handler rejects a request without Firebase authentication', async () => {
+  const { recordBookingPaymentHandler } = require('../functions/lib/index.js');
+  const response = fakeResponse();
+
+  await recordBookingPaymentHandler({ method: 'POST', headers: {}, body: {} }, response);
+
+  expect(response.statusCode).toBe(401);
+  expect(response.body).toBe('Unauthorized');
+});
+
 test('webhook handler fails closed when Stripe configuration is absent', async () => {
   const oldSecret = process.env.STRIPE_SECRET_KEY;
   const oldWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -61,7 +71,8 @@ test('webhook handler fails closed when Stripe configuration is absent', async (
   delete process.env.STRIPE_WEBHOOK_SECRET;
   const { stripeWebhookHandler } = require('../functions/lib/index.js');
   const response = fakeResponse();
-  const errorLog = jest.spyOn(console, 'error').mockImplementation(() => {});
+  const firebaseFunctions = require('../functions/node_modules/firebase-functions');
+  const errorLog = jest.spyOn(firebaseFunctions.logger, 'error').mockImplementation(() => {});
 
   try {
     await stripeWebhookHandler({ headers: {}, rawBody: Buffer.from('{}') }, response);

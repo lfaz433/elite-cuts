@@ -396,6 +396,35 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     return response.json() as Promise<{ notificationIds?: string[] }>;
   };
 
+  const requestBookingPayment = async (
+    id: string,
+    amount: number,
+    tip: number,
+    method: 'cash' | 'card',
+  ) => {
+    if (!auth.currentUser) throw new Error('Authenticated staff required');
+    const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID?.trim();
+    if (!projectId) throw new Error('Firebase project is not configured');
+    const idToken = await auth.currentUser.getIdToken();
+    const response = await fetch(
+      `https://us-central1-${projectId}.cloudfunctions.net/recordBookingPaymentRequest`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          bookingId: id,
+          payment: { amount, tip, method },
+        }),
+      },
+    );
+    if (!response.ok) {
+      throw new Error((await response.text()) || 'Payment recording failed');
+    }
+  };
+
   useEffect(() => {
     if (!tenantId) return;
 
@@ -608,10 +637,17 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID?.trim();
     if (!projectId) throw new Error('Firebase project is not configured');
     const requestedStatus = booking.status ?? 'pending';
+    const requestedPayment = {
+      status: booking.paymentStatus,
+      amount: Number(booking.pricePaid ?? 0),
+      tip: Number(booking.tip ?? 0),
+      method: booking.paymentMethod ?? 'cash',
+    };
     const bookingPayload: Record<string, unknown> = { ...booking };
     for (const serverOwnedField of [
       'id', 'status', 'tenantId', 'locationId', 'clientId', 'createdAt',
       'completedAt', 'statusUpdatedAt', 'statusUpdatedBy', 'unreadAdmin', 'unreadBarber',
+      'paymentStatus', 'pricePaid', 'tip', 'paymentMethod',
     ]) {
       delete bookingPayload[serverOwnedField];
     }
@@ -637,6 +673,14 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
         await requestBookingTransition(bookingId, 'approved');
       }
       await requestBookingTransition(bookingId, requestedStatus);
+    }
+    if (requestedPayment.status === 'paid') {
+      await requestBookingPayment(
+        bookingId,
+        requestedPayment.amount,
+        requestedPayment.tip,
+        requestedPayment.method,
+      );
     }
 
     try {
@@ -704,8 +748,31 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   };
 
   const updateBooking = async (id: string, updated: Partial<Booking>) => {
-    const { status, ...nonTransitionFields } = updated;
+    const {
+      status,
+      paymentStatus,
+      pricePaid,
+      tip,
+      paymentMethod,
+      ...nonTransitionFields
+    } = updated;
     if (status) await updateBookingStatus(id, status);
+    if (
+      paymentStatus !== undefined
+      || pricePaid !== undefined
+      || tip !== undefined
+      || paymentMethod !== undefined
+    ) {
+      if (paymentStatus !== undefined && paymentStatus !== 'paid') {
+        throw new Error('Only recording a completed payment is supported');
+      }
+      await requestBookingPayment(
+        id,
+        Number(pricePaid ?? 0),
+        Number(tip ?? 0),
+        paymentMethod ?? 'cash',
+      );
+    }
     if (Object.keys(nonTransitionFields).length > 0) {
       await updateDoc(doc(db, 'bookings', id), nonTransitionFields);
     }

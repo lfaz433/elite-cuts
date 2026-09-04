@@ -95,7 +95,13 @@ service cloud.firestore {
           'statusUpdatedBy',
           'clientId',
           'barberId',
-          'serviceId'
+          'serviceId',
+          'paymentStatus',
+          'pricePaid',
+          'tip',
+          'paymentMethod',
+          'paymentRecordedAt',
+          'paymentRecordedBy'
         ]);
       allow delete: if false;
     }
