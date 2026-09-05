@@ -13,6 +13,7 @@ import { bootstrapTenantOwnerFunction } from './bootstrapTenant';
 import { assertTransitionTransactionState } from './bookingTransitionState';
 import { verifyFirebaseIdToken } from './httpAuth';
 import { resolvePushRecipient } from './pushRecipient';
+import { bootstrapBrandOwnerFunction, createSalonLocationFunction } from './memberships';
 
 if (admin.apps.length === 0) {
   admin.initializeApp();
@@ -23,6 +24,8 @@ export { requireMembership } from './authz';
 export { assertTransition, BookingStatus, isBookingStatus } from './bookingStatus';
 export { verifyFirebaseIdToken } from './httpAuth';
 export const bootstrapTenantOwner = bootstrapTenantOwnerFunction;
+export const bootstrapBrandOwner = bootstrapBrandOwnerFunction;
+export const createSalonLocation = createSalonLocationFunction;
 
 function getStripe(): Stripe {
   const key = process.env.STRIPE_SECRET_KEY;

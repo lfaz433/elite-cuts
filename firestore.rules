@@ -50,6 +50,47 @@ service cloud.firestore {
       );
     }
 
+    // Marketplace authority uses server-issued membership documents only. New
+    // marketplace IDs are deliberately distinct from legacy tenant memberships.
+    function principalMembershipPath(brandId) {
+      return /databases/$(database)/documents/memberships/$(brandId + '__principal__' + request.auth.uid);
+    }
+
+    function locationMembershipPath(brandId, locationId) {
+      return /databases/$(database)/documents/memberships/$(brandId + '__' + locationId + '__' + request.auth.uid);
+    }
+
+    function hasActiveBrandPrincipalMembership(brandId) {
+      return request.auth != null
+        && exists(principalMembershipPath(brandId))
+        && get(principalMembershipPath(brandId)).data.userId == request.auth.uid
+        && get(principalMembershipPath(brandId)).data.brandId == brandId
+        && get(principalMembershipPath(brandId)).data.get('locationId', null) == null
+        && get(principalMembershipPath(brandId)).data.role == 'principal_admin'
+        && get(principalMembershipPath(brandId)).data.status == 'active';
+    }
+
+    function hasActiveLocationMembership(brandId, locationId) {
+      return request.auth != null
+        && exists(locationMembershipPath(brandId, locationId))
+        && get(locationMembershipPath(brandId, locationId)).data.userId == request.auth.uid
+        && get(locationMembershipPath(brandId, locationId)).data.brandId == brandId
+        && get(locationMembershipPath(brandId, locationId)).data.locationId == locationId
+        && get(locationMembershipPath(brandId, locationId)).data.status == 'active';
+    }
+
+    function hasActiveLocationPermission(brandId, locationId, permission) {
+      return hasActiveLocationMembership(brandId, locationId)
+        && get(locationMembershipPath(brandId, locationId)).data.get('permissions', {}).get(permission, false) == true;
+    }
+
+    function canAccessSalonLocation(location, locationId) {
+      return request.auth != null && (
+        hasActiveBrandPrincipalMembership(location.brandId)
+        || hasActiveLocationMembership(location.brandId, locationId)
+      );
+    }
+
     function safeTenantUpdateFields() {
       return ['name', 'phone', 'address', 'branding', 'onboardingComplete', 'isDemo', 'settings', 'updatedAt'];
     }
@@ -122,6 +163,18 @@ service cloud.firestore {
       allow read: if true;
       allow create: if false;
       allow delete: if isSuperAdmin();
+    }
+
+    // The multi-salon marketplace is a clean layer beside legacy tenants.
+    // Browser writes are denied; Functions create brands, locations, and roles.
+    match /brands/{brandId} {
+      allow read: if hasActiveBrandPrincipalMembership(brandId);
+      allow create, update, delete: if false;
+    }
+
+    match /salonLocations/{locationId} {
+      allow read: if canAccessSalonLocation(resource.data, locationId);
+      allow create, update, delete: if false;
     }
 
     // 2. Scoped Business Operations Collections
@@ -222,8 +275,21 @@ service cloud.firestore {
 
     // Membership authority is written only by trusted server code. A user may
     // read their own records so the client can construct its workspace session.
+    // Brand principals may audit their brand; delegated staff may view only the
+    // team at an assigned location when they hold manageStaff.
     match /memberships/{membershipId} {
-      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow read: if request.auth != null && (
+        resource.data.userId == request.auth.uid
+        || hasActiveBrandPrincipalMembership(resource.data.brandId)
+        || (
+          resource.data.get('locationId', null) != null
+          && hasActiveLocationPermission(
+            resource.data.brandId,
+            resource.data.locationId,
+            'manageStaff',
+          )
+        )
+      );
       allow create, update, delete: if false;
     }
 
