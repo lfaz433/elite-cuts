@@ -158,6 +158,32 @@ describe('marketplace booking lifecycle', () => {
     });
   });
 
+  test('does not restore a declined slot removed from explicit configuredSlots', async () => {
+    const { respondToMarketplaceBooking } = loadBookings();
+    const slot = '2099-09-05T10:30';
+    const state = {
+      bookingRequests: {
+        'booking-a': {
+          ownerId: 'freelancer-a', ownerType: 'freelancer', clientId: 'client-a',
+          serviceId: 'cut', date: '2099-09-05', time: '10:30', status: 'pending_approval',
+        },
+      },
+      bookingRequestPrivate: {},
+      availability: {
+        'freelancer-a': { configuredSlots: [], availableSlots: [], reservedSlots: [slot] },
+      },
+      auditEvents: {},
+    };
+    const firestore = orderedTransactionFirestore(state);
+
+    await expect(respondToMarketplaceBooking(
+      'freelancer-a', { bookingId: 'booking-a', decision: 'decline' }, firestore,
+    )).resolves.toMatchObject({ status: 'declined' });
+    expect(state.availability['freelancer-a']).toMatchObject({
+      configuredSlots: [], availableSlots: [], reservedSlots: [],
+    });
+  });
+
   test('does not read availability after writing a client cancellation', async () => {
     const { cancelMarketplaceBooking } = loadBookings();
     const state = { bookingRequests: { 'booking-a': { ownerId: 'freelancer-a', ownerType: 'freelancer', clientId: 'client-a', serviceId: 'cut', date: '2099-09-05', time: '10:30', status: 'confirmed' } }, bookingRequestPrivate: {}, availability: { 'freelancer-a': { availableSlots: [], reservedSlots: ['2099-09-05T10:30'] } }, auditEvents: {} };
@@ -169,6 +195,31 @@ describe('marketplace booking lifecycle', () => {
     });
   });
 
+  test('does not restore a cancelled slot after configuredSlots was explicitly emptied', async () => {
+    const { cancelMarketplaceBooking } = loadBookings();
+    const slot = '2099-09-05T10:30';
+    const state = {
+      bookingRequests: {
+        'booking-a': {
+          ownerId: 'location-a', ownerType: 'salon', clientId: 'client-a',
+          serviceId: 'cut', date: '2099-09-05', time: '10:30', status: 'confirmed',
+        },
+      },
+      bookingRequestPrivate: {},
+      availability: {
+        'location-a': { configuredSlots: [], availableSlots: [], reservedSlots: [slot] },
+      },
+      auditEvents: {},
+    };
+    const firestore = orderedTransactionFirestore(state);
+
+    await expect(cancelMarketplaceBooking('client-a', 'booking-a', firestore))
+      .resolves.toEqual({ bookingId: 'booking-a', status: 'cancelled' });
+    expect(state.availability['location-a']).toMatchObject({
+      configuredSlots: [], availableSlots: [], reservedSlots: [],
+    });
+  });
+
   test('rejects a freelancer booking when the public profile has not enabled home visits', async () => {
     const { createMarketplaceBooking } = loadBookings();
     const state = { publicProfiles: { 'freelancer__freelancer-a': { kind: 'freelancer', visible: true, approvalStatus: 'approved', serviceIds: ['cut'], homeVisit: false } }, freelancerProfiles: { 'freelancer-a': {} }, availability: { 'freelancer-a': { availableSlots: ['2099-09-05T10:30'] } }, bookingRequests: {}, bookingRequestPrivate: {}, auditEvents: {} };
@@ -177,7 +228,18 @@ describe('marketplace booking lifecycle', () => {
     await expect(createMarketplaceBooking('client-a', { profileId: 'freelancer__freelancer-a', serviceId: 'cut', date: '2099-09-05', time: '10:30', clientName: 'Ada Client', homeAddress: { line1: '12 rue des Fleurs', city: 'Paris' } }, firestore)).rejects.toThrow('Home visits are not available');
   });
 
-  test('rejects a home visit outside the freelancer service radius', async () => {
+  test('rejects caller-supplied coordinates instead of trusting them for a home visit', () => {
+    const { parseMarketplaceBookingInput } = loadBookings();
+
+    expect(() => parseMarketplaceBookingInput({
+      profileId: 'freelancer__freelancer-a', serviceId: 'cut',
+      date: '2099-09-05', time: '10:30', clientName: 'Ada Client',
+      approximateArea: 'Paris 11e', approximateLocation: { latitude: 48.858, longitude: 2.36 },
+      homeAddress: { line1: '12 rue des Fleurs', city: 'Paris' },
+    })).toThrow('Server-owned booking fields cannot be supplied');
+  });
+
+  test('fails closed when no trusted geocoder and verified freelancer origin are configured', async () => {
     const { createMarketplaceBooking } = loadBookings();
     const state = {
       publicProfiles: {
@@ -201,49 +263,26 @@ describe('marketplace booking lifecycle', () => {
     await expect(createMarketplaceBooking('client-a', {
       profileId: 'freelancer__freelancer-a', serviceId: 'cut',
       date: '2099-09-05', time: '10:30', clientName: 'Ada Client',
-      approximateArea: 'Grenoble', approximateLocation: { latitude: 45.1885, longitude: 5.7245 },
-      homeAddress: { line1: '12 rue des Fleurs', city: 'Grenoble' },
-    }, firestore)).rejects.toThrow('outside this professional’s service radius');
+      approximateArea: 'Paris 11e',
+      homeAddress: { line1: '12 rue des Fleurs', city: 'Paris' },
+    }, firestore)).rejects.toThrow('cannot be verified');
     expect(state.bookingRequests).toEqual({});
+    expect(state.availability['freelancer-a'].availableSlots).toEqual(['2099-09-05T10:30']);
   });
 
-  test('snapshots freelancer price, travel and cancellation policy from server-owned settings', async () => {
-    const { createMarketplaceBooking } = loadBookings();
-    const state = {
-      publicProfiles: {
-        'freelancer__freelancer-a': {
-          kind: 'freelancer', visible: true, approvalStatus: 'approved',
-          serviceIds: ['cut'], homeVisit: true,
-        },
-      },
-      freelancerProfiles: {
-        'freelancer-a': {
-          radiusKm: 12, travelFeeMinor: 800, cancellationWindowHours: 24,
-          servicePricesMinor: { cut: 2500 },
-          publicProfile: { latitude: 48.8566, longitude: 2.3522 },
-        },
-      },
-      availability: { 'freelancer-a': { availableSlots: ['2099-09-05T10:30'] } },
-      bookingRequests: {}, bookingRequestPrivate: {}, auditEvents: {},
-    };
-    const firestore = basicTransactionFirestore(state);
+  test('converts France appointment wall time with Europe/Paris DST rules', () => {
+    const { appointmentEpochMsInParis, cancellationDeadlineMsInParis } = loadBookings();
 
-    await createMarketplaceBooking('client-a', {
-      profileId: 'freelancer__freelancer-a', serviceId: 'cut',
-      date: '2099-09-05', time: '10:30', clientName: 'Ada Client',
-      approximateArea: 'Paris 11e', approximateLocation: { latitude: 48.858, longitude: 2.36 },
-      homeAddress: { line1: '12 rue des Fleurs', city: 'Paris' },
-    }, firestore);
-
-    expect(state.bookingRequests['booking-a']).toMatchObject({
-      servicePriceMinor: 2500,
-      travelFeeMinor: 800,
-      totalPriceMinor: 3300,
-      serviceRadiusKm: 12,
-      cancellationWindowHours: 24,
-    });
-    expect(state.bookingRequests['booking-a'].distanceKm).toBeGreaterThan(0);
-    expect(state.bookingRequests['booking-a']).not.toHaveProperty('approximateLocation');
+    expect(appointmentEpochMsInParis('2099-01-05', '10:30'))
+      .toBe(Date.parse('2099-01-05T09:30:00.000Z'));
+    expect(appointmentEpochMsInParis('2099-07-05', '10:30'))
+      .toBe(Date.parse('2099-07-05T08:30:00.000Z'));
+    expect(cancellationDeadlineMsInParis('2099-07-05', '10:30', 24))
+      .toBe(Date.parse('2099-07-04T08:30:00.000Z'));
+    expect(() => appointmentEpochMsInParis('2026-03-29', '02:30'))
+      .toThrow('does not exist in Europe/Paris');
+    expect(() => appointmentEpochMsInParis('2026-10-25', '02:30'))
+      .toThrow('is ambiguous in Europe/Paris');
   });
 
   test('prevents client cancellation after the snapshotted cancellation deadline', async () => {
@@ -270,6 +309,33 @@ describe('marketplace booking lifecycle', () => {
     expect(state.availability['freelancer-a'].reservedSlots).toEqual(['2099-09-05T10:30']);
   });
 
+  test('enforces a corrected Paris deadline instead of a stale UTC-derived snapshot', async () => {
+    const { cancelMarketplaceBooking } = loadBookings();
+    const state = {
+      bookingRequests: {
+        'booking-a': {
+          ownerId: 'freelancer-a', ownerType: 'freelancer', clientId: 'client-a',
+          serviceId: 'cut', date: '2099-07-05', time: '10:30', status: 'confirmed',
+          cancellationWindowHours: 24,
+          cancellationDeadlineMs: Date.parse('2099-07-04T10:30:00.000Z'),
+        },
+      },
+      availability: {
+        'freelancer-a': {
+          configuredSlots: ['2099-07-05T10:30'], availableSlots: [],
+          reservedSlots: ['2099-07-05T10:30'],
+        },
+      },
+      auditEvents: {},
+    };
+    const firestore = orderedTransactionFirestore(state);
+
+    await expect(cancelMarketplaceBooking(
+      'client-a', 'booking-a', firestore, new Date('2099-07-04T09:00:00.000Z'),
+    )).rejects.toThrow('cancellation window has closed');
+    expect(state.bookingRequests['booking-a'].status).toBe('confirmed');
+  });
+
   test('returns an exact address only to the client or accepting freelancer after confirmation', async () => {
     const { getMarketplaceBookingAddress } = loadBookings();
     const state = { bookingRequests: { 'booking-a': { ownerId: 'freelancer-a', ownerType: 'freelancer', clientId: 'client-a', status: 'confirmed' } }, bookingRequestPrivate: { 'booking-a': { address: { line1: '12 rue des Fleurs', city: 'Paris' } } } };
@@ -294,15 +360,23 @@ describe('marketplace booking lifecycle', () => {
         },
       },
       availability: {
-        'location-a': { ownerId: 'location-a', ownerType: 'salon', availableSlots: [], reservedSlots: [reservedSlot] },
+        'location-a': {
+          ownerId: 'location-a', ownerType: 'salon',
+          configuredSlots: [reservedSlot, '2099-09-05T11:30'],
+          availableSlots: ['2099-09-05T11:30'], reservedSlots: [reservedSlot],
+        },
       },
       auditEvents: {},
     };
     const firestore = scopedFirestore(state);
 
     await expect(saveSalonAvailability('manager-a', {
-      locationId: 'location-a', availableSlots: [reservedSlot, '2099-09-05T11:30'],
-    }, firestore)).resolves.toEqual({ locationId: 'location-a', availableSlots: ['2099-09-05T11:30'] });
+      locationId: 'location-a', configuredSlots: [reservedSlot, '2099-09-05T11:30'],
+    }, firestore)).resolves.toEqual({
+      locationId: 'location-a',
+      configuredSlots: [reservedSlot, '2099-09-05T11:30'],
+      availableSlots: ['2099-09-05T11:30'],
+    });
     expect(state.availability['location-a']).toMatchObject({
       ownerId: 'location-a', ownerType: 'salon',
       configuredSlots: [reservedSlot, '2099-09-05T11:30'],
@@ -310,7 +384,7 @@ describe('marketplace booking lifecycle', () => {
     });
 
     await expect(saveSalonAvailability('outsider-a', {
-      locationId: 'location-a', availableSlots: ['2099-09-05T12:30'],
+      locationId: 'location-a', configuredSlots: ['2099-09-05T12:30'],
     }, firestore)).rejects.toThrow('Permission denied');
   });
 
@@ -324,7 +398,11 @@ describe('marketplace booking lifecycle', () => {
         },
       },
       availability: {
-        'location-a': { ownerId: 'location-a', ownerType: 'salon', availableSlots: ['2099-09-05T11:30'] },
+        'location-a': {
+          ownerId: 'location-a', ownerType: 'salon',
+          configuredSlots: ['2099-09-05T10:30', '2099-09-05T11:30'],
+          availableSlots: ['2099-09-05T11:30'], reservedSlots: ['2099-09-05T10:30'],
+        },
       },
       bookingRequests: {
         'booking-a': {
@@ -350,6 +428,7 @@ describe('marketplace booking lifecycle', () => {
       locationId: 'location-a',
     }, firestore)).resolves.toEqual({
       locationId: 'location-a',
+      configuredSlots: ['2099-09-05T10:30', '2099-09-05T11:30'],
       availableSlots: ['2099-09-05T11:30'],
       bookings: [expect.objectContaining({ id: 'booking-a', clientId: 'client-a' })],
     });

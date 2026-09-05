@@ -255,7 +255,9 @@ export async function saveFreelancerProfile(
         serviceSummary: input.serviceSummary,
         portfolioUrls: approvedPortfolioUrls(portfolioSnapshot),
         serviceIds: input.serviceIds,
-        homeVisit: true,
+        // City centroids are discovery hints, not a verified service origin.
+        // Home visits stay unbookable until trusted origin/address geocoding exists.
+        homeVisit: false,
       },
       ...(existing?.verificationStatus ? { verificationStatus: existing.verificationStatus } : {}),
       createdAt: existing?.createdAt ?? now,

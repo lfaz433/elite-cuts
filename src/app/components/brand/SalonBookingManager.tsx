@@ -17,7 +17,7 @@ export default function SalonBookingManager({ locationId }: { locationId: string
     try {
       setError(null);
       const workspace = await listSalonBookingWorkspace(locationId);
-      setSlotsText(workspace.availableSlots.join('\n'));
+      setSlotsText(workspace.configuredSlots.join('\n'));
       setBookings(workspace.bookings);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Impossible de charger les réservations marketplace.');
@@ -29,7 +29,7 @@ export default function SalonBookingManager({ locationId }: { locationId: string
     try {
       const slots = [...new Set(slotsText.split(/[\n,]/).map(slot => slot.trim()).filter(Boolean))].sort();
       const saved = await saveSalonAvailability(locationId, slots);
-      setSlotsText(saved.join('\n'));
+      setSlotsText(saved.configuredSlots.join('\n'));
       toast.success('Disponibilités enregistrées.');
     } catch (reason) {
       toast.error(reason instanceof Error ? reason.message : 'Impossible d’enregistrer les disponibilités.');

@@ -50,6 +50,7 @@ import {
   reviewJobApplicationFunction,
 } from './jobs';
 import { createConfirmedDepositFunction } from './deposits';
+import { listClientCampaignsFunction } from './campaigns';
 
 if (admin.apps.length === 0) {
   admin.initializeApp();
@@ -85,6 +86,7 @@ export const listSalonHiringWorkspace = listSalonHiringWorkspaceFunction;
 export const applyToJob = applyToJobFunction;
 export const reviewJobApplication = reviewJobApplicationFunction;
 export const createConfirmedDeposit = createConfirmedDepositFunction;
+export const listClientCampaigns = listClientCampaignsFunction;
 export { syncFreelancerPortfolio };
 
 function getStripe(): Stripe {

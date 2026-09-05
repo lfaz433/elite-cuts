@@ -15,6 +15,24 @@ interface BookingSessionIdentity {
   barberId?: string;
 }
 
+interface TenantPermissionIdentity extends BookingSessionIdentity {
+  memberships?: Array<{
+    locationId?: string;
+    permissions: Record<string, boolean>;
+  }>;
+}
+
+export function tenantPermissionListenerAllowed(
+  user: TenantPermissionIdentity | null | undefined,
+  tenantId: string,
+  permission: string,
+): boolean {
+  if (user?.role === 'superadmin') return true;
+  return user?.memberships?.some(membership => (
+    membership.locationId === tenantId && membership.permissions[permission] === true
+  )) === true;
+}
+
 export function bookingListenerScope(
   user: BookingSessionIdentity | null | undefined,
 ): BookingListenerScope {

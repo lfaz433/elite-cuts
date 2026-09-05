@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   assignedBarberRecordListenerScope,
   bookingListenerScope,
+  tenantPermissionListenerAllowed,
 } from './bookingAccess';
 
 test('booking listeners use server-provable client and assigned-barber scope', () => {
@@ -57,4 +58,23 @@ test('attendance and settlement listeners preserve tenant managers and skip unau
     { kind: 'none' },
   );
   assert.deepEqual(assignedBarberRecordListenerScope(null), { kind: 'none' });
+});
+
+test('tenant campaign listeners attach only when manageServices is provable', () => {
+  assert.equal(tenantPermissionListenerAllowed({
+    role: 'barber', uid: 'worker-a', memberships: [{
+      locationId: 'location-a', permissions: { manageServices: true },
+    }],
+  }, 'location-a', 'manageServices'), true);
+  assert.equal(tenantPermissionListenerAllowed({
+    role: 'barber', uid: 'worker-a', memberships: [{
+      locationId: 'location-a', permissions: { manageServices: false },
+    }],
+  }, 'location-a', 'manageServices'), false);
+  assert.equal(tenantPermissionListenerAllowed({
+    role: 'client', uid: 'client-a', memberships: [],
+  }, 'location-a', 'manageServices'), false);
+  assert.equal(tenantPermissionListenerAllowed({
+    role: 'superadmin', uid: 'root-a', memberships: [],
+  }, 'location-a', 'manageServices'), true);
 });

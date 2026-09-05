@@ -29,6 +29,7 @@ import { staffCreateActionForBooking } from '../../lib/bookingIntent';
 import {
   assignedBarberRecordListenerScope,
   bookingListenerScope,
+  tenantPermissionListenerAllowed,
 } from '../../lib/bookingAccess';
 import { runBestEffortAfterCommit } from '../../lib/truthfulAction';
 
@@ -363,6 +364,11 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   const [clientNotes, setClientNotes] = useState<ClientNote[]>([]);
   const [clientsLoadError, setClientsLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const canLoadTenantCampaigns = tenantPermissionListenerAllowed(
+    user,
+    tenantId,
+    'manageServices',
+  );
 
   const sendPush = async (notificationId: string, ...unsupportedLegacyArguments: string[]) => {
     // Legacy callers supplied arbitrary recipient/content. Those requests are
@@ -630,10 +636,16 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       markLoaded();
     }, () => markLoaded());
 
-    const unsubCampaigns = onSnapshot(query(collection(db, 'campaigns'), where('tenantId', '==', tenantId)), (snapshot) => {
-      setCampaigns(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Campaign)));
+    let unsubCampaigns = () => {};
+    if (canLoadTenantCampaigns) {
+      unsubCampaigns = onSnapshot(query(collection(db, 'campaigns'), where('tenantId', '==', tenantId)), (snapshot) => {
+        setCampaigns(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Campaign)));
+        markLoaded();
+      }, () => markLoaded());
+    } else {
+      setCampaigns([]);
       markLoaded();
-    }, () => markLoaded());
+    }
 
     const unsubClients = onSnapshot(
       query(
@@ -664,7 +676,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       unsubGallery(); unsubProducts(); unsubSales(); unsubAttendance(); unsubSettlements(); unsubExpenses(); unsubDeposits();
       unsubPayrollReqs(); unsubPayrollPays(); unsubCampaigns(); unsubClients(); unsubNotes();
     };
-  }, [tenantId, user?.role, user?.uid, user?.barberId]);
+  }, [tenantId, user?.role, user?.uid, user?.barberId, canLoadTenantCampaigns]);
 
 
 

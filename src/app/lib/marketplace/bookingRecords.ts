@@ -32,6 +32,7 @@ export interface MarketplaceBooking {
 
 export interface SalonBookingWorkspace {
   locationId: string;
+  configuredSlots: string[];
   availableSlots: string[];
   bookings: MarketplaceBooking[];
 }
@@ -162,6 +163,7 @@ export function parseSalonBookingWorkspace(
   const workspace = value as Record<string, unknown>;
   if (
     workspace.locationId !== requestedLocationId
+    || !slotList(workspace.configuredSlots)
     || !slotList(workspace.availableSlots)
     || !Array.isArray(workspace.bookings)
   ) return null;
@@ -176,5 +178,10 @@ export function parseSalonBookingWorkspace(
       ? [parsed]
       : [];
   });
-  return { locationId: requestedLocationId, availableSlots: workspace.availableSlots, bookings };
+  return {
+    locationId: requestedLocationId,
+    configuredSlots: workspace.configuredSlots,
+    availableSlots: workspace.availableSlots,
+    bookings,
+  };
 }

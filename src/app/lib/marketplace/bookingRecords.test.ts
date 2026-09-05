@@ -48,12 +48,20 @@ test('parses only exact-location salon booking workspace records', () => {
     status: 'pending_approval',
   };
   assert.deepEqual(parseSalonBookingWorkspace({
-    locationId: 'location-a', availableSlots: ['2099-09-05T11:30'],
+    locationId: 'location-a',
+    configuredSlots: ['2099-09-05T10:30', '2099-09-05T11:30'],
+    availableSlots: ['2099-09-05T11:30'],
     bookings: [validBooking, { ...validBooking, id: 'booking-cross', ownerId: 'location-b' }],
   }, 'location-a'), {
-    locationId: 'location-a', availableSlots: ['2099-09-05T11:30'], bookings: [
+    locationId: 'location-a',
+    configuredSlots: ['2099-09-05T10:30', '2099-09-05T11:30'],
+    availableSlots: ['2099-09-05T11:30'],
+    bookings: [
       { ...validBooking, source: 'marketplace' },
     ],
   });
+  assert.equal(parseSalonBookingWorkspace({
+    locationId: 'location-a', availableSlots: [], bookings: [],
+  }, 'location-a'), null);
   assert.equal(parseSalonBookingWorkspace({ locationId: 'location-b' }, 'location-a'), null);
 });

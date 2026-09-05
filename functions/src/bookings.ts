@@ -20,11 +20,6 @@ export interface HomeAddress {
   postalCode?: string;
 }
 
-export interface ApproximateLocation {
-  latitude: number;
-  longitude: number;
-}
-
 export interface MarketplaceBookingInput {
   profileId: string;
   serviceId: string;
@@ -34,7 +29,6 @@ export interface MarketplaceBookingInput {
   clientEmail?: string;
   clientPhone?: string;
   approximateArea?: string;
-  approximateLocation?: ApproximateLocation;
   homeAddress?: HomeAddress;
 }
 
@@ -126,14 +120,14 @@ function documentId(value: unknown, field: string): string {
 
 function slotList(value: unknown): string[] {
   if (!Array.isArray(value) || value.length > 500) {
-    throw new functions.https.HttpsError('invalid-argument', 'availableSlots is invalid');
+    throw new functions.https.HttpsError('invalid-argument', 'configuredSlots is invalid');
   }
-  const slots = value.map(slot => requireText(slot, 'availableSlots', 16));
+  const slots = value.map(slot => requireText(slot, 'configuredSlots', 16));
   if (
     slots.some(slot => !/^\d{4}-\d{2}-\d{2}T([01]\d|2[0-3]):[0-5]\d$/.test(slot))
     || new Set(slots).size !== slots.length
   ) {
-    throw new functions.https.HttpsError('invalid-argument', 'availableSlots is invalid');
+    throw new functions.https.HttpsError('invalid-argument', 'configuredSlots is invalid');
   }
   return slots.sort();
 }
@@ -169,28 +163,6 @@ function parseHomeAddress(value: unknown): HomeAddress | undefined {
   };
 }
 
-function parseApproximateLocation(value: unknown): ApproximateLocation | undefined {
-  if (value === undefined || value === null) return undefined;
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new functions.https.HttpsError('invalid-argument', 'approximateLocation is invalid');
-  }
-  const location = value as RecordValue;
-  if (
-    Object.keys(location).some(key => !['latitude', 'longitude'].includes(key))
-    || typeof location.latitude !== 'number'
-    || !Number.isFinite(location.latitude)
-    || location.latitude < -90
-    || location.latitude > 90
-    || typeof location.longitude !== 'number'
-    || !Number.isFinite(location.longitude)
-    || location.longitude < -180
-    || location.longitude > 180
-  ) {
-    throw new functions.https.HttpsError('invalid-argument', 'approximateLocation is invalid');
-  }
-  return { latitude: location.latitude, longitude: location.longitude };
-}
-
 export function parseMarketplaceBookingInput(value: unknown): MarketplaceBookingInput {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new functions.https.HttpsError('invalid-argument', 'Booking data is required');
@@ -198,7 +170,7 @@ export function parseMarketplaceBookingInput(value: unknown): MarketplaceBooking
   const input = value as RecordValue;
   const allowed = new Set([
     'profileId', 'serviceId', 'date', 'time', 'clientName', 'clientEmail', 'clientPhone',
-    'approximateArea', 'approximateLocation', 'homeAddress',
+    'approximateArea', 'homeAddress',
   ]);
   if (Object.keys(input).some(key => !allowed.has(key))) {
     throw new functions.https.HttpsError('invalid-argument', 'Server-owned booking fields cannot be supplied');
@@ -221,9 +193,6 @@ export function parseMarketplaceBookingInput(value: unknown): MarketplaceBooking
     ...(optionalText(input.clientEmail, 'clientEmail', 254) ? { clientEmail: optionalText(input.clientEmail, 'clientEmail', 254) } : {}),
     ...(optionalText(input.clientPhone, 'clientPhone', 40) ? { clientPhone: optionalText(input.clientPhone, 'clientPhone', 40) } : {}),
     ...(optionalText(input.approximateArea, 'approximateArea', 120) ? { approximateArea: optionalText(input.approximateArea, 'approximateArea', 120) } : {}),
-    ...(parseApproximateLocation(input.approximateLocation)
-      ? { approximateLocation: parseApproximateLocation(input.approximateLocation) }
-      : {}),
     ...(parseHomeAddress(input.homeAddress) ? { homeAddress: parseHomeAddress(input.homeAddress) } : {}),
   };
 }
@@ -245,9 +214,20 @@ function availabilitySlots(value: RecordValue | undefined, field: 'availableSlot
   return Array.isArray(slots) ? slots.filter((slot): slot is string => typeof slot === 'string') : [];
 }
 
-function configuredAvailabilitySlots(value: RecordValue | undefined): string[] {
+function configuredAvailabilitySlots(value: RecordValue | undefined): string[] | undefined {
+  if (!value || !Object.prototype.hasOwnProperty.call(value, 'configuredSlots')) return undefined;
   const slots = value?.configuredSlots;
   return Array.isArray(slots) ? slots.filter((slot): slot is string => typeof slot === 'string') : [];
+}
+
+function configuredAvailabilitySlotsForWorkspace(value: RecordValue | undefined): string[] {
+  const configured = configuredAvailabilitySlots(value);
+  return configured === undefined
+    ? [...new Set([
+      ...availabilitySlots(value, 'availableSlots'),
+      ...availabilitySlots(value, 'reservedSlots'),
+    ])].sort()
+    : [...new Set(configured)].sort();
 }
 
 function reserveAvailability(value: RecordValue, slot: string) {
@@ -259,7 +239,7 @@ function reserveAvailability(value: RecordValue, slot: string) {
 
 function releaseAvailability(value: RecordValue | undefined, slot: string) {
   const configuredSlots = configuredAvailabilitySlots(value);
-  const shouldRestore = configuredSlots.length === 0 || configuredSlots.includes(slot);
+  const shouldRestore = configuredSlots === undefined || configuredSlots.includes(slot);
   return {
     availableSlots: shouldRestore
       ? [...new Set([...availabilitySlots(value, 'availableSlots'), slot])].sort()
@@ -272,17 +252,17 @@ export async function saveSalonAvailability(
   callerUid: string | null,
   value: unknown,
   firestore: Firestore = admin.firestore(),
-): Promise<{ locationId: string; availableSlots: string[] }> {
+): Promise<{ locationId: string; configuredSlots: string[]; availableSlots: string[] }> {
   if (!callerUid) throw new functions.https.HttpsError('unauthenticated', 'Authentication is required');
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new functions.https.HttpsError('invalid-argument', 'Salon availability is required');
   }
   const input = value as RecordValue;
-  if (Object.keys(input).some(key => !['locationId', 'availableSlots'].includes(key))) {
+  if (Object.keys(input).some(key => !['locationId', 'configuredSlots'].includes(key))) {
     throw new functions.https.HttpsError('invalid-argument', 'Salon availability is invalid');
   }
   const locationId = documentId(input.locationId, 'locationId');
-  const configuredSlots = slotList(input.availableSlots);
+  const configuredSlots = slotList(input.configuredSlots);
   const locationRef = firestore.collection('salonLocations').doc(locationId);
   const initialLocation = await locationRef.get();
   const initialData = initialLocation.data() as RecordValue | undefined;
@@ -333,14 +313,19 @@ export async function saveSalonAvailability(
       availableSlotCount: availableSlots.length, createdAt: now,
     });
   });
-  return { locationId, availableSlots };
+  return { locationId, configuredSlots, availableSlots };
 }
 
 export async function listSalonBookingWorkspace(
   callerUid: string | null,
   value: unknown,
   firestore: Firestore = admin.firestore(),
-): Promise<{ locationId: string; availableSlots: string[]; bookings: Array<RecordValue & { id: string }> }> {
+): Promise<{
+  locationId: string;
+  configuredSlots: string[];
+  availableSlots: string[];
+  bookings: Array<RecordValue & { id: string }>;
+}> {
   if (!callerUid) throw new functions.https.HttpsError('unauthenticated', 'Authentication is required');
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new functions.https.HttpsError('invalid-argument', 'locationId is required');
@@ -399,6 +384,9 @@ export async function listSalonBookingWorkspace(
   }).sort((left, right) => `${left.date}${left.time}`.localeCompare(`${right.date}${right.time}`));
   return {
     locationId,
+    configuredSlots: configuredAvailabilitySlotsForWorkspace(
+      availability.data() as RecordValue | undefined,
+    ),
     availableSlots: availabilitySlots(availability.data() as RecordValue | undefined, 'availableSlots'),
     bookings: scopedBookings,
   };
@@ -411,53 +399,83 @@ function ownerPolicy(value: unknown): 'automatic' | 'manual' {
     : 'manual';
 }
 
-function distanceKm(left: ApproximateLocation, right: ApproximateLocation): number {
-  const radians = (degrees: number) => degrees * Math.PI / 180;
-  const latitudeDelta = radians(right.latitude - left.latitude);
-  const longitudeDelta = radians(right.longitude - left.longitude);
-  const firstLatitude = radians(left.latitude);
-  const secondLatitude = radians(right.latitude);
-  const value = Math.sin(latitudeDelta / 2) ** 2
-    + Math.cos(firstLatitude) * Math.cos(secondLatitude) * Math.sin(longitudeDelta / 2) ** 2;
-  return 6371 * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value));
+const PARIS_TIME_ZONE = 'Europe/Paris';
+
+function parisWallTimeParts(epochMs: number): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: PARIS_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(epochMs)).reduce((value, part) => (
+    ['year', 'month', 'day', 'hour', 'minute'].includes(part.type)
+      ? `${value}${part.type}:${part.value};`
+      : value
+  ), '');
 }
 
-function freelancerBookingPolicy(owner: RecordValue, serviceId: string) {
-  const publicProfile = owner.publicProfile as RecordValue | undefined;
-  const servicePrices = owner.servicePricesMinor as RecordValue | undefined;
-  const radiusKm = owner.radiusKm;
-  const travelFeeMinor = owner.travelFeeMinor;
-  const cancellationWindowHours = owner.cancellationWindowHours;
-  const servicePriceMinor = servicePrices?.[serviceId];
-  if (
-    !Number.isInteger(radiusKm) || (radiusKm as number) < 1 || (radiusKm as number) > 100
-    || !Number.isInteger(travelFeeMinor) || (travelFeeMinor as number) < 0
-    || !Number.isInteger(cancellationWindowHours)
-    || (cancellationWindowHours as number) < 0
-    || (cancellationWindowHours as number) > 720
-    || !Number.isInteger(servicePriceMinor) || (servicePriceMinor as number) < 0
-    || typeof publicProfile?.latitude !== 'number'
-    || typeof publicProfile.longitude !== 'number'
-  ) {
+export function appointmentEpochMsInParis(date: string, time: string): number {
+  if (!isDate(date) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
+    throw new functions.https.HttpsError('invalid-argument', 'Appointment date or time is invalid');
+  }
+  const [year, month, day] = date.split('-').map(Number);
+  const [hour, minute] = time.split(':').map(Number);
+  const target = `year:${String(year).padStart(4, '0')};month:${String(month).padStart(2, '0')};day:${String(day).padStart(2, '0')};hour:${String(hour).padStart(2, '0')};minute:${String(minute).padStart(2, '0')};`;
+  const wallTimeAsUtc = Date.UTC(year, month - 1, day, hour, minute);
+  const candidates: number[] = [];
+  for (let deltaMinutes = -180; deltaMinutes <= 180; deltaMinutes += 15) {
+    const candidate = wallTimeAsUtc + deltaMinutes * 60_000;
+    if (parisWallTimeParts(candidate) === target) candidates.push(candidate);
+  }
+  if (candidates.length === 0) {
     throw new functions.https.HttpsError(
-      'failed-precondition',
-      'This professional has incomplete booking policy settings',
+      'invalid-argument',
+      `Appointment time ${date} ${time} does not exist in Europe/Paris`,
     );
   }
-  return {
-    radiusKm: radiusKm as number,
-    travelFeeMinor: travelFeeMinor as number,
-    cancellationWindowHours: cancellationWindowHours as number,
-    servicePriceMinor: servicePriceMinor as number,
-    origin: {
-      latitude: publicProfile.latitude as number,
-      longitude: publicProfile.longitude as number,
-    },
-  };
+  if (candidates.length > 1) {
+    throw new functions.https.HttpsError(
+      'invalid-argument',
+      `Appointment time ${date} ${time} is ambiguous in Europe/Paris`,
+    );
+  }
+  return Math.min(...candidates);
 }
 
-function appointmentEpochMs(date: string, time: string): number {
-  return Date.parse(`${date}T${time}:00.000Z`);
+export function cancellationDeadlineMsInParis(
+  date: string,
+  time: string,
+  cancellationWindowHours: number,
+): number {
+  return appointmentEpochMsInParis(date, time) - cancellationWindowHours * 60 * 60 * 1000;
+}
+
+function cancellationDeadlineForBooking(booking: RecordValue): number | undefined {
+  if (
+    typeof booking.date === 'string'
+    && typeof booking.time === 'string'
+    && Number.isInteger(booking.cancellationWindowHours)
+    && (booking.cancellationWindowHours as number) >= 0
+    && (booking.cancellationWindowHours as number) <= 720
+  ) {
+    try {
+      return cancellationDeadlineMsInParis(
+        booking.date,
+        booking.time,
+        booking.cancellationWindowHours as number,
+      );
+    } catch {
+      // An invalid/ambiguous historical appointment must not trap the client.
+      return undefined;
+    }
+  }
+  return typeof booking.cancellationDeadlineMs === 'number'
+    && Number.isFinite(booking.cancellationDeadlineMs)
+    ? booking.cancellationDeadlineMs
+    : undefined;
 }
 
 function bookingRecord(
@@ -524,16 +542,16 @@ export async function createMarketplaceBooking(
     if (owner.type === 'freelancer' && !input.homeAddress) {
       throw new functions.https.HttpsError('invalid-argument', 'A home address is required for a home visit');
     }
-    if (owner.type === 'freelancer' && !input.approximateLocation) {
+    if (owner.type === 'freelancer') {
       throw new functions.https.HttpsError(
-        'invalid-argument',
-        'An approximate location is required for a home visit',
+        'failed-precondition',
+        'This home visit cannot be verified until trusted address geocoding and a verified professional origin are configured',
       );
     }
-    if (owner.type === 'salon' && (input.homeAddress || input.approximateLocation)) {
+    if (owner.type === 'salon' && input.homeAddress) {
       throw new functions.https.HttpsError(
         'invalid-argument',
-        'A salon booking cannot include a home address or location',
+        'A salon booking cannot include a home address',
       );
     }
     status = initialBookingStatus({ type: owner.type, bookingPolicy: ownerPolicy(ownerSnapshot.data()) });
@@ -543,27 +561,6 @@ export async function createMarketplaceBooking(
     );
     const now = admin.firestore.FieldValue.serverTimestamp();
     const ownerData = ownerSnapshot.data() as RecordValue;
-    let homeVisitPolicy: RecordValue | undefined;
-    if (owner.type === 'freelancer') {
-      const policy = freelancerBookingPolicy(ownerData, input.serviceId);
-      const distance = distanceKm(policy.origin, input.approximateLocation as ApproximateLocation);
-      if (distance > policy.radiusKm) {
-        throw new functions.https.HttpsError(
-          'failed-precondition',
-          'The requested address is outside this professional’s service radius',
-        );
-      }
-      homeVisitPolicy = {
-        servicePriceMinor: policy.servicePriceMinor,
-        travelFeeMinor: policy.travelFeeMinor,
-        totalPriceMinor: policy.servicePriceMinor + policy.travelFeeMinor,
-        serviceRadiusKm: policy.radiusKm,
-        distanceKm: Math.round(distance * 10) / 10,
-        cancellationWindowHours: policy.cancellationWindowHours,
-        cancellationDeadlineMs: appointmentEpochMs(input.date, input.time)
-          - policy.cancellationWindowHours * 60 * 60 * 1000,
-      };
-    }
     transaction.create(bookingRef, {
       profileId: input.profileId,
       ownerId: owner.ownerId,
@@ -578,7 +575,6 @@ export async function createMarketplaceBooking(
       ...(input.clientEmail ? { clientEmail: input.clientEmail } : {}),
       ...(input.clientPhone ? { clientPhone: input.clientPhone } : {}),
       ...(input.approximateArea ? { approximateArea: input.approximateArea } : {}),
-      ...(homeVisitPolicy ?? {}),
       status,
       addressReleased: false,
       createdAt: now,
@@ -741,10 +737,11 @@ export async function cancelMarketplaceBooking(
     if (booking.status !== 'pending_approval' && booking.status !== 'confirmed') {
       throw new functions.https.HttpsError('failed-precondition', 'This booking cannot be cancelled');
     }
+    const cancellationDeadlineMs = cancellationDeadlineForBooking(booking);
     if (
       booking.ownerType === 'freelancer'
-      && typeof booking.cancellationDeadlineMs === 'number'
-      && currentTime.getTime() >= booking.cancellationDeadlineMs
+      && cancellationDeadlineMs !== undefined
+      && currentTime.getTime() >= cancellationDeadlineMs
     ) {
       throw new functions.https.HttpsError(
         'failed-precondition',

@@ -353,7 +353,9 @@ describe('freelancer jobs and settings', () => {
     expect(state.freelancerProfiles['freelancer-a']).toMatchObject({
       uid: 'freelancer-a', visible: true, radiusKm: 12, travelFeeMinor: 800,
       servicePricesMinor: { cut: 2500, beard: 1800 },
-      publicProfile: { approvalStatus: 'approved', visible: true, cityId: 'fr-paris' },
+      publicProfile: {
+        approvalStatus: 'approved', visible: true, cityId: 'fr-paris', homeVisit: false,
+      },
     });
     expect(state.availability['freelancer-a']).toMatchObject({
       ownerId: 'freelancer-a', availableSlots: ['2099-09-07T10:00', '2099-09-07T11:00'],

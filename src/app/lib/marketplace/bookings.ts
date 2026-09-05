@@ -9,11 +9,10 @@ import {
 
 export type { BookingStatus, MarketplaceBooking, SalonBookingWorkspace } from './bookingRecords';
 export interface HomeAddress { line1: string; city: string; postalCode?: string; }
-export interface ApproximateLocation { latitude: number; longitude: number; }
 export interface BookingRequestInput {
   profileId: string; serviceId: string; date: string; time: string; clientName: string;
   clientEmail?: string; clientPhone?: string; approximateArea?: string;
-  approximateLocation?: ApproximateLocation; homeAddress?: HomeAddress;
+  homeAddress?: HomeAddress;
 }
 function isBookingResult(value: unknown): value is { bookingId: string; status: 'confirmed' | 'pending_approval' } {
   return !!value && typeof value === 'object' && typeof (value as Record<string, unknown>).bookingId === 'string'
@@ -24,7 +23,7 @@ const respondToBookingCall = httpsCallable<{ bookingId: string; decision: 'accep
 const cancelBookingCall = httpsCallable<{ bookingId: string }, unknown>(functions, 'cancelBooking');
 const getBookingAddressCall = httpsCallable<{ bookingId: string }, unknown>(functions, 'getBookingAddress');
 const saveSalonAvailabilityCall = httpsCallable<{
-  locationId: string; availableSlots: string[];
+  locationId: string; configuredSlots: string[];
 }, unknown>(functions, 'saveSalonAvailability');
 const listSalonBookingWorkspaceCall = httpsCallable<{ locationId: string }, unknown>(
   functions,
@@ -54,17 +53,22 @@ export async function getBookingAddress(bookingId: string): Promise<HomeAddress>
 }
 export async function saveSalonAvailability(
   locationId: string,
-  availableSlots: string[],
-): Promise<string[]> {
-  const result = await saveSalonAvailabilityCall({ locationId, availableSlots });
+  configuredSlots: string[],
+): Promise<{ configuredSlots: string[]; availableSlots: string[] }> {
+  const result = await saveSalonAvailabilityCall({ locationId, configuredSlots });
   const data = result.data as Record<string, unknown> | null;
   if (
     !data
     || data.locationId !== locationId
+    || !Array.isArray(data.configuredSlots)
+    || data.configuredSlots.some(slot => typeof slot !== 'string')
     || !Array.isArray(data.availableSlots)
     || data.availableSlots.some(slot => typeof slot !== 'string')
   ) throw new Error('The salon availability service returned an invalid response');
-  return data.availableSlots as string[];
+  return {
+    configuredSlots: data.configuredSlots as string[],
+    availableSlots: data.availableSlots as string[],
+  };
 }
 export async function listSalonBookingWorkspace(locationId: string): Promise<SalonBookingWorkspace> {
   const result = await listSalonBookingWorkspaceCall({ locationId });
