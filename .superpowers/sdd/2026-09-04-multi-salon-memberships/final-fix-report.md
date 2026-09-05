@@ -2,7 +2,7 @@
 
 Date: 2026-09-05
 Baseline: `bc7d756`
-Commit range: `bc7d756..HEAD` (the task-only final-fix commit)
+Initial final-fix range: `bc7d756..1070ffc`
 
 ## Outcome
 
@@ -38,3 +38,28 @@ The full Firestore-emulator command was attempted for `authz.rules`, booking con
 - Before release, rotate/revoke the historical demo/super-admin credential that existed in repository history. Current scripts contain no committed password and do not print environment-supplied credentials, but repository cleanup cannot revoke an already exposed external credential.
 - Install/use Java in CI, run all seven emulator suites, then exercise the Principal/Admin/Worker invitation and Paris/Grenoble/Mulhouse location journeys in staging.
 - Run both migration CLIs in staging dry-run mode first, resolve every conflict/deferred record, apply with the exact staging confirmation, verify membership/claim parity and forced token refresh, and only then use the explicit production target/confirmation in a separately approved rollout.
+
+## Corrective re-review: granular operational access
+
+Re-review rejected phase acceptance at `1070ffc`: the operational rules used active membership presence as full tenant authority, so the newly bridged zero-permission worker membership inherited unrelated bookings and all tenant writes. The corrective commit range is `1070ffc..HEAD`.
+
+The correction removes the broad membership-authority helper from the rules and maps operations explicitly:
+
+- bookings and client notes require `manageBookings`; a worker may read only a booking whose `barberId` equals the server-owned `barberId` on their active membership and may change only its `unreadBarber` flag;
+- barber creation/update requires `manageStaff`, deletion requires `removeWorkers`, and a worker may update only safe presentation/schedule fields on their own linked barber document;
+- services, gallery, and campaigns require `manageServices`; products and sales require `manageInventory`;
+- payroll, team attendance, settlements, and staff audit creation require `manageStaff`; workers retain only linked self-attendance and own-settlement reads;
+- expenses and deposits remain Principal/tenant-owner only; notifications require `manageBookings` or an exact recipient/linked-barber match.
+
+The client booking listener now emits a server-provable `clientId` or assigned `barberId` query. Anonymous and unassigned-worker sessions attach no booking listener; administrators retain their tenant query. Legacy tenant owners retain operational access through the immutable `tenants/{id}.ownerUid` record.
+
+Corrective verification:
+
+- RED: static analysis failed SA-6/SA-14/SA-15 against membership-presence rules; the new booking-listener test failed before its access policy existed.
+- GREEN: `node rules-tests/static-analysis.cjs` — **15/15 passed**.
+- Non-emulator Jest suite — **119/119 passed**.
+- TypeScript/component/invitation suite including booking scope — **47/47 passed**.
+- Functions TypeScript build and Vite production build — passed.
+- `node --check` for both changed rule-test files and `git diff --check` — passed.
+
+The emulator behavioral tests now assert zero-permission denial, assigned-booking/profile minimal access, permission separation, and cross-location denial. They remain pending Java-equipped CI/staging; no deployment or external access occurred.

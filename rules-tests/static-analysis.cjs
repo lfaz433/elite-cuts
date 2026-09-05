@@ -37,10 +37,11 @@ const tests = [
   },
   {
     id: 'SA-4',
-    description: 'Tenant authority comes from server-issued membership or owner records',
+    description: 'Tenant authority requires a permission or owner record, never bare membership',
     check: () =>
-      rules.includes('function isMemberOfTenant') &&
-      rules.includes('hasActiveMembership(tId) || isTenantOwner(tId)') &&
+      rules.includes('function hasTenantPermission') &&
+      rules.includes('isTenantOwner(tId)') &&
+      !rules.includes('function isMemberOfTenant') &&
       !rules.includes('request.auth.token.tenantId == tId'),
   },
   {
@@ -52,8 +53,8 @@ const tests = [
   },
   {
     id: 'SA-6',
-    description: 'Barbers: create requires isMemberOfTenant on the incoming tenantId',
-    check: () => rules.includes('isMemberOfTenant(request.resource.data.tenantId)'),
+    description: 'Barbers: create requires manageStaff on the incoming tenantId',
+    check: () => rules.includes("hasTenantPermission(request.resource.data.tenantId, 'manageStaff')"),
   },
   {
     id: 'SA-7',
@@ -90,11 +91,12 @@ const tests = [
   },
   {
     id: 'SA-12',
-    description: 'Legacy tenant operations recognize deterministic marketplace location memberships',
+    description: 'Permission checks recognize deterministic legacy and marketplace location memberships',
     check: () =>
+      rules.includes('function hasActiveLegacyMembership(tId)') &&
       rules.includes('function marketplaceTenantMembershipPath(tId)') &&
       rules.includes('function hasActiveMarketplaceTenantMembership(tId)') &&
-      rules.includes('hasActiveLegacyMembership(tId) || hasActiveMarketplaceTenantMembership(tId)'),
+      rules.includes('function hasTenantPermission(tId, permission)'),
   },
   {
     id: 'SA-13',
@@ -102,6 +104,25 @@ const tests = [
     check: () =>
       rules.includes("!('createdAt' in data) || data.createdAt is timestamp || data.createdAt is number") &&
       rules.includes("!('updatedAt' in data) || data.updatedAt is timestamp || data.updatedAt is number"),
+  },
+  {
+    id: 'SA-14',
+    description: 'Operational collections never authorize from membership presence alone',
+    check: () => {
+      const start = rules.indexOf('// 2. Scoped Business Operations Collections');
+      const end = rules.indexOf('match /business/{document=**}');
+      const operationalRules = rules.slice(start, end);
+      return start >= 0 && end > start && !operationalRules.includes('isMemberOfTenant(');
+    },
+  },
+  {
+    id: 'SA-15',
+    description: 'Operational rules use granular permissions and assigned-barber scope',
+    check: () =>
+      rules.includes('function hasTenantPermission(tId, permission)') &&
+      rules.includes('function isAssignedBarber(tId, barberId)') &&
+      ['manageBookings', 'manageStaff', 'removeWorkers', 'manageServices', 'manageInventory']
+        .every(permission => rules.includes(`hasTenantPermission(`) && rules.includes(`'${permission}'`)),
   },
 ];
 

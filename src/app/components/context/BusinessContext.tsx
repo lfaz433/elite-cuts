@@ -26,6 +26,7 @@ import {
   sanitizeBusinessInfo,
 } from '../../lib/publicStaff';
 import { staffCreateActionForBooking } from '../../lib/bookingIntent';
+import { bookingListenerScope } from '../../lib/bookingAccess';
 import { runBestEffortAfterCommit } from '../../lib/truthfulAction';
 
 export interface Service {
@@ -527,18 +528,25 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       markLoaded('businessInfo');
     }, () => markLoaded('businessInfo'));
 
-    const bookingsQuery = user?.role === 'client'
-      ? query(
-        collection(db, 'bookings'),
-        where('tenantId', '==', tenantId),
-        where('clientId', '==', user.uid),
-      )
-      : query(collection(db, 'bookings'), where('tenantId', '==', tenantId));
-    const unsubBookings = onSnapshot(bookingsQuery, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Booking));
-      setBookings(data);
+    const bookingScope = bookingListenerScope(user);
+    let unsubBookings = () => {};
+    if (bookingScope.kind === 'none') {
+      setBookings([]);
       markLoaded();
-    }, () => markLoaded());
+    } else {
+      const bookingsQuery = bookingScope.kind === 'tenant'
+        ? query(collection(db, 'bookings'), where('tenantId', '==', tenantId))
+        : query(
+          collection(db, 'bookings'),
+          where('tenantId', '==', tenantId),
+          where(bookingScope.field, '==', bookingScope.value),
+        );
+      unsubBookings = onSnapshot(bookingsQuery, (snapshot) => {
+        const data = snapshot.docs.map(document => ({ id: document.id, ...document.data() } as Booking));
+        setBookings(data);
+        markLoaded();
+      }, () => markLoaded());
+    }
 
     const unsubGallery = onSnapshot(query(collection(db, 'gallery'), where('tenantId', '==', tenantId)), (snapshot) => {
       setGallery(snapshot.docs.map(d => {
@@ -626,7 +634,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       unsubGallery(); unsubProducts(); unsubSales(); unsubAttendance(); unsubSettlements(); unsubExpenses(); unsubDeposits();
       unsubPayrollReqs(); unsubPayrollPays(); unsubCampaigns(); unsubClients(); unsubNotes();
     };
-  }, [tenantId, user?.role, user?.uid]);
+  }, [tenantId, user?.role, user?.uid, user?.barberId]);
 
 
 

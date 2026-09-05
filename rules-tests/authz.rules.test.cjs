@@ -190,7 +190,7 @@ test('public barber timestamp fields cannot hide nested credential maps', async 
   }));
 });
 
-test('a marketplace worker can access only their bridged location tenant operations', async () => {
+test('a zero-permission marketplace worker is limited to their assigned barber workflow', async () => {
   await testEnv.withSecurityRulesDisabled(async (ctx) => {
     await Promise.all([
       setDoc(doc(ctx.firestore(), 'tenants', 'location-market'), {
@@ -206,23 +206,130 @@ test('a marketplace worker can access only their bridged location tenant operati
         role: 'worker',
         status: 'active',
         permissions: {},
+        barberId: 'worker-profile',
       }),
-      setDoc(doc(ctx.firestore(), 'bookings', 'market-booking'), {
+      setDoc(doc(ctx.firestore(), 'bookings', 'worker-booking'), {
         tenantId: 'location-market',
         locationId: 'location-market',
         clientId: 'client-a',
+        barberId: 'worker-profile',
+        unreadBarber: true,
         status: 'pending',
+      }),
+      setDoc(doc(ctx.firestore(), 'bookings', 'other-booking'), {
+        tenantId: 'location-market',
+        locationId: 'location-market',
+        clientId: 'client-b',
+        barberId: 'other-profile',
+        unreadBarber: true,
+        status: 'pending',
+      }),
+      setDoc(doc(ctx.firestore(), 'barbers', 'worker-profile'), {
+        tenantId: 'location-market',
+        locationId: 'location-market',
+        brandId: 'brand-market',
+        userId: 'worker-a',
+        uid: 'worker-a',
+        name: 'Worker A',
+        status: 'available',
+        publicCredentialSafe: true,
+      }),
+      setDoc(doc(ctx.firestore(), 'barbers', 'other-profile'), {
+        tenantId: 'location-market',
+        locationId: 'location-market',
+        brandId: 'brand-market',
+        userId: 'worker-b',
+        uid: 'worker-b',
+        name: 'Worker B',
+        status: 'available',
+        publicCredentialSafe: true,
+      }),
+      setDoc(doc(ctx.firestore(), 'services', 'public-service'), {
+        tenantId: 'location-market', name: 'Cut', price: 25,
+      }),
+      setDoc(doc(ctx.firestore(), 'sales', 'private-sale'), {
+        tenantId: 'location-market', sellerId: 'other-profile', sellPrice: 25,
       }),
     ]);
   });
   const worker = asUser('worker-a');
 
-  await assertSucceeds(getDoc(doc(worker, 'bookings', 'market-booking')));
-  await assertSucceeds(setDoc(doc(worker, 'services', 'market-service'), {
+  await assertSucceeds(getDoc(doc(worker, 'bookings', 'worker-booking')));
+  await assertFails(getDoc(doc(worker, 'bookings', 'other-booking')));
+  await assertSucceeds(updateDoc(doc(worker, 'bookings', 'worker-booking'), {
+    unreadBarber: false,
+  }));
+  await assertFails(updateDoc(doc(worker, 'bookings', 'other-booking'), {
+    unreadBarber: false,
+  }));
+  await assertSucceeds(updateDoc(doc(worker, 'barbers', 'worker-profile'), {
+    status: 'break',
+  }));
+  await assertFails(updateDoc(doc(worker, 'barbers', 'other-profile'), {
+    status: 'break',
+  }));
+  await assertFails(setDoc(doc(worker, 'services', 'market-service'), {
     tenantId: 'location-market', name: 'Cut', price: 25,
   }));
+  await assertSucceeds(getDoc(doc(worker, 'services', 'public-service')));
+  await assertFails(getDoc(doc(worker, 'sales', 'private-sale')));
   await assertFails(setDoc(doc(worker, 'services', 'other-service'), {
     tenantId: 'location-other', name: 'Cross-location cut', price: 25,
+  }));
+});
+
+test('location permissions grant only their matching operational capabilities', async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await Promise.all([
+      setDoc(doc(ctx.firestore(), 'tenants', 'location-a'), {
+        brandId: 'brand-a', ownerUid: 'principal-a',
+      }),
+      setDoc(doc(ctx.firestore(), 'memberships', 'brand-a__location-a__booking-manager'), {
+        userId: 'booking-manager', brandId: 'brand-a', locationId: 'location-a',
+        role: 'salon_admin', status: 'active', permissions: { manageBookings: true },
+      }),
+      setDoc(doc(ctx.firestore(), 'memberships', 'brand-a__location-a__service-manager'), {
+        userId: 'service-manager', brandId: 'brand-a', locationId: 'location-a',
+        role: 'salon_admin', status: 'active', permissions: { manageServices: true },
+      }),
+      setDoc(doc(ctx.firestore(), 'memberships', 'brand-a__location-a__inventory-manager'), {
+        userId: 'inventory-manager', brandId: 'brand-a', locationId: 'location-a',
+        role: 'salon_admin', status: 'active', permissions: { manageInventory: true },
+      }),
+      setDoc(doc(ctx.firestore(), 'memberships', 'brand-a__location-a__staff-manager'), {
+        userId: 'staff-manager', brandId: 'brand-a', locationId: 'location-a',
+        role: 'salon_admin', status: 'active', permissions: { manageStaff: true },
+      }),
+      setDoc(doc(ctx.firestore(), 'bookings', 'location-booking'), {
+        tenantId: 'location-a', locationId: 'location-a', clientId: 'client-a',
+        barberId: 'barber-a', status: 'pending',
+      }),
+    ]);
+  });
+  const bookingManager = asUser('booking-manager');
+  const serviceManager = asUser('service-manager');
+  const inventoryManager = asUser('inventory-manager');
+  const staffManager = asUser('staff-manager');
+
+  await assertSucceeds(getDoc(doc(bookingManager, 'bookings', 'location-booking')));
+  await assertFails(setDoc(doc(bookingManager, 'services', 'forbidden-service'), {
+    tenantId: 'location-a', name: 'Cut', price: 25,
+  }));
+  await assertFails(getDoc(doc(serviceManager, 'bookings', 'location-booking')));
+  await assertSucceeds(setDoc(doc(serviceManager, 'services', 'allowed-service'), {
+    tenantId: 'location-a', name: 'Cut', price: 25,
+  }));
+  await assertSucceeds(setDoc(doc(inventoryManager, 'products', 'allowed-product'), {
+    tenantId: 'location-a', name: 'Pomade', price: 15,
+  }));
+  await assertFails(setDoc(doc(inventoryManager, 'barbers', 'forbidden-barber'), {
+    tenantId: 'location-a', name: 'No Staff Permission', publicCredentialSafe: true,
+  }));
+  await assertSucceeds(setDoc(doc(staffManager, 'barbers', 'allowed-barber'), {
+    tenantId: 'location-a', name: 'New Worker', publicCredentialSafe: true,
+  }));
+  await assertFails(setDoc(doc(staffManager, 'products', 'forbidden-product'), {
+    tenantId: 'location-a', name: 'Pomade', price: 15,
   }));
 });
 

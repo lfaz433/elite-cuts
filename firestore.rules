@@ -32,10 +32,6 @@ service cloud.firestore {
         && get(marketplaceTenantMembershipPath(tId)).data.status == 'active';
     }
 
-    function hasActiveMembership(tId) {
-      return hasActiveLegacyMembership(tId) || hasActiveMarketplaceTenantMembership(tId);
-    }
-
     function hasActiveTenantAdminMembership(tId) {
       return (
         hasActiveLegacyMembership(tId) && (
@@ -56,8 +52,26 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/tenants/$(tId)).data.ownerUid == request.auth.uid;
     }
 
-    function isMemberOfTenant(tId) {
-      return hasActiveMembership(tId) || isTenantOwner(tId);
+    function hasTenantPermission(tId, permission) {
+      return isTenantOwner(tId) || (
+        hasActiveLegacyMembership(tId)
+        && get(membershipPath(tId)).data.get('permissions', {}).get(permission, false) == true
+      ) || (
+        hasActiveMarketplaceTenantMembership(tId)
+        && get(marketplaceTenantMembershipPath(tId)).data.get('permissions', {}).get(permission, false) == true
+      );
+    }
+
+    function isAssignedBarber(tId, barberId) {
+      return barberId is string && (
+        (
+          hasActiveLegacyMembership(tId)
+          && get(membershipPath(tId)).data.get('barberId', '') == barberId
+        ) || (
+          hasActiveMarketplaceTenantMembership(tId)
+          && get(marketplaceTenantMembershipPath(tId)).data.get('barberId', '') == barberId
+        )
+      );
     }
 
     function isTenantAuthority(tId) {
@@ -285,7 +299,9 @@ service cloud.firestore {
 
     // 2. Scoped Business Operations Collections
     match /bookings/{bookingId} {
-      allow read: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId)
+      allow read: if isSuperAdmin()
+        || hasTenantPermission(resource.data.tenantId, 'manageBookings')
+        || isAssignedBarber(resource.data.tenantId, resource.data.get('barberId', ''))
         || (request.auth != null && request.auth.uid == resource.data.clientId);
       // Booking lifecycle writes are exclusive to authenticated/validated
       // server endpoints. Admin SDK writes bypass these client rules.
@@ -293,7 +309,14 @@ service cloud.firestore {
       // Status transitions are exclusive to the authenticated server endpoint.
       // Admin SDK writes bypass rules; no browser role may mutate transition or
       // scope fields directly.
-      allow update: if (isSuperAdmin() || isMemberOfTenant(resource.data.tenantId))
+      allow update: if (
+          isSuperAdmin()
+          || hasTenantPermission(resource.data.tenantId, 'manageBookings')
+          || (
+            isAssignedBarber(resource.data.tenantId, resource.data.get('barberId', ''))
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['unreadBarber'])
+          )
+        )
         && request.resource.data.tenantId == resource.data.tenantId
         && request.resource.data.get('locationId', null) == resource.data.get('locationId', null)
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
@@ -324,59 +347,97 @@ service cloud.firestore {
     }
 
     match /barbers/{barberId} {
-          allow read: if resource.data.publicCredentialSafe == true;
-          allow create: if hasNoCredentialFields(request.resource.data)
-            && hasOnlyPublicBarberFields(request.resource.data)
-            && hasValidPublicBarberTypes(request.resource.data)
-            && request.resource.data.publicCredentialSafe == true
-            && (isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId));
-          allow update: if hasNoCredentialFields(request.resource.data)
-            && hasOnlyPublicBarberFields(request.resource.data)
-            && hasValidPublicBarberTypes(request.resource.data)
-            && request.resource.data.publicCredentialSafe == true
-            && (isSuperAdmin() || (isMemberOfTenant(resource.data.tenantId) && isMemberOfTenant(request.resource.data.tenantId)));
-      allow delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow read: if resource.data.publicCredentialSafe == true;
+      allow create: if hasNoCredentialFields(request.resource.data)
+        && hasOnlyPublicBarberFields(request.resource.data)
+        && hasValidPublicBarberTypes(request.resource.data)
+        && request.resource.data.publicCredentialSafe == true
+        && (isSuperAdmin() || hasTenantPermission(request.resource.data.tenantId, 'manageStaff'));
+      allow update: if hasNoCredentialFields(request.resource.data)
+        && hasOnlyPublicBarberFields(request.resource.data)
+        && hasValidPublicBarberTypes(request.resource.data)
+        && request.resource.data.publicCredentialSafe == true
+        && (
+          isSuperAdmin()
+          || (
+            hasTenantPermission(resource.data.tenantId, 'manageStaff')
+            && hasTenantPermission(request.resource.data.tenantId, 'manageStaff')
+          )
+          || (
+            isAssignedBarber(resource.data.tenantId, barberId)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'name',
+              'specialty',
+              'experience',
+              'image',
+              'shiftStart',
+              'shiftEnd',
+              'workingDays',
+              'phone',
+              'email',
+              'mainServiceId',
+              'secondaryServiceId',
+              'status',
+              'updatedAt',
+              'publicCredentialSafe'
+            ])
+          )
+        );
+      allow delete: if isSuperAdmin() || hasTenantPermission(resource.data.tenantId, 'removeWorkers');
     }
 
     match /services/{serviceId} {
       allow read: if true;
-      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
-      allow update: if isSuperAdmin() || (isMemberOfTenant(resource.data.tenantId) && isMemberOfTenant(request.resource.data.tenantId));
-      allow delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow create: if isSuperAdmin() || hasTenantPermission(request.resource.data.tenantId, 'manageServices');
+      allow update: if isSuperAdmin() || (
+        hasTenantPermission(resource.data.tenantId, 'manageServices')
+        && hasTenantPermission(request.resource.data.tenantId, 'manageServices')
+      );
+      allow delete: if isSuperAdmin() || hasTenantPermission(resource.data.tenantId, 'manageServices');
     }
 
     match /products/{productId} {
       allow read: if true;
-      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
-      allow update: if isSuperAdmin() || (isMemberOfTenant(resource.data.tenantId) && isMemberOfTenant(request.resource.data.tenantId));
-      allow delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow create: if isSuperAdmin() || hasTenantPermission(request.resource.data.tenantId, 'manageInventory');
+      allow update: if isSuperAdmin() || (
+        hasTenantPermission(resource.data.tenantId, 'manageInventory')
+        && hasTenantPermission(request.resource.data.tenantId, 'manageInventory')
+      );
+      allow delete: if isSuperAdmin() || hasTenantPermission(resource.data.tenantId, 'manageInventory');
     }
 
     match /gallery/{galleryId} {
       allow read: if true;
-      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
-      allow update: if isSuperAdmin() || (isMemberOfTenant(resource.data.tenantId) && isMemberOfTenant(request.resource.data.tenantId));
-      allow delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow create: if isSuperAdmin() || hasTenantPermission(request.resource.data.tenantId, 'manageServices');
+      allow update: if isSuperAdmin() || (
+        hasTenantPermission(resource.data.tenantId, 'manageServices')
+        && hasTenantPermission(request.resource.data.tenantId, 'manageServices')
+      );
+      allow delete: if isSuperAdmin() || hasTenantPermission(resource.data.tenantId, 'manageServices');
     }
 
     match /sales/{saleId} {
-      allow read, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
-      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
+      allow read, update, delete: if isSuperAdmin()
+        || hasTenantPermission(resource.data.tenantId, 'manageInventory');
+      allow create: if isSuperAdmin()
+        || hasTenantPermission(request.resource.data.tenantId, 'manageInventory');
     }
 
     match /expenses/{expenseId} {
-      allow read, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
-      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
+      allow read, update, delete: if isSuperAdmin() || isTenantOwner(resource.data.tenantId);
+      allow create: if isSuperAdmin() || isTenantOwner(request.resource.data.tenantId);
     }
 
     match /deposits/{depositId} {
-      allow read, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
-      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
+      allow read, update, delete: if isSuperAdmin() || isTenantOwner(resource.data.tenantId);
+      allow create: if isSuperAdmin() || isTenantOwner(request.resource.data.tenantId);
     }
 
     match /campaigns/{campaignId} {
-      allow read, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
-      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
+      allow read, update, delete: if isSuperAdmin()
+        || hasTenantPermission(resource.data.tenantId, 'manageServices');
+      allow create: if isSuperAdmin()
+        || hasTenantPermission(request.resource.data.tenantId, 'manageServices');
     }
 
     // 3. User profiles contain identity/preferences only, never authority.
@@ -417,22 +478,27 @@ service cloud.firestore {
 
     // 3.4 Client Notes Collection (Tenant-scoped)
     match /client_notes/{noteId} {
-      allow read, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
-      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
+      allow read, update, delete: if isSuperAdmin()
+        || hasTenantPermission(resource.data.tenantId, 'manageBookings');
+      allow create: if isSuperAdmin()
+        || hasTenantPermission(request.resource.data.tenantId, 'manageBookings');
     }
 
     // 3.5 Audit Logs Collection (Admins can create audit logs, superadmins can manage)
     match /audit_logs/{logId} {
       allow read: if isSuperAdmin();
-          allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
+      allow create: if isSuperAdmin()
+        || hasTenantPermission(request.resource.data.tenantId, 'manageStaff');
       allow update, delete: if isSuperAdmin();
     }
 
     // 4. Notifications Collection
     match /notifications/{notificationId} {
       function canAccessNotification(data) {
-        return isSuperAdmin() || isMemberOfTenant(data.tenantId) ||
-          (request.auth != null && request.auth.uid == data.recipientId);
+        return isSuperAdmin()
+          || hasTenantPermission(data.tenantId, 'manageBookings')
+          || isAssignedBarber(data.tenantId, data.get('recipientId', ''))
+          || (request.auth != null && request.auth.uid == data.recipientId);
       }
 
       allow read, delete: if canAccessNotification(resource.data);
@@ -448,13 +514,17 @@ service cloud.firestore {
 
     // 5. Payroll Collections
     match /payroll_requests/{requestId} {
-      allow read, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
-      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
+      allow read, update, delete: if isSuperAdmin()
+        || hasTenantPermission(resource.data.tenantId, 'manageStaff');
+      allow create: if isSuperAdmin()
+        || hasTenantPermission(request.resource.data.tenantId, 'manageStaff');
     }
 
     match /payroll_payments/{paymentId} {
-      allow read, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
-      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
+      allow read, update, delete: if isSuperAdmin()
+        || hasTenantPermission(resource.data.tenantId, 'manageStaff');
+      allow create: if isSuperAdmin()
+        || hasTenantPermission(request.resource.data.tenantId, 'manageStaff');
     }
 
     match /manual_payments/{paymentId} {
@@ -463,16 +533,30 @@ service cloud.firestore {
 
     // 6. Attendance (tenant-scoped)
     match /attendance/{document=**} {
-      allow read: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
-      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
-      allow update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow read: if isSuperAdmin()
+        || hasTenantPermission(resource.data.tenantId, 'manageStaff')
+        || isAssignedBarber(resource.data.tenantId, resource.data.get('barberId', ''));
+      allow create: if isSuperAdmin()
+        || hasTenantPermission(request.resource.data.tenantId, 'manageStaff')
+        || isAssignedBarber(request.resource.data.tenantId, request.resource.data.get('barberId', ''));
+      allow update, delete: if isSuperAdmin()
+        || hasTenantPermission(resource.data.tenantId, 'manageStaff')
+        || (
+          isAssignedBarber(resource.data.tenantId, resource.data.get('barberId', ''))
+          && request.resource.data.tenantId == resource.data.tenantId
+          && request.resource.data.get('barberId', '') == resource.data.get('barberId', '')
+        );
     }
 
     // 7. Settlements (tenant-scoped)
     match /settlements/{document=**} {
-      allow read: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
-      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
-      allow update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow read: if isSuperAdmin()
+        || hasTenantPermission(resource.data.tenantId, 'manageStaff')
+        || isAssignedBarber(resource.data.tenantId, resource.data.get('barberId', ''));
+      allow create: if isSuperAdmin()
+        || hasTenantPermission(request.resource.data.tenantId, 'manageStaff');
+      allow update, delete: if isSuperAdmin()
+        || hasTenantPermission(resource.data.tenantId, 'manageStaff');
     }
 
     match /business/{document=**} {
