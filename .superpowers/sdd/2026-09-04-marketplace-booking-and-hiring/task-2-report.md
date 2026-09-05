@@ -21,3 +21,10 @@
 
 - Firestore rules tests could not start because the local Firestore emulator requires Java and this host has no Java Runtime (`java -version` exits 1). No staging or production write, deployment, payment configuration, or external account action was attempted.
 - `cd functions && npm run lint` cannot run because this repository has no ESLint configuration file.
+
+## Review fix round 1
+
+- Moved every decline/cancellation availability read ahead of the first transaction write; regression tests enforce Firestore's no-read-after-write transaction contract for both transitions.
+- Dashboard listeners now render loading and error states rather than treating listener failure as an empty booking/favourite list.
+- Freelancer requests are rejected unless the approved public profile explicitly declares `homeVisit: true`; the form neither renders nor collects address fields for a freelancer without that capability.
+- Added the authenticated `getBookingAddress` callable and client type helper. It returns an exact address only for the booking client or assigned freelancer once the booking is confirmed; it rejects pending, declined/cancelled, and unauthorized access. Browser rules continue to deny all direct address reads.

@@ -229,6 +229,9 @@ export async function createMarketplaceBooking(
     if (!hasAvailableSlot(availabilitySnapshot.data(), slot)) {
       throw new functions.https.HttpsError('failed-precondition', 'This time is no longer available');
     }
+    if (owner.type === 'freelancer' && profile.homeVisit !== true) {
+      throw new functions.https.HttpsError('failed-precondition', 'Home visits are not available for this professional');
+    }
     if (owner.type === 'freelancer' && !input.homeAddress) {
       throw new functions.https.HttpsError('invalid-argument', 'A home address is required for a home visit');
     }
@@ -325,6 +328,12 @@ export async function respondToMarketplaceBooking(
     }
     const nextStatus = input.decision === 'accept' ? 'confirmed' : 'declined';
     transition('pending_approval', nextStatus);
+    let availabilitySnapshot: admin.firestore.DocumentSnapshot | undefined;
+    let availabilityRef: admin.firestore.DocumentReference | undefined;
+    if (nextStatus === 'declined') {
+      availabilityRef = firestore.collection('availability').doc(String(booking.ownerId));
+      availabilitySnapshot = (await transaction.getAll(availabilityRef))[0];
+    }
     const now = admin.firestore.FieldValue.serverTimestamp();
     transaction.update(bookingRef, {
       status: nextStatus,
@@ -332,14 +341,10 @@ export async function respondToMarketplaceBooking(
       statusUpdatedAt: now,
       statusUpdatedBy: callerUid,
     });
-    if (nextStatus === 'declined') {
-      const availabilityRef = firestore.collection('availability').doc(String(booking.ownerId));
-      const availabilitySnapshot = (await transaction.getAll(availabilityRef))[0];
-      const availability = availabilitySnapshot.data() as RecordValue | undefined;
-      const slot = `${booking.date}T${booking.time}`;
-      if (availabilitySnapshot.exists && Array.isArray(availability?.availableSlots)) {
-        transaction.update(availabilityRef, { availableSlots: [...availability.availableSlots, slot] });
-      }
+    const availability = availabilitySnapshot?.data() as RecordValue | undefined;
+    const slot = `${booking.date}T${booking.time}`;
+    if (availabilityRef && availabilitySnapshot?.exists && Array.isArray(availability?.availableSlots)) {
+      transaction.update(availabilityRef, { availableSlots: [...availability.availableSlots, slot] });
     }
     transaction.create(auditRef, {
       action: nextStatus === 'confirmed' ? 'MARKETPLACE_BOOKING_ACCEPTED' : 'MARKETPLACE_BOOKING_DECLINED',
@@ -374,18 +379,43 @@ export async function cancelMarketplaceBooking(
       throw new functions.https.HttpsError('failed-precondition', 'This booking cannot be cancelled');
     }
     transition(booking.status, 'cancelled');
-    const now = admin.firestore.FieldValue.serverTimestamp();
-    transaction.update(bookingRef, { status: 'cancelled', statusUpdatedAt: now, statusUpdatedBy: callerUid });
     const availabilityRef = firestore.collection('availability').doc(String(booking.ownerId));
     const availabilitySnapshot = (await transaction.getAll(availabilityRef))[0];
     const availability = availabilitySnapshot.data() as RecordValue | undefined;
     const slot = `${booking.date}T${booking.time}`;
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    transaction.update(bookingRef, { status: 'cancelled', statusUpdatedAt: now, statusUpdatedBy: callerUid });
     if (availabilitySnapshot.exists && Array.isArray(availability?.availableSlots) && !availability.availableSlots.includes(slot)) {
       transaction.update(availabilityRef, { availableSlots: [...availability.availableSlots, slot] });
     }
     transaction.create(auditRef, { action: 'CLIENT_BOOKING_CANCELLED', actorUid: callerUid, bookingId, createdAt: now });
   });
   return { bookingId, status: 'cancelled' };
+}
+
+export async function getMarketplaceBookingAddress(
+  callerUid: string | null,
+  bookingId: string,
+  firestore: Firestore = admin.firestore(),
+): Promise<HomeAddress> {
+  if (!callerUid) throw new functions.https.HttpsError('unauthenticated', 'Authentication is required');
+  if (!/^[A-Za-z0-9_-]{1,256}$/.test(bookingId)) {
+    throw new functions.https.HttpsError('invalid-argument', 'bookingId is invalid');
+  }
+  const [bookingSnapshot, privateSnapshot] = await Promise.all([
+    firestore.collection('bookingRequests').doc(bookingId).get(),
+    firestore.collection('bookingRequestPrivate').doc(bookingId).get(),
+  ]);
+  const booking = bookingSnapshot.data() as RecordValue | undefined;
+  if (!bookingSnapshot.exists || !booking || booking.status !== 'confirmed') {
+    throw new functions.https.HttpsError('failed-precondition', 'Address is not available before acceptance');
+  }
+  if (booking.clientId !== callerUid && !(booking.ownerType === 'freelancer' && booking.ownerId === callerUid)) {
+    throw new functions.https.HttpsError('permission-denied', 'You are not authorized to view this address');
+  }
+  const address = (privateSnapshot.data() as RecordValue | undefined)?.address;
+  if (!privateSnapshot.exists || !address) throw new functions.https.HttpsError('not-found', 'Booking address not found');
+  return parseHomeAddress(address) as HomeAddress;
 }
 
 export const requestBookingFunction = functions.https.onCall(async (data, context) => (
@@ -401,4 +431,11 @@ export const cancelBookingFunction = functions.https.onCall(async (data, context
     throw new functions.https.HttpsError('invalid-argument', 'bookingId is required');
   }
   return cancelMarketplaceBooking(context.auth?.uid ?? null, (data as RecordValue).bookingId as string);
+});
+
+export const getBookingAddressFunction = functions.https.onCall(async (data, context) => {
+  if (!data || typeof data !== 'object' || Array.isArray(data) || Object.keys(data).length !== 1) {
+    throw new functions.https.HttpsError('invalid-argument', 'bookingId is required');
+  }
+  return getMarketplaceBookingAddress(context.auth?.uid ?? null, (data as RecordValue).bookingId as string);
 });

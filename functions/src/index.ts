@@ -30,6 +30,7 @@ import {
 } from './publicProfiles';
 import {
   cancelBookingFunction,
+  getBookingAddressFunction,
   requestBookingFunction,
   respondToBookingFunction,
 } from './bookings';
@@ -56,6 +57,7 @@ export const getPublicProfile = getPublicProfileFunction;
 export const requestBooking = requestBookingFunction;
 export const respondToBooking = respondToBookingFunction;
 export const cancelBooking = cancelBookingFunction;
+export const getBookingAddress = getBookingAddressFunction;
 
 function getStripe(): Stripe {
   const key = process.env.STRIPE_SECRET_KEY;

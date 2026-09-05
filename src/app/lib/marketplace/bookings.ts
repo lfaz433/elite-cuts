@@ -19,6 +19,7 @@ function isBookingResult(value: unknown): value is { bookingId: string; status: 
 const requestBookingCall = httpsCallable<BookingRequestInput, unknown>(functions, 'requestBooking');
 const respondToBookingCall = httpsCallable<{ bookingId: string; decision: 'accept' | 'decline' }, unknown>(functions, 'respondToBooking');
 const cancelBookingCall = httpsCallable<{ bookingId: string }, unknown>(functions, 'cancelBooking');
+const getBookingAddressCall = httpsCallable<{ bookingId: string }, unknown>(functions, 'getBookingAddress');
 export async function requestBooking(input: BookingRequestInput): Promise<{ bookingId: string; status: 'confirmed' | 'pending_approval' }> {
   const result = await requestBookingCall(input);
   if (!isBookingResult(result.data)) throw new Error('The booking service returned an invalid response');
@@ -32,6 +33,14 @@ export async function respondToBooking(input: { bookingId: string; decision: 'ac
 export async function cancelBooking(bookingId: string): Promise<void> {
   const result = await cancelBookingCall({ bookingId });
   if (!result.data || typeof result.data !== 'object' || (result.data as Record<string, unknown>).status !== 'cancelled') throw new Error('The booking service returned an invalid response');
+}
+export async function getBookingAddress(bookingId: string): Promise<HomeAddress> {
+  const result = await getBookingAddressCall({ bookingId });
+  const address = result.data as Partial<HomeAddress> | null;
+  if (!address || typeof address.line1 !== 'string' || typeof address.city !== 'string' || (address.postalCode !== undefined && typeof address.postalCode !== 'string')) {
+    throw new Error('The booking service returned an invalid address response');
+  }
+  return { line1: address.line1, city: address.city, ...(address.postalCode ? { postalCode: address.postalCode } : {}) };
 }
 export function bookingStatusLabel(status: BookingStatus): string {
   return { pending_approval: 'En attente de confirmation', confirmed: 'Confirmé', declined: 'Refusé', cancelled: 'Annulé', completed: 'Terminé', payment_failed: 'Paiement à régulariser' }[status];
