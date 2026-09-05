@@ -32,6 +32,7 @@ const CITY_COORDINATES: Record<CityId, { latitude: number; longitude: number; co
   'fr-grenoble': { latitude: 45.18, longitude: 5.72, countryCode: 'FR' },
   'fr-mulhouse': { latitude: 47.75, longitude: 7.33, countryCode: 'FR' },
 };
+export const MAX_APPROVED_PORTFOLIO_ITEMS = 12;
 
 function inputRecord(value: unknown, keys: Set<string>, message: string): RecordValue {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -134,7 +135,8 @@ export function parseFreelancerProfileInput(value: unknown): FreelancerProfileIn
 
 async function approvedPortfolioUrls(uid: string, firestore: Firestore): Promise<string[]> {
   const items = await firestore.collection('portfolioItems').where('ownerId', '==', uid).get();
-  return items.docs
+  return [...items.docs]
+    .sort((left, right) => left.id.localeCompare(right.id))
     .map(item => item.data() as RecordValue)
     .filter(item => (
       item.ownerType === 'freelancer'
@@ -144,7 +146,25 @@ async function approvedPortfolioUrls(uid: string, firestore: Firestore): Promise
       && /^https:\/\//i.test(item.imageUrl)
     ))
     .map(item => item.imageUrl as string)
-    .slice(0, 24);
+    .slice(0, MAX_APPROVED_PORTFOLIO_ITEMS);
+}
+
+export async function refreshFreelancerPortfolioProjection(
+  uid: string,
+  firestore: Firestore = admin.firestore(),
+): Promise<void> {
+  const portfolioUrls = await approvedPortfolioUrls(uid, firestore);
+  const profileRef = firestore.collection('freelancerProfiles').doc(uid);
+  await firestore.runTransaction(async transaction => {
+    const profileSnapshot = (await transaction.getAll(profileRef))[0];
+    const profile = profileSnapshot.data() as RecordValue | undefined;
+    if (!profileSnapshot.exists || !profile) return;
+    const currentPublicProfile = profile.publicProfile as RecordValue | undefined;
+    transaction.update(profileRef, {
+      publicProfile: { ...(currentPublicProfile ?? {}), portfolioUrls },
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  });
 }
 
 export async function saveFreelancerProfile(
@@ -279,3 +299,18 @@ export const deleteFreelancerPortfolioItemFunction = functions.https.onCall((dat
     text(input.portfolioItemId, 'portfolioItemId', 256),
   );
 });
+
+export const syncFreelancerPortfolio = functions.firestore
+  .document('portfolioItems/{portfolioItemId}')
+  .onWrite(async change => {
+    const owners = new Set<string>();
+    const before = change.before.exists ? change.before.data() : undefined;
+    const after = change.after.exists ? change.after.data() : undefined;
+    if (before?.ownerType === 'freelancer' && typeof before.ownerId === 'string') {
+      owners.add(before.ownerId);
+    }
+    if (after?.ownerType === 'freelancer' && typeof after.ownerId === 'string') {
+      owners.add(after.ownerId);
+    }
+    await Promise.all([...owners].map(uid => refreshFreelancerPortfolioProjection(uid)));
+  });

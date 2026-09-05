@@ -1,6 +1,6 @@
 const { initializeTestEnvironment, assertFails, assertSucceeds } = require('@firebase/rules-unit-testing');
 const { readFileSync } = require('node:fs');
-const { doc, getDoc, setDoc, updateDoc } = require('firebase/firestore');
+const { collection, doc, getDoc, getDocs, query, setDoc, updateDoc, where } = require('firebase/firestore');
 
 const PROJECT_ID = 'demo-elite-cuts-freelancers';
 const RULES = readFileSync('./firestore.rules', 'utf8');
@@ -39,6 +39,11 @@ beforeEach(async () => {
         applicantId: 'freelancer-a', brandId: 'brand-a', locationId: 'location-paris',
         cityId: 'fr-paris', relationshipType: 'employee', status: 'submitted',
       }),
+      setDoc(doc(db, 'bookingRequests', 'booking-a'), {
+        profileId: 'freelancer__freelancer-a', ownerId: 'freelancer-a',
+        ownerType: 'freelancer', clientId: 'client-a', serviceId: 'cut',
+        date: '2099-09-07', time: '10:00', status: 'pending_approval',
+      }),
     ]);
   });
 });
@@ -54,6 +59,28 @@ test('a freelancer can read only their own private workspace records', async () 
   await assertFails(getDoc(doc(asUser('freelancer-b'), 'freelancerProfiles', 'freelancer-a')));
   await assertFails(getDoc(doc(asUser('freelancer-b'), 'portfolioItems', 'portfolio-a')));
   await assertFails(getDoc(doc(asUser('freelancer-b'), 'availability', 'freelancer-a')));
+});
+
+test('owner dashboards use query constraints that prove the complete rule scope', async () => {
+  const owner = asUser('freelancer-a');
+  await assertSucceeds(getDocs(query(
+    collection(owner, 'portfolioItems'),
+    where('ownerId', '==', 'freelancer-a'),
+    where('ownerType', '==', 'freelancer'),
+  )));
+  await assertFails(getDocs(query(
+    collection(owner, 'portfolioItems'),
+    where('ownerId', '==', 'freelancer-a'),
+  )));
+  await assertSucceeds(getDocs(query(
+    collection(owner, 'bookingRequests'),
+    where('ownerId', '==', 'freelancer-a'),
+    where('ownerType', '==', 'freelancer'),
+  )));
+  await assertFails(getDocs(query(
+    collection(owner, 'bookingRequests'),
+    where('ownerId', '==', 'freelancer-a'),
+  )));
 });
 
 test('browser clients cannot bypass server validation for freelancer records', async () => {

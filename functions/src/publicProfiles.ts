@@ -36,7 +36,7 @@ const CITY_DISPLAY_COORDINATES: Record<CityId, { latitude: number; longitude: nu
   'fr-grenoble': { latitude: 45.18, longitude: 5.72 },
   'fr-mulhouse': { latitude: 47.75, longitude: 7.33 },
 };
-const MAX_PORTFOLIO_URLS = 12;
+export const MAX_PUBLIC_PORTFOLIO_URLS = 12;
 const MAX_SERVICE_IDS = 24;
 const CITY_LABELS: Record<CityId, string> = {
   'fr-paris': 'Paris',
@@ -80,7 +80,7 @@ function publicCoordinate(value: unknown, minimum: number, maximum: number): num
 }
 
 function publicUrls(value: unknown): string[] | null {
-  if (!Array.isArray(value) || value.length > MAX_PORTFOLIO_URLS) return null;
+  if (!Array.isArray(value) || value.length > MAX_PUBLIC_PORTFOLIO_URLS) return null;
   const urls = value.map(url => publicText(url, 2_048));
   if (urls.some(url => url === null || !url.startsWith('https://'))) return null;
   return urls as string[];

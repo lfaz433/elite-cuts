@@ -38,6 +38,7 @@ import {
   createFreelancerPortfolioItemFunction,
   deleteFreelancerPortfolioItemFunction,
   saveFreelancerProfileFunction,
+  syncFreelancerPortfolio,
 } from './freelancers';
 import {
   applyToJobFunction,
@@ -78,6 +79,7 @@ export const listCityJobs = listCityJobsFunction;
 export const applyToJob = applyToJobFunction;
 export const reviewJobApplication = reviewJobApplicationFunction;
 export const createConfirmedDeposit = createConfirmedDepositFunction;
+export { syncFreelancerPortfolio };
 
 function getStripe(): Stripe {
   const key = process.env.STRIPE_SECRET_KEY;

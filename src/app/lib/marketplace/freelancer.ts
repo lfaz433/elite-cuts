@@ -8,6 +8,7 @@ import {
   type FreelancerProfileInput,
   type PortfolioItem,
 } from './freelancerRecords';
+import { freelancerOwnerScope } from './freelancerWorkspace';
 
 export * from './freelancerRecords';
 
@@ -34,9 +35,10 @@ export async function saveFreelancerProfile(input: FreelancerProfileInput): Prom
 }
 
 export async function listPortfolioItems(uid: string): Promise<PortfolioItem[]> {
+  const scope = freelancerOwnerScope(uid);
   const snapshot = await getDocs(query(
     collection(db, 'portfolioItems'),
-    where('ownerId', '==', uid),
+    ...scope.map(([field, operator, value]) => where(field, operator, value)),
   ));
   return snapshot.docs
     .map(item => parsePortfolioItem(item.id, uid, item.data()))

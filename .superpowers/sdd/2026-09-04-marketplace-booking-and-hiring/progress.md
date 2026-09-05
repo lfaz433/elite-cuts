@@ -22,4 +22,5 @@ Task 2: fix round 1/5 (4 addressed, 0 open — Firestore transaction read orderi
 Task 2: minor (deferred): Java-backed Firestore rules/emulator scenarios, staging journey, and repository ESLint configuration remain release verification work.
 Task 2: complete (commits `b378d87..9646376`, review clean)
 Task 3: complete (freelancer profile/portfolio/availability, manual home-visit workspace, city/location-scoped jobs, employee vs chair-rental invitations, and fail-closed deposit capability; no payment provider or deployment)
+Task 3: fix round 1/5 (5 addressed, 0 open — complete owner query scopes, confirmed-only exact-address recovery, portfolio projection refresh and 12-item cap, owned portfolio success fixture, same-city job reload)
 Task 3: minor (deferred): Java-backed freelancer rules suite and staging acceptance journeys must run before release; payment staging remains deferred to a separately approved provider phase.

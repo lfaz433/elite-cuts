@@ -131,22 +131,28 @@ describe('freelancer jobs and settings', () => {
 
   test('rejects an application containing another freelancer portfolio item', async () => {
     const { applyToJob } = loadModule('jobs.ts');
-    const { firestore } = firestoreState({
+    const baseState = {
       freelancerProfiles: { 'freelancer-a': profileA },
       jobPosts: { 'job-paris': parisEmployeeJob },
       portfolioItems: {
-        'owned-item': { ownerId: 'freelancer-a', imageUrl: 'https://example.test/owned.jpg' },
-        'foreign-item': { ownerId: 'freelancer-b', imageUrl: 'https://example.test/foreign.jpg' },
+        'owned-item': { ownerId: 'freelancer-a', ownerType: 'freelancer', imageUrl: 'https://example.test/owned.jpg' },
+        'foreign-item': { ownerId: 'freelancer-b', ownerType: 'freelancer', imageUrl: 'https://example.test/foreign.jpg' },
       },
       jobApplications: {},
       auditEvents: {},
-    });
+    };
+    const own = firestoreState(baseState);
+    await expect(applyToJob({ uid: 'freelancer-a', email: 'ada@example.test', emailVerified: true }, {
+      jobId: 'job-paris', portfolioItemIds: ['owned-item'], message: 'Mon portfolio.',
+    }, own.firestore)).resolves.toEqual({ applicationId: 'job-paris__freelancer-a' });
+
+    const foreign = firestoreState(baseState);
 
     await expect(applyToJob({ uid: 'freelancer-a', email: 'ada@example.test', emailVerified: true }, {
       jobId: 'job-paris',
       portfolioItemIds: ['owned-item', 'foreign-item'],
       message: 'Je souhaite rejoindre votre équipe.',
-    }, firestore)).rejects.toMatchObject({ code: 'permission-denied' });
+    }, foreign.firestore)).rejects.toMatchObject({ code: 'permission-denied' });
   });
 
   test('rejects an application outside the freelancer city', async () => {
@@ -220,6 +226,61 @@ describe('freelancer jobs and settings', () => {
     expect(state.availability['freelancer-a']).toMatchObject({
       ownerId: 'freelancer-a', availableSlots: ['2099-09-07T10:00', '2099-09-07T11:00'],
     });
+  });
+
+  test('refreshes approved portfolio URLs immediately and caps them to the public projection limit', async () => {
+    const {
+      MAX_APPROVED_PORTFOLIO_ITEMS,
+      refreshFreelancerPortfolioProjection,
+    } = loadModule('freelancers.ts');
+    const { MAX_PUBLIC_PORTFOLIO_URLS, projectFreelancerPublicProfile } = loadModule('publicProfiles.ts');
+    const portfolioItems = Object.fromEntries(Array.from({ length: 13 }, (_, index) => [
+      `item-${index + 1}`,
+      {
+        ownerId: 'freelancer-a', ownerType: 'freelancer', visible: true,
+        moderationStatus: 'approved', imageUrl: `https://example.test/${index + 1}.jpg`,
+      },
+    ]));
+    const { firestore, state } = firestoreState({
+      freelancerProfiles: {
+        'freelancer-a': {
+          ...profileA,
+          serviceSummary: 'Coupe',
+          publicProfile: {
+            approvalStatus: 'approved', visible: true, cityId: 'fr-paris',
+            latitude: 48.85, longitude: 2.35, serviceSummary: 'Coupe', serviceIds: ['cut'],
+            homeVisit: true, portfolioUrls: ['https://example.test/stale.jpg'],
+          },
+        },
+      },
+      portfolioItems,
+    });
+
+    await refreshFreelancerPortfolioProjection('freelancer-a', firestore);
+
+    expect(MAX_APPROVED_PORTFOLIO_ITEMS).toBe(MAX_PUBLIC_PORTFOLIO_URLS);
+    expect(state.freelancerProfiles['freelancer-a'].publicProfile.portfolioUrls).toHaveLength(12);
+    expect(state.freelancerProfiles['freelancer-a'].publicProfile.portfolioUrls)
+      .not.toContain('https://example.test/stale.jpg');
+    expect(projectFreelancerPublicProfile('freelancer-a', state.freelancerProfiles['freelancer-a']))
+      .not.toBeNull();
+  });
+
+  test('removes deleted approved portfolio URLs without waiting for a profile save', async () => {
+    const { refreshFreelancerPortfolioProjection } = loadModule('freelancers.ts');
+    const { firestore, state } = firestoreState({
+      freelancerProfiles: {
+        'freelancer-a': {
+          ...profileA,
+          publicProfile: { portfolioUrls: ['https://example.test/deleted.jpg'] },
+        },
+      },
+      portfolioItems: {},
+    });
+
+    await refreshFreelancerPortfolioProjection('freelancer-a', firestore);
+
+    expect(state.freelancerProfiles['freelancer-a'].publicProfile.portfolioUrls).toEqual([]);
   });
 });
 

@@ -17,7 +17,15 @@ test('parses only a complete owned freelancer profile', () => {
   assert.equal(parseFreelancerProfile('freelancer-b', { uid: 'freelancer-a' }), null);
 });
 
-test('rejects a portfolio record that belongs to another freelancer', () => {
+test('accepts an owned portfolio record and rejects one belonging to another freelancer', () => {
+  assert.deepEqual(parsePortfolioItem('item-owned', 'freelancer-a', {
+    ownerId: 'freelancer-a', ownerType: 'freelancer', imageUrl: 'https://example.test/a.jpg',
+    caption: 'Coupe', visible: true, moderationStatus: 'approved',
+  }), {
+    id: 'item-owned', ownerId: 'freelancer-a', ownerType: 'freelancer',
+    imageUrl: 'https://example.test/a.jpg',
+    caption: 'Coupe', visible: true, moderationStatus: 'approved',
+  });
   assert.equal(parsePortfolioItem('item-a', 'freelancer-a', {
     ownerId: 'freelancer-b', ownerType: 'freelancer', imageUrl: 'https://example.test/b.jpg',
     caption: '', visible: true, moderationStatus: 'approved',
