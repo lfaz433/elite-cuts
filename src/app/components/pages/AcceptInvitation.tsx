@@ -18,7 +18,10 @@ function toInvitationView(value: Record<string, unknown>): InvitationView | null
   if (
     typeof value.displayName !== 'string'
     || typeof value.email !== 'string'
-    || (value.role !== 'salon_admin' && value.role !== 'worker')
+    || (value.role !== 'salon_admin' && value.role !== 'worker' && value.role !== 'chair_renter')
+    || (value.relationshipType !== undefined
+      && value.relationshipType !== 'employee'
+      && value.relationshipType !== 'chair_rental')
     || (value.status !== 'pending' && value.status !== 'accepted' && value.status !== 'declined')
   ) return null;
   return value as unknown as InvitationView;
@@ -143,7 +146,7 @@ export default function AcceptInvitation() {
           <section className="w-full max-w-xl rounded-3xl border border-[#D4AF37]/25 bg-[#111] p-9 text-center">
             <Check className="mx-auto h-9 w-9 text-[#D4AF37]" />
             <h1 className="mt-4 text-2xl font-black">{outcome === 'active' ? 'Accès activé' : 'Invitation refusée'}</h1>
-            <p className="mt-2 text-sm text-white/50">{outcome === 'active' ? 'Votre propre compte est maintenant lié au salon.' : 'Aucun accès salon n’a été créé.'}</p>
+            <p className="mt-2 text-sm text-white/50">{outcome === 'active' ? 'Votre propre compte est maintenant lié au salon selon la relation proposée.' : 'Aucun accès salon n’a été créé.'}</p>
             <button type="button" onClick={() => navigate('/', { replace: true })} className="mt-6 rounded-xl bg-[#D4AF37] px-5 py-3 text-sm font-black text-black">Continuer</button>
           </section>
         ) : invitation ? (

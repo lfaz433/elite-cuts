@@ -290,6 +290,47 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Freelancer settings, portfolio moderation and availability writes pass
+    // through validated callables. Owners can read their own workspace only.
+    match /freelancerProfiles/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create, update, delete: if false;
+    }
+
+    match /portfolioItems/{portfolioItemId} {
+      allow read: if request.auth != null
+        && resource.data.ownerType == 'freelancer'
+        && resource.data.ownerId == request.auth.uid;
+      allow create, update, delete: if false;
+    }
+
+    match /availability/{ownerId} {
+      allow read: if request.auth != null
+        && request.auth.uid == ownerId
+        && resource.data.ownerId == request.auth.uid;
+      allow create, update, delete: if false;
+    }
+
+    // City-scoped jobs, applications, review decisions and invitation
+    // conversion are rebuilt and authorized by callables, never by browsers.
+    match /jobPosts/{jobId} {
+      allow read, write: if false;
+    }
+
+    match /jobApplications/{applicationId} {
+      allow read, write: if false;
+    }
+
+    // Payment capability is server-owned. Marketplace deposits remain
+    // unavailable until a separately approved provider integration exists.
+    match /paymentCapabilities/{countryCode} {
+      allow read, write: if false;
+    }
+
+    match /marketplaceDeposits/{depositId} {
+      allow read, write: if false;
+    }
+
     // Invitations are server-owned. The exact invited email account may read
     // its record, while location invitation managers may audit invitations.
     match /invitations/{invitationId} {

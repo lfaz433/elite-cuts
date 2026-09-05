@@ -1,5 +1,6 @@
 const INVITATION_RETURN_PATH = /^\/invitations\/[A-Za-z0-9_-]{1,128}$/;
 const BOOKING_RETURN_PATH = '/book';
+const FREELANCER_RETURN_PATH = '/freelancer';
 const RETURN_STORAGE_KEY = 'barberboard.invitationReturnTo';
 
 interface ReturnStorage {
@@ -9,7 +10,11 @@ interface ReturnStorage {
 }
 
 function safeInvitationReturnPath(value: string | null): string | null {
-  if (!value || (value !== BOOKING_RETURN_PATH && !INVITATION_RETURN_PATH.test(value))) return null;
+  if (!value || (
+    value !== BOOKING_RETURN_PATH
+    && value !== FREELANCER_RETURN_PATH
+    && !INVITATION_RETURN_PATH.test(value)
+  )) return null;
   return value;
 }
 

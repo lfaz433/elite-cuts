@@ -5,6 +5,7 @@ import invitationAuthorization from '../functions/src/invitations';
 const {
   assertInvitationRecipient,
   assertInvitationSender,
+  membershipRelationshipForInvitation,
   safeWorkerPublicProfile,
 } = invitationAuthorization;
 
@@ -82,4 +83,30 @@ test('rejects invitation acceptance by an unverified matching email account', ()
     email: 'worker@example.com',
     emailVerified: false,
   }), (error: { code?: string }) => error.code === 'permission-denied');
+});
+
+test('keeps an accepted chair rental independent from an employee membership', () => {
+  assert.deepEqual(membershipRelationshipForInvitation({
+    role: 'chair_renter',
+    relationshipType: 'chair_rental',
+  }), {
+    role: 'chair_renter',
+    relationshipType: 'chair_rental',
+    createsWorkerProfile: false,
+  });
+  assert.deepEqual(membershipRelationshipForInvitation({
+    role: 'worker',
+    relationshipType: 'employee',
+  }), {
+    role: 'worker',
+    relationshipType: 'employee',
+    createsWorkerProfile: true,
+  });
+});
+
+test('rejects a job invitation whose role contradicts its relationship type', () => {
+  assert.throws(() => membershipRelationshipForInvitation({
+    role: 'worker',
+    relationshipType: 'chair_rental',
+  }), (error: { code?: string }) => error.code === 'failed-precondition');
 });

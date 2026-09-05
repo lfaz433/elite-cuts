@@ -33,6 +33,7 @@ const BrandDashboard = lazy(() => import('./components/pages/BrandDashboard'));
 const AcceptInvitation = lazy(() => import('./components/pages/AcceptInvitation'));
 const DiscoverPage = lazy(() => import('./components/pages/DiscoverPage'));
 const ProfilePage = lazy(() => import('./components/discovery/ProfilePage'));
+const FreelancerDashboard = lazy(() => import('./components/pages/FreelancerDashboard'));
 
 // --- Premium Loading Spinner ---
 function AppLoader() {
@@ -142,6 +143,7 @@ function AppRoutes() {
       <Route path="/invitations/:invitationId" element={<AuthRequired><AcceptInvitation /></AuthRequired>} />
       <Route path="/superadmin/*" element={<SuperAdminGuard><SuperAdmin /></SuperAdminGuard>} />
       <Route path="/brand/*" element={<BrandRequired><BrandDashboard /></BrandRequired>} />
+      <Route path="/freelancer/*" element={<AuthRequired><FreelancerDashboard /></AuthRequired>} />
       <Route path="/client/*" element={<ProtectedRoute role="client"><ClientDashboard /></ProtectedRoute>} />
       <Route path="/admin/*" element={<ProtectedRoute role="admin"><SubscriptionGuard><AdminDashboard /></SubscriptionGuard></ProtectedRoute>} />
       <Route path="/barber/*" element={<ProtectedRoute role="barber"><SubscriptionGuard><BarberDashboard /></SubscriptionGuard></ProtectedRoute>} />

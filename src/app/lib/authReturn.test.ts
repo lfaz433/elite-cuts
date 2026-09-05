@@ -36,6 +36,17 @@ test('preserves the authenticated booking handoff route through login', () => {
   );
 });
 
+test('preserves the freelancer workspace route through login', () => {
+  assert.equal(
+    loginPathForProtectedRoute('/freelancer'),
+    '/?login=true&returnTo=%2Ffreelancer',
+  );
+  assert.equal(
+    postLoginDestination('?returnTo=%2Ffreelancer', '/client'),
+    '/freelancer',
+  );
+});
+
 test('recovers a safe invitation destination after the login query is cleared', () => {
   const storage = new MemoryStorage();
   captureInvitationReturn('?login=true&returnTo=%2Finvitations%2Finvite-worker', storage);

@@ -2,7 +2,8 @@ import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions';
 import { locationMembershipId } from './memberships';
 
-type InvitationRole = 'salon_admin' | 'worker';
+type InvitationRole = 'salon_admin' | 'worker' | 'chair_renter';
+type JobRelationshipType = 'employee' | 'chair_rental';
 type InvitationStatus = 'pending' | 'accepted' | 'declined';
 
 interface PermissionMap {
@@ -27,6 +28,9 @@ interface InvitationRecord {
   permissions: PermissionMap;
   status: InvitationStatus;
   invitedBy: string;
+  relationshipType?: JobRelationshipType;
+  jobId?: string;
+  applicationId?: string;
 }
 
 interface InvitationIdentity {
@@ -58,6 +62,7 @@ interface ExistingMembership {
   locationId: string;
   role: string;
   status: 'pending' | 'active' | 'declined' | 'revoked';
+  relationshipType?: JobRelationshipType;
 }
 
 const CREATE_INPUT_KEYS = new Set(['locationId', 'email', 'displayName', 'role']);
@@ -120,6 +125,41 @@ function invitationPermissions(role: InvitationRole): PermissionMap {
   return role === 'salon_admin' ? SALON_ADMIN_PERMISSIONS : WORKER_PERMISSIONS;
 }
 
+export function membershipRelationshipForInvitation(
+  invitation: Pick<InvitationRecord, 'role' | 'relationshipType'>,
+): {
+  role: InvitationRole;
+  relationshipType?: JobRelationshipType;
+  createsWorkerProfile: boolean;
+} {
+  if (invitation.relationshipType === undefined) {
+    if (invitation.role === 'chair_renter') {
+      throw new functions.https.HttpsError(
+        'failed-precondition',
+        'Chair rental invitations require an independent relationship',
+      );
+    }
+    return {
+      role: invitation.role,
+      createsWorkerProfile: invitation.role === 'worker',
+    };
+  }
+  const expectedRole: InvitationRole = invitation.relationshipType === 'employee'
+    ? 'worker'
+    : 'chair_renter';
+  if (invitation.role !== expectedRole) {
+    throw new functions.https.HttpsError(
+      'failed-precondition',
+      'Invitation role does not match its relationship type',
+    );
+  }
+  return {
+    role: invitation.role,
+    relationshipType: invitation.relationshipType,
+    createsWorkerProfile: invitation.relationshipType === 'employee',
+  };
+}
+
 function parseCreateInput(value: unknown): CreateInvitationInput {
   const input = inputRecord(value, CREATE_INPUT_KEYS, 'Invitation data');
   if (input.role !== 'salon_admin' && input.role !== 'worker') {
@@ -151,13 +191,24 @@ function invitationRecord(value: admin.firestore.DocumentData | undefined): Invi
     || typeof value.locationId !== 'string'
     || typeof value.email !== 'string'
     || typeof value.displayName !== 'string'
-    || (value.role !== 'salon_admin' && value.role !== 'worker')
+    || (value.role !== 'salon_admin' && value.role !== 'worker' && value.role !== 'chair_renter')
     || !value.permissions
     || typeof value.permissions !== 'object'
     || (value.status !== 'pending' && value.status !== 'accepted' && value.status !== 'declined')
     || typeof value.invitedBy !== 'string'
+    || (value.relationshipType !== undefined
+      && value.relationshipType !== 'employee'
+      && value.relationshipType !== 'chair_rental')
+    || (value.jobId !== undefined && typeof value.jobId !== 'string')
+    || (value.applicationId !== undefined && typeof value.applicationId !== 'string')
   ) return null;
-  return value as InvitationRecord;
+  const invitation = value as InvitationRecord;
+  try {
+    membershipRelationshipForInvitation(invitation);
+  } catch {
+    return null;
+  }
+  return invitation;
 }
 
 function existingMembershipRecord(
@@ -172,6 +223,11 @@ function existingMembershipRecord(
     || value.locationId !== invitation.locationId
     || typeof value.role !== 'string'
     || !['pending', 'active', 'declined', 'revoked'].includes(value.status)
+  ) return null;
+  if (
+    value.relationshipType !== undefined
+    && value.relationshipType !== 'employee'
+    && value.relationshipType !== 'chair_rental'
   ) return null;
   return value as ExistingMembership;
 }
@@ -365,8 +421,25 @@ export async function respondToInvitation(
       );
     }
 
-    const effectiveRole = membership?.role ?? invitation.role;
-    const isWorker = effectiveRole === 'worker' || effectiveRole === 'barber';
+    const invitationRelationship = membershipRelationshipForInvitation(invitation);
+    if (
+      membership
+      && invitation.relationshipType
+      && (
+        membership.role !== invitationRelationship.role
+        || (membership.relationshipType !== undefined
+          && membership.relationshipType !== invitation.relationshipType)
+      )
+    ) {
+      throw new functions.https.HttpsError(
+        'failed-precondition',
+        'Existing membership has a different relationship type',
+      );
+    }
+
+    const effectiveRole = membership?.role ?? invitationRelationship.role;
+    const isWorker = invitationRelationship.createsWorkerProfile
+      && (effectiveRole === 'worker' || effectiveRole === 'barber');
     const barberId = isWorker ? workerBarberId(invitation.locationId, decoded.uid) : null;
     const barberRef = barberId ? firestore.collection('barbers').doc(barberId) : null;
     const barberSnapshot = barberRef ? await transaction.get(barberRef) : null;
@@ -387,7 +460,12 @@ export async function respondToInvitation(
     }
 
     if (membership?.status === 'active') {
-      if (barberId) transaction.update(membershipRef, { barberId });
+      transaction.update(membershipRef, {
+        ...(barberId ? { barberId } : {}),
+        ...(invitationRelationship.relationshipType
+          ? { relationshipType: invitationRelationship.relationshipType }
+          : {}),
+      });
       transaction.update(invitationRef, {
         status: 'accepted',
         respondedBy: decoded.uid,
@@ -402,7 +480,7 @@ export async function respondToInvitation(
       userId: decoded.uid,
       brandId: invitation.brandId,
       locationId: invitation.locationId,
-      role: invitation.role,
+      role: invitationRelationship.role,
       status: 'active',
       permissions: invitation.permissions,
       invitationId: input.invitationId,
@@ -411,6 +489,9 @@ export async function respondToInvitation(
       invitedBy: invitation.invitedBy,
       createdAt: respondedAt,
       acceptedAt: respondedAt,
+      ...(invitationRelationship.relationshipType
+        ? { relationshipType: invitationRelationship.relationshipType }
+        : {}),
       ...(barberId ? { barberId } : {}),
     };
     if (membership) {

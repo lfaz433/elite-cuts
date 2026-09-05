@@ -50,3 +50,20 @@ test('renders acceptance controls for the matching signed-in account', () => {
   assert.match(markup, /Refuser/);
   assert.doesNotMatch(markup, /type="password"/);
 });
+
+test('describes chair rental invitations as independent relationships', () => {
+  const markup = renderToStaticMarkup(React.createElement(InvitationDecisionView, {
+    invitation: {
+      displayName: 'Independent Barber',
+      email: 'independent@example.com',
+      role: 'chair_renter',
+      relationshipType: 'chair_rental',
+      status: 'pending',
+    },
+    submitting: false,
+    onRespond: () => undefined,
+  }));
+
+  assert.match(markup, /Location de fauteuil indépendante/);
+  assert.doesNotMatch(markup, /Collaborateur/);
+});

@@ -34,6 +34,18 @@ import {
   requestBookingFunction,
   respondToBookingFunction,
 } from './bookings';
+import {
+  createFreelancerPortfolioItemFunction,
+  deleteFreelancerPortfolioItemFunction,
+  saveFreelancerProfileFunction,
+} from './freelancers';
+import {
+  applyToJobFunction,
+  createJobPostFunction,
+  listCityJobsFunction,
+  reviewJobApplicationFunction,
+} from './jobs';
+import { createConfirmedDepositFunction } from './deposits';
 
 if (admin.apps.length === 0) {
   admin.initializeApp();
@@ -58,6 +70,14 @@ export const requestBooking = requestBookingFunction;
 export const respondToBooking = respondToBookingFunction;
 export const cancelBooking = cancelBookingFunction;
 export const getBookingAddress = getBookingAddressFunction;
+export const saveFreelancerProfile = saveFreelancerProfileFunction;
+export const createFreelancerPortfolioItem = createFreelancerPortfolioItemFunction;
+export const deleteFreelancerPortfolioItem = deleteFreelancerPortfolioItemFunction;
+export const createJobPost = createJobPostFunction;
+export const listCityJobs = listCityJobsFunction;
+export const applyToJob = applyToJobFunction;
+export const reviewJobApplication = reviewJobApplicationFunction;
+export const createConfirmedDeposit = createConfirmedDepositFunction;
 
 function getStripe(): Stripe {
   const key = process.env.STRIPE_SECRET_KEY;

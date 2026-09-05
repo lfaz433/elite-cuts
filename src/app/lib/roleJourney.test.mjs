@@ -15,10 +15,10 @@ test('sends invited salon staff to sign in before accepting their invitation', (
   });
 });
 
-test('keeps unfinished marketplace journeys visibly unavailable', () => {
+test('opens the live freelancer workspace and keeps only unfinished journeys unavailable', () => {
   assert.deepEqual(getRoleJourney('freelancer'), {
-    kind: 'coming-soon',
-    label: 'Freelance barber profiles are launching soon.',
+    kind: 'navigate',
+    path: '/freelancer',
   });
   assert.deepEqual(getRoleJourney('client'), {
     kind: 'coming-soon',

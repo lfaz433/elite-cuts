@@ -4,7 +4,8 @@ import { Check, Loader2, ShieldCheck, X } from 'lucide-react';
 export interface InvitationView {
   displayName: string;
   email: string;
-  role: 'salon_admin' | 'worker';
+  role: 'salon_admin' | 'worker' | 'chair_renter';
+  relationshipType?: 'employee' | 'chair_rental';
   status: 'pending' | 'accepted' | 'declined';
 }
 
@@ -19,7 +20,11 @@ export default function InvitationDecisionView({
   submitting,
   onRespond,
 }: InvitationDecisionViewProps) {
-  const roleLabel = invitation.role === 'salon_admin' ? 'Salon Admin' : 'Collaborateur';
+  const roleLabel = invitation.role === 'salon_admin'
+    ? 'Salon Admin'
+    : invitation.role === 'chair_renter'
+      ? 'Location de fauteuil indépendante'
+      : 'Collaborateur salarié';
 
   return (
     <section className="w-full max-w-xl rounded-3xl border border-[#D4AF37]/25 bg-[#111] p-7 shadow-2xl sm:p-10">
