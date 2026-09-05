@@ -5,10 +5,11 @@ import 'react-phone-input-2/lib/style.css';
 import { useAuth } from '../context/AuthContext';
 import { useBusiness } from '../context/BusinessContext';
 import { useTenant } from '../context/TenantContext';
-import { useNavigate } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../../lib/firebase';
+import { postLoginDestination } from '../../lib/authReturn';
 
 
 export default function LoginModal({ onClose }: { onClose: () => void }) {
@@ -24,15 +25,16 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
   const { businessInfo } = useBusiness();
   const tenant = useTenant();
   const navigate = useNavigate();
+  const route = useLocation();
 
   // Handle redirect after successful login
   useEffect(() => {
     if (user && !authLoading) {
       onClose();
       // Use replace: true to prevent going back to login modal
-      navigate(`/${user.role}`, { replace: true });
+      navigate(postLoginDestination(route.search, `/${user.role}`), { replace: true });
     }
-  }, [user, authLoading, navigate, onClose]);
+  }, [user, authLoading, navigate, onClose, route.search]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

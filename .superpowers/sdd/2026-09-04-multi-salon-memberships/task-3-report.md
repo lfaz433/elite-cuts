@@ -74,3 +74,58 @@
 - `feat: add worker invitation acceptance`
 
 Untracked dependency directories were left untouched.
+
+## Review fix round 1/5
+
+### Findings and root causes
+
+- Invitation acceptance and invitee reads compared only the token email. A new
+  Firebase email/password account therefore had the same claim path before
+  proving control of the mailbox.
+- `AuthRequired` redirected an unauthenticated invitation visitor to `/` and
+  discarded the invitation ID. After login, `LoginModal` always navigated to
+  the generic role dashboard, so the acceptance destination could not recover.
+- Acceptance blindly created the deterministic membership. Re-invites and two
+  concurrently accepted invitations could collide on that document, rolling
+  one transaction back while its invitation remained pending.
+
+### RED evidence
+
+- Added a matching-email/unverified-token regression. The focused test exited 1
+  with `Missing expected exception`, proving the server accepted that identity.
+- Added return-destination regressions. Their first run exited 1 because the
+  safe return-routing module did not yet exist.
+- Added emulator behaviors for an unverified invitee read, direct invitation
+  create/delete attempts, an active-member re-invite, and concurrent duplicate
+  acceptance. The suite was written before the fixes but its run remains
+  blocked before assertions by the missing Java runtime.
+
+### Fix
+
+- The callable now requires `context.auth.token.email_verified === true` before
+  comparing normalized email addresses. Firestore grants the invitee email-read
+  branch only when `email_verified` is true; established Principal/location
+  membership authority remains an independent manager audit path.
+- Invitation URLs are encoded into a narrowly validated `returnTo` query value.
+  Login accepts only local `/invitations/{id}` destinations and rejects external
+  URLs or privileged non-invitation paths before navigating.
+- Acceptance reads the deterministic membership inside the transaction. A
+  matching active membership is preserved without changing its role or
+  permissions and the invitation resolves as accepted. Matching inactive
+  memberships are safely replaced from server-owned invitation bounds. Missing
+  memberships are created as before; malformed/scope-conflicting records are
+  rejected. The read makes concurrent duplicate transactions retry against the
+  winning membership instead of leaving an invitation pending.
+
+### GREEN verification
+
+- Focused invitation, return-routing, UI, and marketplace regressions: 15/15
+  passed.
+- Existing role-journey and tenant-resolution tests: 7/7 passed.
+- Functions TypeScript build and Vite production build passed.
+- Invitation rules test syntax passed; static Firestore checks passed 11/11.
+- `git diff --check` passed.
+
+The Firestore emulator, authenticated staging flow, missing Functions ESLint
+configuration, no-deploy constraint, and untouched dependency-directory notes
+from the initial report remain unchanged.

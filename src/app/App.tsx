@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router';
 import { Suspense } from 'react';
 import { Toaster } from 'sonner';
 import PublicLayout from './components/layouts/PublicLayout';
@@ -15,6 +15,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import { Scissors } from 'lucide-react';
 import { lazy } from 'react';
 import { brandDashboardHomePath, hasBrandDashboardAccess } from './lib/marketplace/access';
+import { loginPathForProtectedRoute } from './lib/authReturn';
 
 const MAIN_DOMAIN = import.meta.env.VITE_MAIN_DOMAIN?.trim().toLowerCase() || '';
 
@@ -68,8 +69,11 @@ function ProtectedRoute({ children, role }: { children: React.ReactNode; role?: 
 // --- Simple Auth Required Wrapper (ignores subscription status) ---
 function AuthRequired({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
+  const route = useLocation();
   if (isLoading) return <AppLoader />;
-  if (!user) return <Navigate to="/" replace />;
+  if (!user) {
+    return <Navigate to={loginPathForProtectedRoute(`${route.pathname}${route.search}`)} replace />;
+  }
   return <>{children}</>;
 }
 

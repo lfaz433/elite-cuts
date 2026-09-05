@@ -32,6 +32,7 @@ interface InvitationRecord {
 interface InvitationIdentity {
   uid: string;
   email?: string;
+  emailVerified?: boolean;
 }
 
 interface CreateInvitationInput {
@@ -49,6 +50,14 @@ interface RespondToInvitationInput {
 interface RespondToInvitationResult {
   membershipId: string;
   status: 'active' | 'declined';
+}
+
+interface ExistingMembership {
+  userId: string;
+  brandId: string;
+  locationId: string;
+  role: string;
+  status: 'pending' | 'active' | 'declined' | 'revoked';
 }
 
 const CREATE_INPUT_KEYS = new Set(['locationId', 'email', 'displayName', 'role']);
@@ -151,6 +160,22 @@ function invitationRecord(value: admin.firestore.DocumentData | undefined): Invi
   return value as InvitationRecord;
 }
 
+function existingMembershipRecord(
+  value: admin.firestore.DocumentData | undefined,
+  decodedUid: string,
+  invitation: InvitationRecord,
+): ExistingMembership | null {
+  if (
+    !value
+    || value.userId !== decodedUid
+    || value.brandId !== invitation.brandId
+    || value.locationId !== invitation.locationId
+    || typeof value.role !== 'string'
+    || !['pending', 'active', 'declined', 'revoked'].includes(value.status)
+  ) return null;
+  return value as ExistingMembership;
+}
+
 export function assertInvitationSender(
   membership: LocationMembership | undefined,
   callerUid: string,
@@ -179,6 +204,12 @@ export function assertInvitationRecipient(
   invitation: Pick<InvitationRecord, 'email'>,
   decoded: InvitationIdentity,
 ): void {
+  if (decoded.emailVerified !== true) {
+    throw new functions.https.HttpsError(
+      'permission-denied',
+      'Invitation acceptance requires a verified email address',
+    );
+  }
   const decodedEmail = typeof decoded.email === 'string'
     ? decoded.email.trim().toLowerCase()
     : '';
@@ -275,7 +306,29 @@ export async function respondToInvitation(
     }
 
     const membershipRef = firestore.collection('memberships').doc(membershipId);
-    transaction.create(membershipRef, {
+    const membershipSnapshot = await transaction.get(membershipRef);
+    const membership = membershipSnapshot.exists
+      ? existingMembershipRecord(membershipSnapshot.data(), decoded.uid, invitation)
+      : null;
+    if (membershipSnapshot.exists && !membership) {
+      throw new functions.https.HttpsError(
+        'failed-precondition',
+        'Existing membership does not match this invitation',
+      );
+    }
+
+    if (membership?.status === 'active') {
+      transaction.update(invitationRef, {
+        status: 'accepted',
+        respondedBy: decoded.uid,
+        respondedAt,
+        membershipId,
+        resolution: 'existing_active_membership',
+      });
+      return { membershipId, status: 'active' as const };
+    }
+
+    const membershipData = {
       userId: decoded.uid,
       brandId: invitation.brandId,
       locationId: invitation.locationId,
@@ -288,12 +341,18 @@ export async function respondToInvitation(
       invitedBy: invitation.invitedBy,
       createdAt: respondedAt,
       acceptedAt: respondedAt,
-    });
+    };
+    if (membership) {
+      transaction.set(membershipRef, membershipData);
+    } else {
+      transaction.create(membershipRef, membershipData);
+    }
     transaction.update(invitationRef, {
       status: 'accepted',
       respondedBy: decoded.uid,
       respondedAt,
       membershipId,
+      resolution: membership ? 'reactivated_membership' : 'created_membership',
     });
     return { membershipId, status: 'active' as const };
   });
@@ -313,5 +372,6 @@ export const respondToInvitationFunction = functions.https.onCall(async (data, c
   return respondToInvitation({
     uid: context.auth.uid,
     email: typeof context.auth.token.email === 'string' ? context.auth.token.email : undefined,
+    emailVerified: context.auth.token.email_verified === true,
   }, data);
 });

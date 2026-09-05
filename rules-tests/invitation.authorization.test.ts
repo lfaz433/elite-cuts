@@ -26,5 +26,16 @@ test('rejects invitation acceptance by a different email account', () => {
   }, {
     uid: 'different-account',
     email: 'different@example.com',
+    emailVerified: true,
+  }), (error: { code?: string }) => error.code === 'permission-denied');
+});
+
+test('rejects invitation acceptance by an unverified matching email account', () => {
+  assert.throws(() => assertInvitationRecipient({
+    email: 'worker@example.com',
+  }, {
+    uid: 'worker-account',
+    email: 'worker@example.com',
+    emailVerified: false,
   }), (error: { code?: string }) => error.code === 'permission-denied');
 });

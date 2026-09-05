@@ -4,7 +4,7 @@ const {
   assertFails,
 } = require('@firebase/rules-unit-testing');
 const { readFileSync } = require('fs');
-const { doc, getDoc, setDoc, updateDoc } = require('firebase/firestore');
+const { deleteDoc, doc, getDoc, setDoc, updateDoc } = require('firebase/firestore');
 const admin = require('../functions/node_modules/firebase-admin');
 
 const PROJECT_ID = 'demo-elite-cuts-worker-invitations';
@@ -38,8 +38,12 @@ beforeEach(async () => {
   await testEnv.clearFirestore();
 });
 
-function asUser(uid, email) {
-  return testEnv.authenticatedContext(uid, { sub: uid, email }).firestore();
+function asUser(uid, email, emailVerified = true) {
+  return testEnv.authenticatedContext(uid, {
+    sub: uid,
+    email,
+    email_verified: emailVerified,
+  }).firestore();
 }
 
 async function seedLocation({ inviteWorkers }) {
@@ -96,6 +100,7 @@ test('an invitation cannot be accepted by a different email account', async () =
   await expect(respondToInvitation({
     uid: 'different-account',
     email: 'different@example.com',
+    emailVerified: true,
   }, {
     invitationId: created.invitationId,
     accept: true,
@@ -132,6 +137,7 @@ test('the invited account activates its own membership only after acceptance', a
   const response = await respondToInvitation({
     uid: 'worker-account',
     email: 'worker@example.com',
+    emailVerified: true,
   }, {
     invitationId: created.invitationId,
     accept: true,
@@ -169,6 +175,7 @@ test('the invited account may decline without creating a membership', async () =
   const response = await respondToInvitation({
     uid: 'worker-account',
     email: 'worker@example.com',
+    emailVerified: true,
   }, {
     invitationId: created.invitationId,
     accept: false,
@@ -205,6 +212,11 @@ test('only the matching authenticated account can read an invitation', async () 
     'invitations',
     'invite-worker',
   )));
+  await assertFails(getDoc(doc(
+    asUser('worker-account', 'worker@example.com', false),
+    'invitations',
+    'invite-worker',
+  )));
 });
 
 test('an invited account cannot activate a membership with a browser write', async () => {
@@ -225,6 +237,16 @@ test('an invited account cannot activate a membership with a browser write', asy
   await assertFails(updateDoc(doc(invitedAccount, 'invitations', 'invite-worker'), {
     status: 'accepted',
   }));
+  await assertFails(setDoc(doc(invitedAccount, 'invitations', 'browser-created'), {
+    brandId: 'brand-france',
+    locationId: 'paris',
+    email: 'worker@example.com',
+    displayName: 'Browser Worker',
+    role: 'worker',
+    status: 'pending',
+    invitedBy: 'worker-account',
+  }));
+  await assertFails(deleteDoc(doc(invitedAccount, 'invitations', 'invite-worker')));
   await assertFails(setDoc(doc(
     invitedAccount,
     'memberships',
@@ -237,4 +259,68 @@ test('an invited account cannot activate a membership with a browser write', asy
     status: 'active',
     permissions: {},
   }));
+});
+
+test('a re-invite resolves against an existing active membership without changing its role', async () => {
+  await seedLocation({ inviteWorkers: true });
+  await adminDb.collection('memberships').doc('brand-france__paris__worker-account').set({
+    userId: 'worker-account',
+    brandId: 'brand-france',
+    locationId: 'paris',
+    role: 'worker',
+    status: 'active',
+    permissions: { manageBookings: false },
+  });
+  const created = await createWorkerInvitation('salon-admin', {
+    locationId: 'paris',
+    email: 'worker@example.com',
+    displayName: 'Invited Worker',
+    role: 'salon_admin',
+  }, adminDb);
+
+  const response = await respondToInvitation({
+    uid: 'worker-account',
+    email: 'worker@example.com',
+    emailVerified: true,
+  }, {
+    invitationId: created.invitationId,
+    accept: true,
+  }, adminDb);
+  const membership = await adminDb.collection('memberships').doc(response.membershipId).get();
+  const invitation = await adminDb.collection('invitations').doc(created.invitationId).get();
+
+  expect(response.status).toBe('active');
+  expect(membership.data()).toMatchObject({ role: 'worker', status: 'active' });
+  expect(invitation.data()).toMatchObject({
+    status: 'accepted',
+    membershipId: response.membershipId,
+    resolution: 'existing_active_membership',
+  });
+});
+
+test('concurrent duplicate invitation acceptance resolves both invitations', async () => {
+  await seedLocation({ inviteWorkers: true });
+  const [first, second] = await Promise.all([
+    createWorkerInvitation('salon-admin', {
+      locationId: 'paris', email: 'worker@example.com', displayName: 'Worker', role: 'worker',
+    }, adminDb),
+    createWorkerInvitation('salon-admin', {
+      locationId: 'paris', email: 'worker@example.com', displayName: 'Worker', role: 'worker',
+    }, adminDb),
+  ]);
+
+  const responses = await Promise.all([first, second].map(created => respondToInvitation({
+    uid: 'worker-account',
+    email: 'worker@example.com',
+    emailVerified: true,
+  }, {
+    invitationId: created.invitationId,
+    accept: true,
+  }, adminDb)));
+  const invitations = await Promise.all([first, second].map(created => (
+    adminDb.collection('invitations').doc(created.invitationId).get()
+  )));
+
+  expect(responses.map(response => response.status)).toEqual(['active', 'active']);
+  expect(invitations.map(snapshot => snapshot.data().status)).toEqual(['accepted', 'accepted']);
 });
