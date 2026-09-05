@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import { db } from '../../lib/firebase';
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
+import { extractSubdomain, loadTenantForHost, PLATFORM_TENANT } from './tenantResolution';
 
 export interface TenantData {
   tenantId: string;
@@ -33,26 +34,6 @@ export function useTenant() {
   return context;
 }
 
-const MAIN_DOMAIN = import.meta.env.VITE_MAIN_DOMAIN?.trim().toLowerCase() || '';
-
-function extractSubdomain(hostname: string): string {
-  const normalizedHost = hostname.trim().toLowerCase();
-  if (
-    normalizedHost === 'localhost' ||
-    normalizedHost === '127.0.0.1' ||
-    normalizedHost.endsWith('.vercel.app') ||
-    (MAIN_DOMAIN !== '' && (
-      normalizedHost === MAIN_DOMAIN || normalizedHost === `www.${MAIN_DOMAIN}`
-    ))
-  ) {
-    return 'elite-cuts-default';
-  }
-  if (MAIN_DOMAIN !== '' && normalizedHost.endsWith(`.${MAIN_DOMAIN}`)) {
-    return normalizedHost.slice(0, -(MAIN_DOMAIN.length + 1)).split('.').pop() || 'elite-cuts-default';
-  }
-  return 'elite-cuts-default';
-}
-
 export function TenantProvider({ children }: { children: React.ReactNode }) {
   const [tenant, setTenant] = useState<TenantData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -71,23 +52,21 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     const fetchTenant = async () => {
       const subdomain = getSubdomain();
       const hostname = window.location.hostname;
-      const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
       try {
-        const tenantsRef = collection(db, 'tenants');
-        const q = query(tenantsRef, where('subdomain', '==', subdomain));
+        const fetchedTenant = await loadTenantForHost(hostname, async (tenantSubdomain) => {
+          const tenantsRef = collection(db, 'tenants');
+          const q = query(tenantsRef, where('subdomain', '==', tenantSubdomain));
+          const timeoutPromise = new Promise<null>((_, reject) =>
+            setTimeout(() => reject(new Error('Tenant lookup timed out after 10s')), 10000)
+          );
+          const querySnapshot = await Promise.race([getDocs(q), timeoutPromise]) as Awaited<ReturnType<typeof getDocs>>;
 
-        // Race Firestore against a 10-second timeout to prevent infinite spinner
-        const timeoutPromise = new Promise<null>((_, reject) =>
-          setTimeout(() => reject(new Error('Tenant lookup timed out after 10s')), 10000)
-        );
-        const querySnapshot = await Promise.race([getDocs(q), timeoutPromise]) as Awaited<ReturnType<typeof getDocs>>;
+          if (querySnapshot.empty) return null;
 
-        if (!querySnapshot.empty) {
-
-          const doc = querySnapshot.docs[0];
-          const data = doc.data();
-          const fetchedTenant = {
-            tenantId: doc.id,
+          const tenantDoc = querySnapshot.docs[0];
+          const data = tenantDoc.data();
+          return {
+            tenantId: tenantDoc.id,
             subdomain: data.subdomain,
             name: data.name,
             branding: data.branding,
@@ -101,26 +80,14 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
             onboardingComplete: data.onboardingComplete || false,
             isDemo: data.isDemo || false,
           };
+        });
+
+        if (fetchedTenant) {
           setTenant(fetchedTenant);
           initialTenantRef.current = fetchedTenant;
         } else if (subdomain === 'elite-cuts-default') {
-          const fallbackTenant = {
-            tenantId: 'platform',
-            subdomain: 'elite-cuts-default',
-            name: "Barberboard Platform",
-            branding: { primaryColor: "#D4AF37", logoUrl: "", businessName: "Barberboard" },
-            subscription: { 
-              status: "active" as const, 
-              planId: "pro",
-              trialEndsAt: 0,
-              currentPeriodEnd: 0
-            },
-            settings: { maxBarbersLimit: 100, allowOnlineBooking: true },
-            onboardingComplete: true
-          };
-          
-          setTenant(fallbackTenant);
-          initialTenantRef.current = fallbackTenant;
+          setTenant(PLATFORM_TENANT);
+          initialTenantRef.current = PLATFORM_TENANT;
         } else {
           setError('Barbershop not found');
         }
