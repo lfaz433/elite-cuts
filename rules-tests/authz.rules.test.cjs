@@ -278,6 +278,71 @@ test('a zero-permission marketplace worker is limited to their assigned barber w
   }));
 });
 
+test('a zero-permission worker can query only their own attendance and settlements', async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await Promise.all([
+      setDoc(doc(ctx.firestore(), 'tenants', 'location-market'), {
+        brandId: 'brand-market', ownerUid: 'principal-a',
+      }),
+      setDoc(doc(ctx.firestore(), 'memberships', 'brand-market__location-market__worker-a'), {
+        userId: 'worker-a',
+        brandId: 'brand-market',
+        locationId: 'location-market',
+        role: 'worker',
+        status: 'active',
+        permissions: {},
+        barberId: 'worker-profile',
+      }),
+      setDoc(doc(ctx.firestore(), 'attendance', 'worker-attendance'), {
+        tenantId: 'location-market', barberId: 'worker-profile', date: '2026-09-05',
+      }),
+      setDoc(doc(ctx.firestore(), 'attendance', 'other-attendance'), {
+        tenantId: 'location-market', barberId: 'other-profile', date: '2026-09-05',
+      }),
+      setDoc(doc(ctx.firestore(), 'settlements', 'worker-settlement'), {
+        tenantId: 'location-market', barberId: 'worker-profile', amount: 50,
+      }),
+      setDoc(doc(ctx.firestore(), 'settlements', 'other-settlement'), {
+        tenantId: 'location-market', barberId: 'other-profile', amount: 75,
+      }),
+    ]);
+  });
+  const worker = asUser('worker-a');
+
+  const attendance = await assertSucceeds(getDocs(query(
+    collection(worker, 'attendance'),
+    where('tenantId', '==', 'location-market'),
+    where('barberId', '==', 'worker-profile'),
+  )));
+  expect(attendance.docs.map(document => document.id)).toEqual(['worker-attendance']);
+
+  const settlements = await assertSucceeds(getDocs(query(
+    collection(worker, 'settlements'),
+    where('tenantId', '==', 'location-market'),
+    where('barberId', '==', 'worker-profile'),
+  )));
+  expect(settlements.docs.map(document => document.id)).toEqual(['worker-settlement']);
+
+  await assertFails(getDocs(query(
+    collection(worker, 'attendance'),
+    where('tenantId', '==', 'location-market'),
+  )));
+  await assertFails(getDocs(query(
+    collection(worker, 'settlements'),
+    where('tenantId', '==', 'location-market'),
+  )));
+  await assertFails(getDocs(query(
+    collection(worker, 'attendance'),
+    where('tenantId', '==', 'location-market'),
+    where('barberId', '==', 'other-profile'),
+  )));
+  await assertFails(getDocs(query(
+    collection(worker, 'settlements'),
+    where('tenantId', '==', 'location-market'),
+    where('barberId', '==', 'other-profile'),
+  )));
+});
+
 test('location permissions grant only their matching operational capabilities', async () => {
   await testEnv.withSecurityRulesDisabled(async (ctx) => {
     await Promise.all([

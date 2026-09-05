@@ -63,3 +63,28 @@ Corrective verification:
 - `node --check` for both changed rule-test files and `git diff --check` — passed.
 
 The emulator behavioral tests now assert zero-permission denial, assigned-booking/profile minimal access, permission separation, and cross-location denial. They remain pending Java-equipped CI/staging; no deployment or external access occurred.
+
+## Corrective re-review: worker attendance and settlement listener scope
+
+Re-review rejected phase acceptance at `d0b6978`: Firestore correctly limited a zero-permission worker to attendance and settlement records whose `barberId` matches the server-owned membership link, but `BusinessContext` subscribed to each full tenant collection. Firestore therefore rejected both listeners instead of returning the worker's own records.
+
+The correction introduces one shared listener-scope policy and applies it to both collections:
+
+- a worker with a server-hydrated `barberId` subscribes with both `tenantId == activeTenant` and `barberId == assignedBarber`;
+- a client, anonymous session, or worker without a membership barber link attaches no attendance or settlement listener;
+- administrators retain the existing tenant-wide query;
+- both arrays are cleared before a scope/tenant transition so a narrower worker session cannot temporarily retain data from a previous wider subscription.
+
+Runnable client tests cover worker, administrator, superadministrator, client, anonymous, and unassigned-worker scope. Emulator assertions cover exact own-record results plus rejection of tenant-wide and other-barber attendance/settlement queries.
+
+Corrective verification:
+
+- RED: `npx --yes tsx --test src/app/lib/bookingAccess.test.ts` failed because the new record-scope policy did not exist.
+- GREEN: the focused scope suite passed **4/4**.
+- `node rules-tests/static-analysis.cjs` — **15/15 passed**.
+- Thirteen non-emulator Jest suites — **119/119 passed**.
+- The complete local TypeScript/component/invitation command — **42/42 passed**.
+- Functions TypeScript build and Vite production build — passed.
+- `node --check rules-tests/authz.rules.test.cjs` — passed.
+
+`npx firebase emulators:exec --only firestore "npx jest --config rules-tests/jest.config.cjs --runInBand rules-tests/authz.rules.test.cjs"` was attempted and stopped before test execution because `java -version` exits 1 and no Java runtime is installed. The behavioral assertions therefore remain a Java-equipped CI/staging release gate. No deployment or external account access occurred.

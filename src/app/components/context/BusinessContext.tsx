@@ -26,7 +26,10 @@ import {
   sanitizeBusinessInfo,
 } from '../../lib/publicStaff';
 import { staffCreateActionForBooking } from '../../lib/bookingIntent';
-import { bookingListenerScope } from '../../lib/bookingAccess';
+import {
+  assignedBarberRecordListenerScope,
+  bookingListenerScope,
+} from '../../lib/bookingAccess';
 import { runBestEffortAfterCommit } from '../../lib/truthfulAction';
 
 export interface Service {
@@ -570,15 +573,42 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       markLoaded();
     }, () => markLoaded());
 
-    const unsubAttendance = onSnapshot(query(collection(db, 'attendance'), where('tenantId', '==', tenantId)), (snapshot) => {
-      setAttendance(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Attendance)));
+    const assignedRecordScope = assignedBarberRecordListenerScope(user);
+    setAttendance([]);
+    setSettlements([]);
+    let unsubAttendance = () => {};
+    if (assignedRecordScope.kind === 'none') {
       markLoaded();
-    }, () => markLoaded());
+    } else {
+      const attendanceQuery = assignedRecordScope.kind === 'tenant'
+        ? query(collection(db, 'attendance'), where('tenantId', '==', tenantId))
+        : query(
+          collection(db, 'attendance'),
+          where('tenantId', '==', tenantId),
+          where(assignedRecordScope.field, '==', assignedRecordScope.value),
+        );
+      unsubAttendance = onSnapshot(attendanceQuery, (snapshot) => {
+        setAttendance(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Attendance)));
+        markLoaded();
+      }, () => markLoaded());
+    }
 
-    const unsubSettlements = onSnapshot(query(collection(db, 'settlements'), where('tenantId', '==', tenantId)), (snapshot) => {
-      setSettlements(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Settlement)));
+    let unsubSettlements = () => {};
+    if (assignedRecordScope.kind === 'none') {
       markLoaded();
-    }, () => markLoaded());
+    } else {
+      const settlementsQuery = assignedRecordScope.kind === 'tenant'
+        ? query(collection(db, 'settlements'), where('tenantId', '==', tenantId))
+        : query(
+          collection(db, 'settlements'),
+          where('tenantId', '==', tenantId),
+          where(assignedRecordScope.field, '==', assignedRecordScope.value),
+        );
+      unsubSettlements = onSnapshot(settlementsQuery, (snapshot) => {
+        setSettlements(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Settlement)));
+        markLoaded();
+      }, () => markLoaded());
+    }
 
     const unsubExpenses = onSnapshot(query(collection(db, 'expenses'), where('tenantId', '==', tenantId)), (snapshot) => {
       setExpenses(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Expense)));
