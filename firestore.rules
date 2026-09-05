@@ -122,43 +122,6 @@ service cloud.firestore {
       );
     }
 
-    function isMarketplaceCity(cityId) {
-      return cityId in ['fr-paris', 'fr-grenoble', 'fr-mulhouse'];
-    }
-
-    function isEnabledMarketplaceCity(cityId) {
-      return isMarketplaceCity(cityId)
-        && exists(/databases/$(database)/documents/cityLaunches/$(cityId))
-        && get(/databases/$(database)/documents/cityLaunches/$(cityId)).data.status == 'enabled';
-    }
-
-    function hasSafePublicProfileShape(data) {
-      return data.keys().hasOnly([
-          'kind',
-          'cityId',
-          'latitude',
-          'longitude',
-          'serviceSummary',
-          'portfolioUrls',
-          'visible',
-          'approvalStatus',
-          'displayName',
-          'serviceIds',
-          'homeVisit'
-        ])
-        && data.kind in ['salon', 'freelancer']
-        && isMarketplaceCity(data.cityId)
-        && data.latitude is number
-        && data.longitude is number
-        && data.serviceSummary is string
-        && data.portfolioUrls is list
-        && data.visible == true
-        && data.approvalStatus == 'approved'
-        && data.displayName is string
-        && data.serviceIds is list
-        && data.homeVisit is bool;
-    }
-
     function safeTenantUpdateFields() {
       return ['name', 'phone', 'address', 'branding', 'onboardingComplete', 'isDemo', 'settings', 'updatedAt'];
     }
@@ -316,22 +279,15 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
-    // City launches and public profile documents are server-owned. Public
-    // access is limited to structurally safe profiles in currently enabled
-    // cities; source locations and freelancer records remain private.
+    // Public marketplace reads are delivered by server callables, which
+    // re-whitelist every projection. Browser access to source/launch and
+    // projection records remains denied.
     match /cityLaunches/{cityId} {
-      allow read: if isMarketplaceCity(cityId)
-        && resource.data.keys().hasOnly(['status'])
-        && resource.data.status == 'enabled';
-      allow create, update, delete: if false;
+      allow read, write: if false;
     }
 
     match /publicProfiles/{profileId} {
-      allow get: if hasSafePublicProfileShape(resource.data)
-        && isEnabledMarketplaceCity(resource.data.cityId);
-      allow list: if hasSafePublicProfileShape(resource.data)
-        && isEnabledMarketplaceCity(resource.data.cityId);
-      allow create, update, delete: if false;
+      allow read, write: if false;
     }
 
     // Invitations are server-owned. The exact invited email account may read

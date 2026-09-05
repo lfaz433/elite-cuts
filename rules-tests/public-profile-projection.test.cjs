@@ -77,6 +77,91 @@ test('public map coordinates never retain the exact source location', () => {
   expect(profile.longitude).not.toBe(2.3522);
 });
 
+test('the public discovery sanitizer re-whitelists a malformed stored projection', () => {
+  const { sanitizePublicProfile } = loadTypeScriptModule('functions/src/publicProfiles.ts');
+
+  expect(sanitizePublicProfile('salon__paris', {
+    kind: 'salon',
+    cityId: 'fr-paris',
+    latitude: 48.8566,
+    longitude: 2.3522,
+    serviceSummary: 'Coupe et barbe',
+    portfolioUrls: ['https://example.test/portfolio/paris.jpg'],
+    visible: true,
+    approvalStatus: 'approved',
+    displayName: 'Atelier Paris',
+    serviceIds: ['cut', 'beard'],
+    homeVisit: false,
+    address: '17 rue privée',
+    phone: '+33100000000',
+  })).toEqual({
+    id: 'salon__paris',
+    kind: 'salon',
+    cityId: 'fr-paris',
+    latitude: 48.85,
+    longitude: 2.35,
+    serviceSummary: 'Coupe et barbe',
+    portfolioUrls: ['https://example.test/portfolio/paris.jpg'],
+    visible: true,
+    displayName: 'Atelier Paris',
+    serviceIds: ['cut', 'beard'],
+    homeVisit: false,
+  });
+});
+
+test('the anonymous server listing rejects a disabled city and unpublished records', async () => {
+  const { listApprovedPublicProfiles } = loadTypeScriptModule('functions/src/publicProfiles.ts');
+  const records = [
+    {
+      id: 'salon__paris',
+      data: () => ({
+        kind: 'salon', cityId: 'fr-paris', latitude: 48.8566, longitude: 2.3522,
+        serviceSummary: 'Coupe et barbe', portfolioUrls: [], visible: true,
+        approvalStatus: 'approved', displayName: 'Atelier Paris', serviceIds: [], homeVisit: false,
+      }),
+    },
+    {
+      id: 'salon__pending',
+      data: () => ({
+        kind: 'salon', cityId: 'fr-paris', latitude: 48.8566, longitude: 2.3522,
+        serviceSummary: 'Coupe et barbe', portfolioUrls: [], visible: true,
+        approvalStatus: 'pending', displayName: 'Pending Paris', serviceIds: [], homeVisit: false,
+      }),
+    },
+  ];
+  const firestore = {
+    collection: collectionName => collectionName === 'cityLaunches'
+      ? { doc: cityId => ({ get: async () => ({ exists: cityId === 'fr-paris', data: () => ({ status: cityId === 'fr-paris' ? 'enabled' : 'disabled' }) }) }) }
+      : { where: () => ({ where: () => ({ where: () => ({ get: async () => ({ docs: records }) }) }) }) },
+  };
+
+  await expect(listApprovedPublicProfiles('fr-paris', firestore)).resolves.toEqual([
+    expect.objectContaining({ id: 'salon__paris', cityId: 'fr-paris' }),
+  ]);
+  await expect(listApprovedPublicProfiles('fr-grenoble', firestore)).resolves.toEqual([]);
+});
+
+test('the anonymous server detail response applies enabled-city and sanitizer guards', async () => {
+  const { getApprovedPublicProfile } = loadTypeScriptModule('functions/src/publicProfiles.ts');
+  const profile = {
+    kind: 'salon', cityId: 'fr-paris', latitude: 48.8566, longitude: 2.3522,
+    serviceSummary: 'Coupe et barbe', portfolioUrls: [], visible: true,
+    approvalStatus: 'approved', displayName: 'Atelier Paris', serviceIds: [], homeVisit: false,
+    address: '17 rue privée',
+  };
+  const firestore = {
+    collection: collectionName => collectionName === 'cityLaunches'
+      ? { doc: cityId => ({ get: async () => ({ exists: cityId === 'fr-paris', data: () => ({ status: cityId === 'fr-paris' ? 'enabled' : 'disabled' }) }) }) }
+      : { doc: () => ({ get: async () => ({ exists: true, id: 'salon__paris', data: () => profile }) }) },
+  };
+
+  await expect(getApprovedPublicProfile('salon__paris', firestore)).resolves.toEqual({
+    id: 'salon__paris', kind: 'salon', cityId: 'fr-paris', latitude: 48.85, longitude: 2.35,
+    serviceSummary: 'Coupe et barbe', portfolioUrls: [], visible: true,
+    displayName: 'Atelier Paris', serviceIds: [], homeVisit: false,
+  });
+});
+
 test('only explicitly approved source profiles become visible projections', () => {
   const { projectSalonPublicProfile } = loadTypeScriptModule('functions/src/publicProfiles.ts');
 

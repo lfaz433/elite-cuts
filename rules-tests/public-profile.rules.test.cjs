@@ -85,27 +85,28 @@ async function seedPublicDiscovery() {
   });
 }
 
-test('anonymous visitors can read an approved visible profile in an enabled city', async () => {
+test('anonymous visitors cannot read an approved public projection directly', async () => {
   await seedPublicDiscovery();
 
-  await assertSucceeds(getDoc(doc(anonymousDb(), 'publicProfiles', 'approved-paris')));
+  await assertFails(getDoc(doc(anonymousDb(), 'publicProfiles', 'approved-paris')));
 });
 
-test('anonymous discovery lists only cities with an enabled launch record', async () => {
+test('anonymous visitors cannot read city launch documents directly', async () => {
   await seedPublicDiscovery();
   const db = anonymousDb();
 
-  await assertSucceeds(getDoc(doc(db, 'cityLaunches', 'fr-paris')));
+  await assertFails(getDoc(doc(db, 'cityLaunches', 'fr-paris')));
   await assertFails(getDoc(doc(db, 'cityLaunches', 'fr-grenoble')));
 });
 
-test('anonymous discovery can list visible profiles in its enabled city', async () => {
+test('anonymous visitors cannot list public projections directly', async () => {
   await seedPublicDiscovery();
 
-  await assertSucceeds(getDocs(query(
+  await assertFails(getDocs(query(
     collection(anonymousDb(), 'publicProfiles'),
     where('cityId', '==', 'fr-paris'),
     where('visible', '==', true),
+    where('approvalStatus', '==', 'approved'),
   )));
 });
 

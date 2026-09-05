@@ -46,3 +46,11 @@ Run the rules test and the anonymous Paris-only staging scenario in Java-equippe
 - Public projections now retain the server-generated `approvalStatus: 'approved'` marker. The client query and parser require it, and the unapproved fixture uses `approvalStatus: 'pending'` while remaining visible to demonstrate that approval is independently enforced.
 - `hasSafePublicProfileShape` now gates both `get` and `list`. A new rules regression seeds an otherwise matching profile with an `address` field and requires both direct read and public list access to fail.
 - Verification after the fix: projection unit test passes (4/4), Functions TypeScript build passes, and Vite build passes. The seven-case rules suite remains blocked before execution by the unavailable Java-backed Firestore emulator.
+
+## Review fix round 2/5
+
+- Removed every browser Firestore read of `cityLaunches` and `publicProfiles`; rules now deny direct reads and writes for both server-owned collections.
+- Added unauthenticated callable delivery for public cities, city-profile listing, and profile detail. List/detail handlers allow only the three exact city IDs, verify the launch is enabled, query only `visible: true` and `approvalStatus: 'approved'` projections, and run every result through a rebuilding sanitizer.
+- The sanitizer validates required public fields, drops unknown/private fields such as `address` and `phone`, and emits only the coarse server-controlled city coordinate. This keeps malformed server records from exposing any extra fields through the callable response.
+- Rules coverage now expects direct reads and queries to be denied. Unit/contract coverage includes list delivery, detail delivery, disabled-city rejection, approval/visibility filtering, malformed-record sanitization, and source-coordinate removal.
+- Verification after the fix: projection/callable contract suite passes (7/7), Functions TypeScript build passes, and Vite build passes. The seven-case direct-Firestore-denial rules suite remains blocked before execution by the unavailable Java-backed Firestore emulator.
