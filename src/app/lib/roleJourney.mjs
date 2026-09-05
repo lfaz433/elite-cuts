@@ -17,7 +17,7 @@ export function getRoleJourney(role, language = 'en') {
   const labels = COMING_SOON_LABELS[language] ?? COMING_SOON_LABELS.en;
   switch (role) {
     case 'brand':
-      return { kind: 'navigate', path: '/register' };
+      return { kind: 'navigate', path: '/register?mode=brand' };
     case 'invitation':
       return { kind: 'login' };
     case 'freelancer':

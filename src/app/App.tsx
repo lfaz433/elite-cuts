@@ -5,6 +5,7 @@ import PublicLayout from './components/layouts/PublicLayout';
 import LandingPage from './components/pages/LandingPage';
 import HomePage from './components/pages/HomePage';
 import { AuthProvider, useAuth } from './components/context/AuthContext';
+import { WorkspaceProvider } from './components/context/WorkspaceContext';
 import { BusinessProvider } from './components/context/BusinessContext';
 import { NotificationProvider } from './components/context/NotificationContext';
 import { useTenant } from './components/context/TenantContext';
@@ -26,6 +27,7 @@ const Register = lazy(() => import('./components/pages/Register'));
 const Onboarding = lazy(() => import('./components/pages/Onboarding'));
 const Billing = lazy(() => import('./components/pages/Billing'));
 const DocsPage = lazy(() => import('./components/pages/DocsPage'));
+const BrandDashboard = lazy(() => import('./components/pages/BrandDashboard'));
 
 // --- Premium Loading Spinner ---
 function AppLoader() {
@@ -69,6 +71,16 @@ function AuthRequired({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function BrandRequired({ children }: { children: React.ReactNode }) {
+  const { user, isLoading } = useAuth();
+  if (isLoading) return <AppLoader />;
+  if (!user) return <Navigate to="/?login=true" replace />;
+  if (user.marketplaceRole !== 'principal_admin' && user.marketplaceRole !== 'salon_admin') {
+    return <Navigate to="/" replace />;
+  }
+  return <>{children}</>;
+}
+
 // --- Conditional Home Router ---
 function HomeRouter() {
   const { user, isLoading } = useAuth();
@@ -76,6 +88,10 @@ function HomeRouter() {
   if (isLoading) return <AppLoader />;
   
   if (user) {
+    if (user.role === 'superadmin') return <Navigate to="/superadmin" replace />;
+    if (user.marketplaceRole === 'principal_admin' || user.marketplaceRole === 'salon_admin') {
+      return <Navigate to="/brand" replace />;
+    }
     return <Navigate to={`/${user.role}`} replace />;
   }
 
@@ -113,6 +129,7 @@ function AppRoutes() {
       <Route path="/onboarding" element={<AuthRequired><Onboarding /></AuthRequired>} />
       <Route path="/billing" element={<AuthRequired><Billing /></AuthRequired>} />
       <Route path="/superadmin/*" element={<SuperAdminGuard><SuperAdmin /></SuperAdminGuard>} />
+      <Route path="/brand/*" element={<BrandRequired><BrandDashboard /></BrandRequired>} />
       <Route path="/client/*" element={<ProtectedRoute role="client"><ClientDashboard /></ProtectedRoute>} />
       <Route path="/admin/*" element={<ProtectedRoute role="admin"><SubscriptionGuard><AdminDashboard /></SubscriptionGuard></ProtectedRoute>} />
       <Route path="/barber/*" element={<ProtectedRoute role="barber"><SubscriptionGuard><BarberDashboard /></SubscriptionGuard></ProtectedRoute>} />
@@ -136,32 +153,34 @@ export default function App() {
     <ErrorBoundary>
       <BrowserRouter>
         <AuthProvider>
-          <NotificationProvider>
-            <BusinessProvider>
-              <div className="min-h-screen bg-black text-white">
-                <Suspense fallback={<AppLoader />}>
-                  <AppRoutes />
-                </Suspense>
-              </div>
-              <Toaster
-                position="top-center"
-                richColors
-                toastOptions={{
-                  style: {
-                    background: '#141414',
-                    border: '1px solid rgba(212,175,55,0.3)',
-                    color: 'white',
-                    borderRadius: '16px',
-                    padding: '16px 20px',
-                    gap: '12px',
-                    fontSize: '14px',
-                    lineHeight: '1.5',
-                    boxShadow: '0 20px 40px -15px rgba(0,0,0,0.5)',
-                  },
-                }}
-              />
-            </BusinessProvider>
-          </NotificationProvider>
+          <WorkspaceProvider>
+            <NotificationProvider>
+              <BusinessProvider>
+                <div className="min-h-screen bg-black text-white">
+                  <Suspense fallback={<AppLoader />}>
+                    <AppRoutes />
+                  </Suspense>
+                </div>
+                <Toaster
+                  position="top-center"
+                  richColors
+                  toastOptions={{
+                    style: {
+                      background: '#141414',
+                      border: '1px solid rgba(212,175,55,0.3)',
+                      color: 'white',
+                      borderRadius: '16px',
+                      padding: '16px 20px',
+                      gap: '12px',
+                      fontSize: '14px',
+                      lineHeight: '1.5',
+                      boxShadow: '0 20px 40px -15px rgba(0,0,0,0.5)',
+                    },
+                  }}
+                />
+              </BusinessProvider>
+            </NotificationProvider>
+          </WorkspaceProvider>
         </AuthProvider>
       </BrowserRouter>
     </ErrorBoundary>

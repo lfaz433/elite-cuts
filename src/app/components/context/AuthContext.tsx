@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
 import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
@@ -14,17 +14,20 @@ import {
   SessionUser,
 } from '../../lib/session';
 import { legacyRoleForLocation, membershipForLocation } from '../../lib/sessionAccess';
+import type { MembershipRole } from '../../lib/marketplace/types';
 import { useTenant } from './TenantContext';
 
 type LegacyRole = 'client' | 'admin' | 'barber' | 'superadmin';
 
-interface User extends SessionUser {
+export interface User extends SessionUser {
   id: string;
   name: string;
   phone?: string;
   role: LegacyRole;
   barberId?: string;
   tenantId: string;
+  marketplaceRole?: MembershipRole;
+  brandId?: string;
 }
 
 interface AuthContextType {
@@ -33,6 +36,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   signup: (email: string, password: string, name: string, phone?: string) => Promise<void>;
   logout: () => Promise<void>;
+  refreshSession: () => Promise<void>;
   isAuthenticated: boolean;
 }
 
@@ -54,6 +58,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const { tenantId } = useTenant();
 
+  const hydrateSession = useCallback(async (firebaseUser: NonNullable<typeof auth.currentUser>) => {
+    const [session, token] = await Promise.all([
+      loadSessionUser(firebaseUser),
+      firebaseUser.getIdTokenResult(),
+    ]);
+    const activeMembership = membershipForLocation(session.memberships, tenantId);
+    const brandPrincipal = session.memberships.find(membership => (
+      membership.role === 'principal_admin' && !membership.locationId
+    ));
+    const marketplaceManager = brandPrincipal ?? session.memberships.find(membership => (
+      membership.role === 'principal_admin' || membership.role === 'salon_admin'
+    ));
+    const isPlatformAdmin = token.claims.superadmin === true || token.claims.platformAdmin === true;
+    const claimedTenantId = typeof token.claims.tenantId === 'string'
+      ? token.claims.tenantId
+      : undefined;
+    const scopedClaimTenantId = claimedTenantId === tenantId
+      ? claimedTenantId
+      : undefined;
+    const role = isPlatformAdmin
+      ? 'superadmin'
+      : activeMembership
+        ? membershipRole(activeMembership)
+        : legacyRoleForLocation(token.claims.role, claimedTenantId, tenantId);
+
+    setUser({
+      ...session,
+      id: session.uid,
+      name: session.displayName || (role === 'admin' ? 'Administrateur' : 'Utilisateur'),
+      role,
+      barberId: activeMembership?.barberId,
+      tenantId: activeMembership?.locationId ?? scopedClaimTenantId ?? tenantId,
+      marketplaceRole: marketplaceManager?.role as MembershipRole | undefined,
+      brandId: marketplaceManager?.brandId,
+    });
+  }, [tenantId]);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (!firebaseUser) {
@@ -64,32 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       setIsLoading(true);
       try {
-        const [session, token] = await Promise.all([
-          loadSessionUser(firebaseUser),
-          firebaseUser.getIdTokenResult(),
-        ]);
-        const activeMembership = membershipForLocation(session.memberships, tenantId);
-        const isPlatformAdmin = token.claims.superadmin === true || token.claims.platformAdmin === true;
-        const claimedTenantId = typeof token.claims.tenantId === 'string'
-          ? token.claims.tenantId
-          : undefined;
-        const scopedClaimTenantId = claimedTenantId === tenantId
-          ? claimedTenantId
-          : undefined;
-        const role = isPlatformAdmin
-          ? 'superadmin'
-          : activeMembership
-            ? membershipRole(activeMembership)
-            : legacyRoleForLocation(token.claims.role, claimedTenantId, tenantId);
-
-        setUser({
-          ...session,
-          id: session.uid,
-          name: session.displayName || (role === 'admin' ? 'Administrateur' : 'Utilisateur'),
-          role,
-          barberId: activeMembership?.barberId,
-          tenantId: activeMembership?.locationId ?? scopedClaimTenantId ?? tenantId,
-        });
+        await hydrateSession(firebaseUser);
       } catch (error) {
         console.error('Auth session fetch failed:', error);
         setUser({
@@ -108,7 +124,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     return () => unsubscribe();
-  }, [tenantId]);
+  }, [hydrateSession, tenantId]);
 
   const login = async (email: string, password: string) => {
     await signInWithEmailAndPassword(auth, email, password);
@@ -133,14 +149,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await signOut(auth);
   };
 
+  const refreshSession = useCallback(async () => {
+    if (!auth.currentUser) {
+      setUser(null);
+      return;
+    }
+    setIsLoading(true);
+    try {
+      await hydrateSession(auth.currentUser);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [hydrateSession]);
+
   const value = useMemo(() => ({
     user,
     isLoading,
     login,
     signup,
     logout,
+    refreshSession,
     isAuthenticated: user !== null,
-  }), [user, isLoading]);
+  }), [user, isLoading, refreshSession]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

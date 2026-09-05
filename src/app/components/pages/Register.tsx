@@ -1,17 +1,18 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Scissors, Check, AlertTriangle, ArrowRight, ArrowLeft, Loader2, Sparkles, Shield, User, Globe, Store } from 'lucide-react';
+import { Scissors, Check, AlertTriangle, ArrowRight, ArrowLeft, Loader2, Sparkles, Shield, User, Globe, Store, MapPin } from 'lucide-react';
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { auth, db, functions } from '../../lib/firebase';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { toast } from 'sonner';
 import PhoneInput from 'react-phone-input-2';
 import 'react-phone-input-2/lib/style.css';
 
 import { loadSessionUser } from '../../lib/session';
 import { validateSubdomain } from '../../lib/validators';
+import { useAuth } from '../context/AuthContext';
 
 type PlanId = 'basic' | 'pro' | 'enterprise';
 type ProvisionStatus = 'pending' | 'pending_verification' | 'active' | 'failed';
@@ -30,6 +31,12 @@ interface Plan {
 
 interface BootstrapTenantResult {
   tenantId: string;
+  locationId: string;
+  membershipId: string;
+}
+
+interface BootstrapBrandResult {
+  brandId: string;
   locationId: string;
   membershipId: string;
 }
@@ -64,6 +71,9 @@ const PLANS: Plan[] = [
 
 export default function Register() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const { refreshSession } = useAuth();
+  const isBrandMode = searchParams.get('mode') === 'brand';
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [registrationOutcome, setRegistrationOutcome] = useState<{
@@ -75,6 +85,8 @@ export default function Register() {
   const [shopName, setShopName] = useState('');
   const [shopPhone, setShopPhone] = useState('');
   const [shopAddress, setShopAddress] = useState('');
+  const [city, setCity] = useState('');
+  const [countryCode, setCountryCode] = useState('FR');
 
   const [subdomain, setSubdomain] = useState('');
   const [isCheckingSubdomain, setIsCheckingSubdomain] = useState(false);
@@ -138,6 +150,17 @@ export default function Register() {
       }
     }
     if (step === 2) {
+      if (isBrandMode) {
+        if (!city.trim()) {
+          toast.error('Veuillez entrer la ville de votre premier salon.');
+          return false;
+        }
+        if (!/^[A-Za-z]{2}$/.test(countryCode.trim())) {
+          toast.error('Veuillez entrer un code pays à deux lettres.');
+          return false;
+        }
+        return true;
+      }
       if (!subdomain) {
         toast.error('Veuillez choisir un sous-domaine.');
         return false;
@@ -179,7 +202,7 @@ export default function Register() {
       toast.info('Votre salon est déjà créé et son domaine reste en attente.');
       return;
     }
-    if (!MAIN_DOMAIN) {
+    if (!isBrandMode && !MAIN_DOMAIN) {
       toast.error('Le domaine principal n’est pas configuré.');
       return;
     }
@@ -208,6 +231,51 @@ export default function Register() {
         createdAt: serverTimestamp(),
       };
       await setDoc(doc(db, 'users', createdUser.uid), userProfile);
+
+      if (isBrandMode) {
+        const bootstrapBrand = httpsCallable<Record<string, unknown>, BootstrapBrandResult>(
+          functions,
+          'bootstrapBrandOwner',
+        );
+        const brandResponse = await bootstrapBrand({
+          brandName: shopName.trim(),
+          locationName: shopName.trim(),
+          city: city.trim(),
+          countryCode: countryCode.trim().toUpperCase(),
+          ...(shopAddress.trim() ? { address: shopAddress.trim() } : {}),
+          ...(shopPhone.trim() ? { phone: shopPhone.trim() } : {}),
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        });
+        const { brandId, locationId, membershipId } = brandResponse.data;
+        if (!brandId || !locationId || !membershipId) {
+          throw new Error('Le serveur a renvoyé un espace de marque invalide.');
+        }
+        tenantBootstrapped = true;
+
+        const session = await loadSessionUser(createdUser);
+        const principalMembership = session.memberships.find(membership => (
+          membership.userId === createdUser.uid
+          && membership.brandId === brandId
+          && membership.role === 'principal_admin'
+          && membership.status === 'active'
+          && !membership.locationId
+        ));
+        const initialLocationMembership = session.memberships.find(membership => (
+          membership.id === membershipId
+          && membership.userId === createdUser.uid
+          && membership.brandId === brandId
+          && membership.locationId === locationId
+          && membership.role === 'principal_admin'
+          && membership.status === 'active'
+        ));
+        if (!principalMembership || !initialLocationMembership) {
+          throw new Error('L’accès Principal Admin n’a pas pu être vérifié.');
+        }
+        await refreshSession();
+        toast.success('Votre marque et votre premier salon sont prêts.');
+        navigate('/brand', { replace: true });
+        return;
+      }
 
       // 4. Atomically create the tenant, reservation, and fixed owner membership on the server.
       const bootstrap = httpsCallable<Record<string, unknown>, BootstrapTenantResult>(
@@ -323,15 +391,15 @@ export default function Register() {
           <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#D4AF37]/20 to-[#FFD700]/20 flex items-center justify-center border border-[#D4AF37]/30 mb-4">
             <Scissors className="w-8 h-8 text-[#D4AF37] animate-pulse" />
           </div>
-          <h1 className="text-3xl md:text-4xl font-black bg-gradient-to-r from-[#D4AF37] to-[#FFD700] bg-clip-text text-transparent mb-2">Rejoignez Barberboard</h1>
-          <p className="text-white/60">Configurez votre salon multi-utilisateur en quelques minutes.</p>
+          <h1 className="text-3xl md:text-4xl font-black bg-gradient-to-r from-[#D4AF37] to-[#FFD700] bg-clip-text text-transparent mb-2">{isBrandMode ? 'Créez votre marque' : 'Rejoignez Barberboard'}</h1>
+          <p className="text-white/60">{isBrandMode ? 'Ouvrez votre premier salon, puis pilotez vos emplacements depuis un seul espace.' : 'Configurez votre salon multi-utilisateur en quelques minutes.'}</p>
         </div>
 
         {/* Progress Bar */}
         <div className="mb-12">
           <div className="flex justify-between items-center text-xs font-bold text-white/40 uppercase tracking-widest mb-3">
             <span>Étape {step} sur 4</span>
-            <span>{step === 1 ? 'Salon' : step === 2 ? 'Lien' : step === 3 ? 'Compte' : 'Formule'}</span>
+            <span>{step === 1 ? 'Salon' : step === 2 ? (isBrandMode ? 'Implantation' : 'Lien') : step === 3 ? 'Compte' : (isBrandMode ? 'Confirmation' : 'Formule')}</span>
           </div>
           <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
             <motion.div 
@@ -422,7 +490,35 @@ export default function Register() {
               </motion.div>
             )}
 
-            {step === 2 && (
+            {step === 2 && isBrandMode && (
+              <motion.div
+                key="step2-brand"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                className="space-y-6"
+              >
+                <div className="flex items-center gap-3 border-b border-[#D4AF37]/10 pb-4 mb-6">
+                  <MapPin className="w-6 h-6 text-[#D4AF37]" />
+                  <h2 className="text-xl font-bold text-white">Implantation du premier salon</h2>
+                </div>
+                <div className="grid gap-6 md:grid-cols-[1fr_180px]">
+                  <div className="flex flex-col gap-2">
+                    <label className="text-xs font-bold uppercase text-white/60 tracking-wider">Ville *</label>
+                    <input value={city} onChange={event => setCity(event.target.value)} placeholder="Ex: Paris" className="px-5 py-4 bg-white/5 border border-white/10 rounded-xl focus:border-[#D4AF37] outline-none text-white transition-all placeholder:text-white/20" />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <label className="text-xs font-bold uppercase text-white/60 tracking-wider">Code pays *</label>
+                    <input value={countryCode} onChange={event => setCountryCode(event.target.value)} maxLength={2} className="px-5 py-4 bg-white/5 border border-white/10 rounded-xl focus:border-[#D4AF37] outline-none text-white uppercase transition-all" />
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-[#D4AF37]/20 bg-[#D4AF37]/5 p-5 text-sm text-white/60">
+                  Vous recevrez le rôle Principal Admin. Les rôles et permissions restent gérés par le serveur.
+                </div>
+              </motion.div>
+            )}
+
+            {step === 2 && !isBrandMode && (
               <motion.div
                 key="step2"
                 initial={{ opacity: 0, x: 20 }}
@@ -539,7 +635,27 @@ export default function Register() {
               </motion.div>
             )}
 
-            {step === 4 && (
+            {step === 4 && isBrandMode && (
+              <motion.div
+                key="step4-brand"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                className="space-y-6"
+              >
+                <div className="flex items-center gap-3 border-b border-[#D4AF37]/10 pb-4 mb-6">
+                  <Shield className="w-6 h-6 text-[#D4AF37]" />
+                  <h2 className="text-xl font-bold text-white">Vérifiez votre espace</h2>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5"><p className="text-xs uppercase tracking-wider text-white/40">Marque et salon</p><p className="mt-2 font-black text-white">{shopName}</p></div>
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5"><p className="text-xs uppercase tracking-wider text-white/40">Implantation</p><p className="mt-2 font-black text-white">{city}, {countryCode.toUpperCase()}</p></div>
+                </div>
+                <p className="text-sm leading-relaxed text-white/50">Aucun rôle privilégié n’est écrit depuis le navigateur : le serveur créera votre marque, son premier salon et vos accès Principal Admin dans une seule opération sécurisée.</p>
+              </motion.div>
+            )}
+
+            {step === 4 && !isBrandMode && (
               <motion.div
                 key="step4"
                 initial={{ opacity: 0, x: 20 }}
@@ -635,7 +751,7 @@ export default function Register() {
           {step < 4 ? (
             <button
               onClick={handleNext}
-              disabled={step === 2 && subdomainAvailable !== true}
+              disabled={step === 2 && !isBrandMode && subdomainAvailable !== true}
               className="px-8 py-4 bg-[#D4AF37] text-black rounded-2xl hover:bg-[#FFD700] hover:shadow-lg hover:shadow-[#D4AF37]/20 transition-all font-bold flex items-center gap-2 text-sm active:scale-95 disabled:opacity-40"
             >
               Continuer <ArrowRight className="w-4 h-4" />
@@ -655,7 +771,7 @@ export default function Register() {
                 <>Salon créé — en attente</>
               ) : (
                 <>
-                  Créer mon Salon <Sparkles className="w-5 h-5 fill-current" />
+                  {isBrandMode ? 'Créer ma marque' : 'Créer mon Salon'} <Sparkles className="w-5 h-5 fill-current" />
                 </>
               )}
             </button>

@@ -5,7 +5,7 @@ import { getRoleJourney } from './roleJourney.mjs';
 test('sends salon brands to the live salon registration flow', () => {
   assert.deepEqual(getRoleJourney('brand'), {
     kind: 'navigate',
-    path: '/register',
+    path: '/register?mode=brand',
   });
 });
 
