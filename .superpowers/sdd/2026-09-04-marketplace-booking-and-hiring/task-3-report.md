@@ -19,6 +19,12 @@
 - Approved portfolio collection and public-profile validation share a tested limit of 12. A 13-item valid source is deterministically capped instead of causing the public profile to disappear.
 - The owned-portfolio fixture now proves the valid parser/application path before the foreign-item rejection. Successful profile saves increment the job-board revision, so the first save reloads jobs even if the city did not change.
 
+## Review fix round 2/5
+
+- Portfolio URL collection now runs inside the same Firestore transaction that reads and updates the freelancer source profile. A transaction retry therefore re-queries the latest portfolio state instead of reusing a stale pre-transaction array.
+- Profile saves use the same transactional portfolio query. Every Task 3 write path that can replace `publicProfile.portfolioUrls` is now serialized through the freelancer profile document, so an older handler cannot re-publish a URL after a newer delete, rejection, or visibility change.
+- A deterministic out-of-order regression holds the older handler before its transaction, deletes the approved item, commits the newer refresh, then releases the old handler. It failed by restoring the deleted URL before the fix and now finishes with an empty projection.
+
 ## TDD record
 
 - `functions/src/jobs.test.ts` was created before its production modules. The first run failed with `ENOENT` for `jobs.ts`, `freelancers.ts`, and `deposits.ts`.
@@ -27,6 +33,7 @@
 - Invitation relationship tests failed until chair-rental membership mapping existed, and the invitation UI test failed while chair rental was still labelled as a generic collaborator.
 - The emulator rules suite was written before the rules change. Its red run could not connect to the Java-backed Firestore emulator at `127.0.0.1:8080`, matching the existing Task 1/2 environment limitation.
 - Review-round tests were added before the fixes. Server tests initially failed because `refreshFreelancerPortfolioProjection` did not exist; the workspace helper suite initially failed because its module did not exist. The new emulator query cases again stopped at the unavailable Firestore emulator before assertions could execute.
+- Round 2's concurrency test was added before the transactional query change. Its red run received `https://example.test/deleted.jpg` after the newer handler had removed it, directly reproducing the stale overwrite.
 
 ## Security and compatibility review
 
@@ -37,13 +44,13 @@
 | City/location scoping | Job scope is derived from `salonLocations`; list/apply use the freelancer's stable city ID; review verifies application scope against the job before acting. |
 | Employee vs independent chair rental | Invitations carry `relationshipType`; employee acceptance creates `worker` plus worker profile, while chair rental creates `chair_renter` with no worker profile. |
 | Home address privacy | No Task 2 private-address rules or storage changed; the dashboard displays approximate area before acceptance and calls `getBookingAddress` only for a confirmed response or confirmed refresh snapshot. |
-| Portfolio projection consistency | Every freelancer portfolio write rebuilds approved URLs, capped to the same 12-item limit enforced by public projection validation. |
+| Portfolio projection consistency | Every freelancer portfolio write rebuilds approved URLs inside the source-profile transaction, capped to the same 12-item limit enforced by public projection validation; transaction retries re-read portfolio state. |
 | No payment rollout | No credentials, provider SDK calls, checkout URL, transaction, deployment, or actionable deposit UI was added. Deposit preferences are labelled future/non-actionable and the callable always fails closed. |
 | Existing permissions preserved | New job authority uses server-issued Principal/location memberships and `manageJobs`; no legacy tenant or Task 1/2 rule was relaxed. |
 
 ## Verification
 
-- `cd functions && npx jest src/jobs.test.ts src/bookings.test.ts --runInBand` — passed, 21/21.
+- `cd functions && npx jest src/jobs.test.ts src/bookings.test.ts --runInBand` — passed, 22/22.
 - `cd functions && npm run build` — passed.
 - Focused TS/TSX tests for auth return, role journey, freelancer/job/workspace parsers, address selection, query scope, invitation authorization, and chair-rental UI — passed, 28/28.
 - `npm run build` — passed (Vite production build).

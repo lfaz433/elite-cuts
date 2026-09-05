@@ -46,6 +46,8 @@ function firestoreState(initial) {
           where(field, operator, value) {
             const filters = [[field, operator, value]];
             const query = {
+              collectionName,
+              isQuery: true,
               where(nextField, nextOperator, nextValue) {
                 filters.push([nextField, nextOperator, nextValue]);
                 return query;
@@ -65,7 +67,9 @@ function firestoreState(initial) {
       },
       async runTransaction(callback) {
         return callback({
-          get: async ref => snapshot(state[ref.collectionName]?.[ref.id], ref.id),
+          get: async ref => ref.isQuery
+            ? ref.get()
+            : snapshot(state[ref.collectionName]?.[ref.id], ref.id),
           getAll: async (...refs) => refs.map(ref => snapshot(state[ref.collectionName]?.[ref.id], ref.id)),
           create(ref, value) {
             state[ref.collectionName] ??= {};
@@ -279,6 +283,47 @@ describe('freelancer jobs and settings', () => {
     });
 
     await refreshFreelancerPortfolioProjection('freelancer-a', firestore);
+
+    expect(state.freelancerProfiles['freelancer-a'].publicProfile.portfolioUrls).toEqual([]);
+  });
+
+  test('an older portfolio refresh cannot restore a URL deleted by a newer handler', async () => {
+    const { refreshFreelancerPortfolioProjection } = loadModule('freelancers.ts');
+    const { firestore, state } = firestoreState({
+      freelancerProfiles: {
+        'freelancer-a': {
+          ...profileA,
+          publicProfile: { portfolioUrls: ['https://example.test/deleted.jpg'] },
+        },
+      },
+      portfolioItems: {
+        'approved-item': {
+          ownerId: 'freelancer-a', ownerType: 'freelancer', visible: true,
+          moderationStatus: 'approved', imageUrl: 'https://example.test/deleted.jpg',
+        },
+      },
+    });
+    const runTransaction = firestore.runTransaction.bind(firestore);
+    let transactionCalls = 0;
+    let announceFirstTransaction;
+    const firstTransactionStarted = new Promise(resolve => { announceFirstTransaction = resolve; });
+    let releaseFirstTransaction;
+    const firstTransactionRelease = new Promise(resolve => { releaseFirstTransaction = resolve; });
+    firestore.runTransaction = async callback => {
+      transactionCalls += 1;
+      if (transactionCalls === 1) {
+        announceFirstTransaction();
+        await firstTransactionRelease;
+      }
+      return runTransaction(callback);
+    };
+
+    const olderHandler = refreshFreelancerPortfolioProjection('freelancer-a', firestore);
+    await firstTransactionStarted;
+    delete state.portfolioItems['approved-item'];
+    await refreshFreelancerPortfolioProjection('freelancer-a', firestore);
+    releaseFirstTransaction();
+    await olderHandler;
 
     expect(state.freelancerProfiles['freelancer-a'].publicProfile.portfolioUrls).toEqual([]);
   });

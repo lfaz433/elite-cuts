@@ -23,4 +23,5 @@ Task 2: minor (deferred): Java-backed Firestore rules/emulator scenarios, stagin
 Task 2: complete (commits `b378d87..9646376`, review clean)
 Task 3: complete (freelancer profile/portfolio/availability, manual home-visit workspace, city/location-scoped jobs, employee vs chair-rental invitations, and fail-closed deposit capability; no payment provider or deployment)
 Task 3: fix round 1/5 (5 addressed, 0 open — complete owner query scopes, confirmed-only exact-address recovery, portfolio projection refresh and 12-item cap, owned portfolio success fixture, same-city job reload)
+Task 3: fix round 2/5 (1 addressed, 0 open — portfolio and profile-save projections now re-query inside their source-profile transaction; deterministic stale-handler ordering cannot restore deleted URLs)
 Task 3: minor (deferred): Java-backed freelancer rules suite and staging acceptance journeys must run before release; payment staging remains deferred to a separately approved provider phase.

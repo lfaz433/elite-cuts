@@ -133,8 +133,11 @@ export function parseFreelancerProfileInput(value: unknown): FreelancerProfileIn
   };
 }
 
-async function approvedPortfolioUrls(uid: string, firestore: Firestore): Promise<string[]> {
-  const items = await firestore.collection('portfolioItems').where('ownerId', '==', uid).get();
+function approvedPortfolioQuery(uid: string, firestore: Firestore): admin.firestore.Query {
+  return firestore.collection('portfolioItems').where('ownerId', '==', uid);
+}
+
+function approvedPortfolioUrls(items: admin.firestore.QuerySnapshot): string[] {
   return [...items.docs]
     .sort((left, right) => left.id.localeCompare(right.id))
     .map(item => item.data() as RecordValue)
@@ -153,15 +156,20 @@ export async function refreshFreelancerPortfolioProjection(
   uid: string,
   firestore: Firestore = admin.firestore(),
 ): Promise<void> {
-  const portfolioUrls = await approvedPortfolioUrls(uid, firestore);
   const profileRef = firestore.collection('freelancerProfiles').doc(uid);
   await firestore.runTransaction(async transaction => {
-    const profileSnapshot = (await transaction.getAll(profileRef))[0];
+    const [profileSnapshot, portfolioSnapshot] = await Promise.all([
+      transaction.get(profileRef),
+      transaction.get(approvedPortfolioQuery(uid, firestore)),
+    ]);
     const profile = profileSnapshot.data() as RecordValue | undefined;
     if (!profileSnapshot.exists || !profile) return;
     const currentPublicProfile = profile.publicProfile as RecordValue | undefined;
     transaction.update(profileRef, {
-      publicProfile: { ...(currentPublicProfile ?? {}), portfolioUrls },
+      publicProfile: {
+        ...(currentPublicProfile ?? {}),
+        portfolioUrls: approvedPortfolioUrls(portfolioSnapshot),
+      },
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
   });
@@ -179,10 +187,12 @@ export async function saveFreelancerProfile(
   const profileRef = firestore.collection('freelancerProfiles').doc(callerUid);
   const availabilityRef = firestore.collection('availability').doc(callerUid);
   const auditRef = firestore.collection('auditEvents').doc();
-  const portfolioUrls = await approvedPortfolioUrls(callerUid, firestore);
 
   await firestore.runTransaction(async transaction => {
-    const existingSnapshot = (await transaction.getAll(profileRef))[0];
+    const [existingSnapshot, portfolioSnapshot] = await Promise.all([
+      transaction.get(profileRef),
+      transaction.get(approvedPortfolioQuery(callerUid, firestore)),
+    ]);
     const existing = existingSnapshot.data() as RecordValue | undefined;
     const currentPublicProfile = existing?.publicProfile as RecordValue | undefined;
     const approvalStatus = currentPublicProfile?.approvalStatus === 'approved'
@@ -201,7 +211,7 @@ export async function saveFreelancerProfile(
         latitude: coordinates.latitude,
         longitude: coordinates.longitude,
         serviceSummary: input.serviceSummary,
-        portfolioUrls,
+        portfolioUrls: approvedPortfolioUrls(portfolioSnapshot),
         serviceIds: input.serviceIds,
         homeVisit: true,
       },
