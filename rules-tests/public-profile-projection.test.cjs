@@ -44,15 +44,37 @@ test('approved salon projections contain only public discovery fields', () => {
   })).toEqual({
     kind: 'salon',
     cityId: 'fr-paris',
-    latitude: 48.8566,
-    longitude: 2.3522,
+    latitude: 48.85,
+    longitude: 2.35,
     serviceSummary: 'Coupe et barbe',
     portfolioUrls: ['https://example.test/portfolio/paris.jpg'],
     visible: true,
+    approvalStatus: 'approved',
     displayName: 'Atelier Paris',
     serviceIds: ['cut', 'beard'],
     homeVisit: false,
   });
+});
+
+test('public map coordinates never retain the exact source location', () => {
+  const { projectSalonPublicProfile } = loadTypeScriptModule('functions/src/publicProfiles.ts');
+
+  const profile = projectSalonPublicProfile('salon-paris', {
+    name: 'Atelier Paris',
+    city: 'Paris',
+    publicProfile: {
+      approvalStatus: 'approved',
+      visible: true,
+      latitude: 48.8566,
+      longitude: 2.3522,
+      serviceSummary: 'Coupe et barbe',
+      portfolioUrls: [],
+    },
+  });
+
+  expect(profile).not.toBeNull();
+  expect(profile.latitude).not.toBe(48.8566);
+  expect(profile.longitude).not.toBe(2.3522);
 });
 
 test('only explicitly approved source profiles become visible projections', () => {

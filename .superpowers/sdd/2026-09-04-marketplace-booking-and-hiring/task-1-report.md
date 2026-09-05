@@ -39,3 +39,10 @@
 ## Follow-up concern
 
 Run the rules test and the anonymous Paris-only staging scenario in Java-equipped CI or staging before release. This is the only outstanding verification concern; no deployment has been performed.
+
+## Review fix round 1/5
+
+- Public map coordinates are now fixed, coarse city display points selected server-side after validating source coordinates. The public projection never stores the source latitude or longitude; the regression test uses `48.8566, 2.3522` and asserts neither exact value is emitted.
+- Public projections now retain the server-generated `approvalStatus: 'approved'` marker. The client query and parser require it, and the unapproved fixture uses `approvalStatus: 'pending'` while remaining visible to demonstrate that approval is independently enforced.
+- `hasSafePublicProfileShape` now gates both `get` and `list`. A new rules regression seeds an otherwise matching profile with an `address` field and requires both direct read and public list access to fail.
+- Verification after the fix: projection unit test passes (4/4), Functions TypeScript build passes, and Vite build passes. The seven-case rules suite remains blocked before execution by the unavailable Java-backed Firestore emulator.

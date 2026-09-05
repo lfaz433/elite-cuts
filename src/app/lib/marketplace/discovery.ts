@@ -59,6 +59,7 @@ function parsePublicProfile(id: string, value: Record<string, unknown>): PublicP
     || typeof value.serviceSummary !== 'string'
     || !isStringArray(value.portfolioUrls)
     || value.visible !== true
+    || value.approvalStatus !== 'approved'
     || typeof value.displayName !== 'string'
     || !isStringArray(value.serviceIds)
     || typeof value.homeVisit !== 'boolean'
@@ -102,6 +103,7 @@ export async function listPublicProfiles({
     collection(db, 'publicProfiles'),
     where('cityId', '==', cityId),
     where('visible', '==', true),
+    where('approvalStatus', '==', 'approved'),
   ));
   return snapshot.docs
     .map(profile => parsePublicProfile(profile.id, profile.data()))

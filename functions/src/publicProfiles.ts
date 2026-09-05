@@ -15,12 +15,18 @@ export interface PublicProfileProjection {
   serviceSummary: string;
   portfolioUrls: string[];
   visible: true;
+  approvalStatus: 'approved';
   displayName: string;
   serviceIds: string[];
   homeVisit: boolean;
 }
 
 const CITY_IDS: readonly CityId[] = ['fr-paris', 'fr-grenoble', 'fr-mulhouse'];
+const CITY_DISPLAY_COORDINATES: Record<CityId, { latitude: number; longitude: number }> = {
+  'fr-paris': { latitude: 48.85, longitude: 2.35 },
+  'fr-grenoble': { latitude: 45.18, longitude: 5.72 },
+  'fr-mulhouse': { latitude: 47.75, longitude: 7.33 },
+};
 const MAX_PORTFOLIO_URLS = 12;
 const MAX_SERVICE_IDS = 24;
 
@@ -116,14 +122,19 @@ function buildPublicProfile(
     return null;
   }
 
+  // A discovery pin identifies only a coarse city display point. Exact source
+  // coordinates are validated for completeness but never copied to public data.
+  const displayCoordinates = CITY_DISPLAY_COORDINATES[cityId];
+
   return {
     kind,
     cityId,
-    latitude,
-    longitude,
+    latitude: displayCoordinates.latitude,
+    longitude: displayCoordinates.longitude,
     serviceSummary,
     portfolioUrls,
     visible: true,
+    approvalStatus: 'approved',
     displayName: name,
     serviceIds,
     homeVisit: config.homeVisit === true,

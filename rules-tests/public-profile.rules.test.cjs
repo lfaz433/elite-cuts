@@ -44,6 +44,7 @@ async function seedPublicDiscovery() {
         serviceSummary: 'Coupe et barbe',
         portfolioUrls: ['https://example.test/paris.jpg'],
         visible: true,
+        approvalStatus: 'approved',
         displayName: 'Atelier Paris',
         serviceIds: ['cut', 'beard'],
         homeVisit: false,
@@ -55,7 +56,8 @@ async function seedPublicDiscovery() {
         longitude: 2.3522,
         serviceSummary: 'Coupe et barbe',
         portfolioUrls: [],
-        visible: false,
+        visible: true,
+        approvalStatus: 'pending',
         displayName: 'Paris non approuvé',
         serviceIds: [],
         homeVisit: false,
@@ -68,6 +70,7 @@ async function seedPublicDiscovery() {
         serviceSummary: 'Coupe classique',
         portfolioUrls: [],
         visible: true,
+        approvalStatus: 'approved',
         displayName: 'Grenoble fermé',
         serviceIds: [],
         homeVisit: false,
@@ -112,6 +115,35 @@ test('anonymous visitors cannot read an unapproved profile or a disabled city pr
 
   await assertFails(getDoc(doc(db, 'publicProfiles', 'unapproved-paris')));
   await assertFails(getDoc(doc(db, 'publicProfiles', 'approved-disabled-city')));
+});
+
+test('anonymous profile lists reject a malformed projection with private data', async () => {
+  await seedPublicDiscovery();
+  await testEnv.withSecurityRulesDisabled(async ctx => {
+    await setDoc(doc(ctx.firestore(), 'publicProfiles', 'unsafe-paris'), {
+      kind: 'salon',
+      cityId: 'fr-paris',
+      latitude: 48.85,
+      longitude: 2.35,
+      serviceSummary: 'Coupe et barbe',
+      portfolioUrls: [],
+      visible: true,
+      approvalStatus: 'approved',
+      displayName: 'Unsafe Paris',
+      serviceIds: [],
+      homeVisit: false,
+      address: '17 rue privée',
+    });
+  });
+  const db = anonymousDb();
+
+  await assertFails(getDoc(doc(db, 'publicProfiles', 'unsafe-paris')));
+  await assertFails(getDocs(query(
+    collection(db, 'publicProfiles'),
+    where('cityId', '==', 'fr-paris'),
+    where('visible', '==', true),
+    where('approvalStatus', '==', 'approved'),
+  )));
 });
 
 test('anonymous visitors cannot read a source location with its exact address', async () => {

@@ -141,6 +141,7 @@ service cloud.firestore {
           'serviceSummary',
           'portfolioUrls',
           'visible',
+          'approvalStatus',
           'displayName',
           'serviceIds',
           'homeVisit'
@@ -152,6 +153,7 @@ service cloud.firestore {
         && data.serviceSummary is string
         && data.portfolioUrls is list
         && data.visible == true
+        && data.approvalStatus == 'approved'
         && data.displayName is string
         && data.serviceIds is list
         && data.homeVisit is bool;
@@ -325,12 +327,9 @@ service cloud.firestore {
     }
 
     match /publicProfiles/{profileId} {
-      // `list` deliberately relies on the server-only projection writer: rules
-      // cannot prove an arbitrary document key whitelist from a Firestore
-      // query. `get` keeps the defensive shape check for direct lookups.
       allow get: if hasSafePublicProfileShape(resource.data)
         && isEnabledMarketplaceCity(resource.data.cityId);
-      allow list: if resource.data.visible == true
+      allow list: if hasSafePublicProfileShape(resource.data)
         && isEnabledMarketplaceCity(resource.data.cityId);
       allow create, update, delete: if false;
     }
