@@ -655,7 +655,7 @@ export default function HomePage() {
               {t.hero.subtitle}
             </p>
             <div className="flex flex-col sm:flex-row gap-4 mb-4">
-              <button onClick={() => handleRoleJourney('client')} className="px-8 py-4 bg-[#D4AF37] text-black font-bold rounded-xl transition-all hover:bg-[#FFD700] hover:scale-105 active:scale-95 shadow-xl shadow-[#D4AF37]/20 text-center flex items-center justify-center gap-2">
+              <button onClick={() => navigate('/discover')} className="px-8 py-4 bg-[#D4AF37] text-black font-bold rounded-xl transition-all hover:bg-[#FFD700] hover:scale-105 active:scale-95 shadow-xl shadow-[#D4AF37]/20 text-center flex items-center justify-center gap-2">
                 {t.hero.cta1}
               </button>
               <button onClick={() => openJoin()} className="px-8 py-4 rounded-xl border border-white/15 bg-white/[0.04] font-bold text-white transition-all hover:border-[#D4AF37]/70 hover:bg-[#D4AF37]/10 hover:text-[#FFD700] active:scale-95 text-center flex items-center justify-center gap-2">
@@ -1028,7 +1028,7 @@ export default function HomePage() {
       <section className="py-32 border-y border-white/5 bg-gradient-to-br from-[#111] to-[#1a1400]">
         <div className="max-w-4xl mx-auto px-6 text-center">
           <h2 className="text-4xl md:text-6xl font-black mb-8 bg-gradient-to-r from-white via-[#D4AF37] to-white bg-clip-text text-transparent">{t.cta.title}</h2>
-          <button onClick={() => handleRoleJourney('client')} className="px-10 py-5 bg-[#D4AF37] text-black font-black uppercase tracking-widest text-lg rounded-xl hover:scale-105 active:scale-95 transition-all shadow-2xl shadow-[#D4AF37]/30 mb-6">
+          <button onClick={() => navigate('/discover')} className="px-10 py-5 bg-[#D4AF37] text-black font-black uppercase tracking-widest text-lg rounded-xl hover:scale-105 active:scale-95 transition-all shadow-2xl shadow-[#D4AF37]/30 mb-6">
             {t.hero.cta1}
           </button>
           <p className="text-sm font-medium text-white/50">{t.cta.trust}</p>

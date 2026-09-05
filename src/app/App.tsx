@@ -31,6 +31,8 @@ const Billing = lazy(() => import('./components/pages/Billing'));
 const DocsPage = lazy(() => import('./components/pages/DocsPage'));
 const BrandDashboard = lazy(() => import('./components/pages/BrandDashboard'));
 const AcceptInvitation = lazy(() => import('./components/pages/AcceptInvitation'));
+const DiscoverPage = lazy(() => import('./components/pages/DiscoverPage'));
+const ProfilePage = lazy(() => import('./components/discovery/ProfilePage'));
 
 // --- Premium Loading Spinner ---
 function AppLoader() {
@@ -129,6 +131,8 @@ function AppRoutes() {
         <Route index element={<HomeRouter />} />
         <Route path="register" element={<Register />} />
         <Route path="docs" element={<DocsPage />} />
+        <Route path="discover" element={<DiscoverPage />} />
+        <Route path="discover/:profileId" element={<ProfilePage />} />
         <Route path="book" element={<AuthRequired><LandingPage /></AuthRequired>} />
       </Route>
       <Route path="/boutique" element={<BoutiquePage />} />

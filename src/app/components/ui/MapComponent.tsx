@@ -40,14 +40,31 @@ function ChangeView({ center }: { center: [number, number] }) {
   return null;
 }
 
-interface MapComponentProps {
+export interface MapPoint {
+  id: string;
   latitude: number;
   longitude: number;
-  address: string;
+  label: string;
+  description?: string;
 }
 
-export default function MapComponent({ latitude, longitude, address }: MapComponentProps) {
-  const position: [number, number] = [latitude, longitude];
+interface MapComponentProps {
+  latitude?: number;
+  longitude?: number;
+  address?: string;
+  points?: MapPoint[];
+}
+
+export default function MapComponent({ latitude, longitude, address, points }: MapComponentProps) {
+  const fallbackPoint: MapPoint = {
+    id: 'location',
+    latitude: latitude ?? 48.8566,
+    longitude: longitude ?? 2.3522,
+    label: 'Barberboard',
+    description: address,
+  };
+  const mapPoints = points && points.length > 0 ? points : [fallbackPoint];
+  const position: [number, number] = [mapPoints[0].latitude, mapPoints[0].longitude];
 
   // Fix Leaflet container size issues on initial render
   useEffect(() => {
@@ -68,14 +85,16 @@ export default function MapComponent({ latitude, longitude, address }: MapCompon
         <TileLayer
           url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
         />
-        <Marker position={position} icon={customIcon}>
-          <Popup>
-            <div className="text-center min-w-[120px]">
-              <h3 className="font-black text-[#141414] uppercase tracking-widest text-sm mb-1">Barberboard</h3>
-              <p className="text-gray-500 text-xs font-medium leading-tight">{address}</p>
-            </div>
-          </Popup>
-        </Marker>
+        {mapPoints.map(point => (
+          <Marker key={point.id} position={[point.latitude, point.longitude]} icon={customIcon}>
+            <Popup>
+              <div className="text-center min-w-[120px]">
+                <h3 className="font-black text-[#141414] uppercase tracking-widest text-sm mb-1">{point.label}</h3>
+                {point.description && <p className="text-gray-500 text-xs font-medium leading-tight">{point.description}</p>}
+              </div>
+            </Popup>
+          </Marker>
+        ))}
       </MapContainer>
     </div>
   );

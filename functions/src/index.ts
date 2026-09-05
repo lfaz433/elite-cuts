@@ -21,6 +21,7 @@ import {
 } from './memberships';
 import { createWorkerInvitationFunction, respondToInvitationFunction } from './invitations';
 import { updateBusinessInfoFunction } from './businessInfo';
+import { syncFreelancerPublicProfile, syncSalonPublicProfile } from './publicProfiles';
 
 if (admin.apps.length === 0) {
   admin.initializeApp();
@@ -37,6 +38,7 @@ export const updateMembershipPermissions = updateMembershipPermissionsFunction;
 export const createWorkerInvitation = createWorkerInvitationFunction;
 export const respondToInvitation = respondToInvitationFunction;
 export const updateBusinessInfo = updateBusinessInfoFunction;
+export { syncSalonPublicProfile, syncFreelancerPublicProfile };
 
 function getStripe(): Stripe {
   const key = process.env.STRIPE_SECRET_KEY;
