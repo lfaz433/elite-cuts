@@ -98,16 +98,83 @@ function servicePriceMinor(value: unknown): number {
   return minor;
 }
 
-function appointmentDate(input: BookingCreateInput): Date {
-  const result = new Date(`${input.date}T${input.time}:00.000Z`);
+function locationTimezone(tenant: StoredRecord, businessInfo: StoredRecord): string {
+  const value = businessInfo.timezone ?? tenant.timezone ?? tenant.settings?.timezone;
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new Error('Location time zone is not configured');
+  }
+  const timezone = value.trim();
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: timezone }).format();
+  } catch {
+    throw new Error('Location time zone is invalid');
+  }
+  return timezone;
+}
+
+interface WallTimeParts {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+}
+
+function wallTimeParts(date: Date, timezone: string): WallTimeParts {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    calendar: 'gregory',
+    numberingSystem: 'latn',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  });
+  const values = Object.fromEntries(
+    formatter.formatToParts(date)
+      .filter(part => part.type !== 'literal')
+      .map(part => [part.type, Number(part.value)]),
+  );
+  return values as unknown as WallTimeParts;
+}
+
+function appointmentDate(input: BookingCreateInput, timezone: string): Date {
+  const [year, month, day] = input.date.split('-').map(Number);
+  const [hour, minute] = input.time.split(':').map(Number);
+  const wallTimeAsUtc = Date.UTC(year, month - 1, day, hour, minute);
+  const normalized = new Date(wallTimeAsUtc);
   if (
-    Number.isNaN(result.getTime())
-    || result.toISOString().slice(0, 10) !== input.date
-    || result.toISOString().slice(11, 16) !== input.time
+    normalized.getUTCFullYear() !== year
+    || normalized.getUTCMonth() !== month - 1
+    || normalized.getUTCDate() !== day
+    || normalized.getUTCHours() !== hour
+    || normalized.getUTCMinutes() !== minute
   ) {
     throw new Error('Booking date or time is invalid');
   }
-  return result;
+
+  const offsets = new Set<number>();
+  for (const delta of [-86_400_000, 0, 86_400_000]) {
+    const probe = new Date(wallTimeAsUtc + delta);
+    const parts = wallTimeParts(probe, timezone);
+    offsets.add(Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute) - probe.getTime());
+  }
+  const candidates = [...offsets]
+    .map(offset => new Date(wallTimeAsUtc - offset))
+    .filter(candidate => {
+      const parts = wallTimeParts(candidate, timezone);
+      return parts.year === year
+        && parts.month === month
+        && parts.day === day
+        && parts.hour === hour
+        && parts.minute === minute;
+    });
+  if (candidates.length !== 1) {
+    throw new Error('Booking date or time is invalid');
+  }
+  return candidates[0];
 }
 
 export function validateBookingSlot(
@@ -119,7 +186,7 @@ export function validateBookingSlot(
   now: Date = new Date(),
   isStaff = false,
 ): { durationMinutes: number; expectedAmountMinor: number } {
-  const startsAt = appointmentDate(input);
+  const startsAt = appointmentDate(input, locationTimezone(tenant, businessInfo));
   if (input.type === 'sans-rdv' && !isStaff) {
     throw new Error('Walk-in booking requires staff authorization');
   }
@@ -141,12 +208,13 @@ export function validateBookingSlot(
   if (service.archived === true || service.active === false || service.status === 'inactive') {
     throw new Error('Service is unavailable');
   }
-  const day = startsAt.getUTCDay();
+  const [year, month, date] = input.date.split('-').map(Number);
+  const day = new Date(Date.UTC(year, month - 1, date)).getUTCDay();
   const locationHours = businessInfo.weeklyHours?.[dayNames[day]];
   if (!locationHours || locationHours.isOpen !== true) throw new Error('Location is closed');
   const locationOpen = minutes(locationHours.open, 'Location opening time');
   const locationClose = minutes(locationHours.close, 'Location closing time');
-  let startMinute = startsAt.getUTCHours() * 60 + startsAt.getUTCMinutes();
+  let startMinute = minutes(input.time, 'Booking time');
   if (locationClose >= 1440 && startMinute < locationOpen) startMinute += 1440;
   if (startMinute < locationOpen || startMinute + durationMinutes > locationClose) {
     throw new Error('Booking is outside location hours');
@@ -221,10 +289,12 @@ export async function createBooking(
     : firestore.collection('barbers').doc(input.barberId);
   if (!barberRef) throw new Error('A specific barber is required');
   const businessInfoRef = tenantRef.collection('businessInfo').doc('info');
+  const slotLockRef = firestore.collection('booking_slot_locks')
+    .doc(`${tenantId}__${input.barberId}__${input.date}`);
 
   await firestore.runTransaction(async transaction => {
     const [tenant, service, barber, businessInfo] = await transaction.getAll(
-      tenantRef, serviceRef, barberRef, businessInfoRef,
+      tenantRef, serviceRef, barberRef, businessInfoRef, slotLockRef,
     );
     if (!tenant.exists) throw new Error('Tenant not found');
     if (!service.exists || service.data()?.tenantId !== tenantId) {
@@ -251,6 +321,12 @@ export async function createBooking(
     const existing = await transaction.get(overlapQuery);
     assertNoBookingOverlap(input, slot.durationMinutes, existing.docs.map(document => document.data()));
 
+    transaction.set(slotLockRef, {
+      tenantId,
+      barberId: input.barberId,
+      date: input.date,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
     transaction.create(bookingRef, {
       ...input,
       tenantId,

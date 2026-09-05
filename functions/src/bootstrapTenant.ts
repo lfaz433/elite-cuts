@@ -119,6 +119,7 @@ export async function bootstrapTenantOwner(
       phone: input.shopPhone,
       address: input.shopAddress,
       ownerUid: callerUid,
+      timezone: 'Africa/Algiers',
       onboardingComplete: true,
       subscription: {
         status: 'trialing',

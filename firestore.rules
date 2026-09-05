@@ -20,6 +20,18 @@ service cloud.firestore {
         && get(membershipPath(tId)).data.status == 'active';
     }
 
+    function hasActiveTenantAdminMembership(tId) {
+      return hasActiveMembership(tId) && (
+        get(membershipPath(tId)).data.get('permissions', {}).get('manageTenant', false) == true
+        || get(membershipPath(tId)).data.get('role', '') in ['principal_admin', 'salon_admin', 'admin']
+      );
+    }
+
+    function hasLegacyTenantAdminClaim(tId) {
+      return hasLegacyTenantClaim(tId)
+        && request.auth.token.get('role', '') in ['principal_admin', 'salon_admin', 'admin'];
+    }
+
     function isTenantOwner(tId) {
       return request.auth != null
         && exists(/databases/$(database)/documents/tenants/$(tId))
@@ -31,7 +43,11 @@ service cloud.firestore {
     }
 
     function isTenantAuthority(tId) {
-      return request.auth != null && isMemberOfTenant(tId);
+      return request.auth != null && (
+        isTenantOwner(tId)
+        || hasActiveTenantAdminMembership(tId)
+        || hasLegacyTenantAdminClaim(tId)
+      );
     }
 
     function safeTenantUpdateFields() {
@@ -140,6 +156,12 @@ service cloud.firestore {
           'paymentRecordedBy'
         ]);
       allow delete: if false;
+    }
+
+    // Trusted booking transactions update one deterministic barber/day mutex.
+    // Browser access would bypass the transaction serialization invariant.
+    match /booking_slot_locks/{lockId} {
+      allow read, write: if false;
     }
 
     match /barbers/{barberId} {

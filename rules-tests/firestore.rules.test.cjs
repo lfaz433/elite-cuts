@@ -229,6 +229,51 @@ test('active deterministic membership can operate without a legacy tenant claim'
 });
 
 test.each([
+  ['branding', { primaryColor: '#000', logoUrl: '', businessName: 'Worker Edit' }],
+  ['onboardingComplete', true],
+  ['isDemo', true],
+  ['settings', { maxBarbersLimit: 8, allowOnlineBooking: false }],
+])('low-privilege membership cannot update tenant %s', async (field, value) => {
+  const tenantId = 'worker-protected-salon';
+  const uid = 'worker-uid';
+  await seedTenant(tenantId, 'owner-uid');
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'memberships', `${tenantId}__${uid}`), {
+      userId: uid,
+      brandId: tenantId,
+      locationId: tenantId,
+      role: 'worker',
+      status: 'active',
+      permissions: { manageBookings: true },
+    });
+  });
+  const db = await getFirestore(testEnv, uid);
+
+  await assertFails(updateDoc(doc(db, 'tenants', tenantId), { [field]: value }));
+});
+
+test('explicit tenant admin membership can update tenant presentation', async () => {
+  const tenantId = 'admin-managed-salon';
+  const uid = 'salon-admin-uid';
+  await seedTenant(tenantId, 'owner-uid');
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'memberships', `${tenantId}__${uid}`), {
+      userId: uid,
+      brandId: tenantId,
+      locationId: tenantId,
+      role: 'salon_admin',
+      status: 'active',
+      permissions: { manageStaff: true },
+    });
+  });
+  const db = await getFirestore(testEnv, uid);
+
+  await assertSucceeds(updateDoc(doc(db, 'tenants', tenantId), {
+    branding: { primaryColor: '#fff', logoUrl: '', businessName: 'Admin Edit' },
+  }));
+});
+
+test.each([
   ['ownerUid', 'attacker'],
   ['subdomain', 'stolen-name'],
   ['domain', { subdomain: 'stolen-name', status: 'active', vercelVerified: true }],

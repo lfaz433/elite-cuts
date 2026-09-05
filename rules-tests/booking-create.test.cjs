@@ -71,8 +71,9 @@ test('server booking creation persists unpaid zero-value financial defaults', as
     tenants: { 'tenant-a': { name: 'Tenant A', settings: { allowOnlineBooking: true } } },
     services: { 'service-a': { tenantId: 'tenant-a', duration: '30 min', price: '40' } },
     barbers: { 'barber-a': { tenantId: 'tenant-a', workingDays: [6], shiftStart: '09:00', shiftEnd: '18:00' } },
-    businessInfo: { info: { weeklyHours: { saturday: { isOpen: true, open: '09:00', close: '18:00' } } } },
+    businessInfo: { info: { timezone: 'UTC', weeklyHours: { saturday: { isOpen: true, open: '09:00', close: '18:00' } } } },
     bookings: {},
+    booking_slot_locks: {},
   };
   const firestore = {
     collection: name => ({
@@ -89,6 +90,9 @@ test('server booking creation persists unpaid zero-value financial defaults', as
         data: () => state[ref.collectionName]?.[ref.id],
       })),
       get: async () => ({ empty: true, docs: [] }),
+      set: (ref, value) => {
+        state[ref.collectionName][ref.id] = value;
+      },
       create: (ref, value) => {
         state[ref.collectionName][ref.id] = value;
       },
@@ -118,7 +122,7 @@ test.each([
   const tenant = { settings: { allowOnlineBooking: true } };
   const service = { duration: '30 min', price: '40' };
   const barber = { workingDays: [6], shiftStart: '09:00', shiftEnd: '18:00' };
-  const businessInfo = { weeklyHours: { saturday: { isOpen: true, open: '09:00', close: '18:00' } } };
+  const businessInfo = { timezone: 'UTC', weeklyHours: { saturday: { isOpen: true, open: '09:00', close: '18:00' } } };
 
   expect(() => validateBookingSlot(booking, tenant, service, barber, businessInfo, new Date('2099-09-05T09:00:00Z')))
     .toThrow(message);
@@ -132,7 +136,7 @@ test.each([
   const { validateBookingSlot } = loadTypeScriptModule('functions/src/bookingCreate.ts');
   const service = { duration: '30 min', price: '40' };
   const barber = { workingDays: [6], shiftStart: '09:00', shiftEnd: '18:00', ...barberOverride };
-  const businessInfo = { weeklyHours: { saturday: { isOpen: true, open: '09:00', close: '18:00' } } };
+  const businessInfo = { timezone: 'UTC', weeklyHours: { saturday: { isOpen: true, open: '09:00', close: '18:00' } } };
 
   expect(() => validateBookingSlot(validBooking, tenant, service, barber, businessInfo, new Date('2099-09-05T09:00:00Z')))
     .toThrow(message);
@@ -144,7 +148,7 @@ test('public caller cannot bypass future-date validation by claiming a walk-in',
   const tenant = { settings: { allowOnlineBooking: true } };
   const service = { duration: '30 min', price: '40' };
   const barber = { workingDays: [3], shiftStart: '09:00', shiftEnd: '18:00' };
-  const businessInfo = { weeklyHours: { wednesday: { isOpen: true, open: '09:00', close: '18:00' } } };
+  const businessInfo = { timezone: 'UTC', weeklyHours: { wednesday: { isOpen: true, open: '09:00', close: '18:00' } } };
 
   expect(() => validateBookingSlot(booking, tenant, service, barber, businessInfo, new Date('2099-09-05T09:00:00Z'), false))
     .toThrow('Walk-in booking requires staff authorization');
@@ -155,4 +159,48 @@ test('server detects an overlapping active booking', () => {
   expect(() => assertNoBookingOverlap(validBooking, 30, [{
     barberId: 'barber-a', date: '2099-09-05', time: '10:45', durationMinutes: 30, status: 'approved',
   }])).toThrow('Booking slot is no longer available');
+});
+
+test('server interprets a Europe/Paris booking as local wall time at the lead-time boundary', () => {
+  const { validateBookingSlot } = loadTypeScriptModule('functions/src/bookingCreate.ts');
+  const booking = { ...validBooking, date: '2099-07-01', time: '10:30' };
+  const tenant = { settings: { allowOnlineBooking: true, minBookingLeadMinutes: 30 } };
+  const service = { duration: '30 min', price: '40' };
+  const barber = { workingDays: [3], shiftStart: '09:00', shiftEnd: '18:00' };
+  const businessInfo = {
+    timezone: 'Europe/Paris',
+    weeklyHours: { wednesday: { isOpen: true, open: '09:00', close: '18:00' } },
+  };
+
+  expect(() => validateBookingSlot(
+    booking,
+    tenant,
+    service,
+    barber,
+    businessInfo,
+    new Date('2099-07-01T08:00:00.000Z'),
+  )).toThrow('Booking must be in the future');
+});
+
+test.each([
+  [{}, 'Location time zone is not configured'],
+  [{ timezone: 'Not/A_Timezone' }, 'Location time zone is invalid'],
+])('server rejects an unusable location time zone %#', (timeZoneFields, message) => {
+  const { validateBookingSlot } = loadTypeScriptModule('functions/src/bookingCreate.ts');
+  const tenant = { settings: { allowOnlineBooking: true } };
+  const service = { duration: '30 min', price: '40' };
+  const barber = { workingDays: [6], shiftStart: '09:00', shiftEnd: '18:00' };
+  const businessInfo = {
+    ...timeZoneFields,
+    weeklyHours: { saturday: { isOpen: true, open: '09:00', close: '18:00' } },
+  };
+
+  expect(() => validateBookingSlot(
+    validBooking,
+    tenant,
+    service,
+    barber,
+    businessInfo,
+    new Date('2099-09-05T09:00:00.000Z'),
+  )).toThrow(message);
 });

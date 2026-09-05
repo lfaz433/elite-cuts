@@ -65,7 +65,11 @@ test('bootstraps the caller as the fixed owner membership atomically', async () 
     locationId: expect.any(String),
   });
   expect(result.locationId).toBe(result.tenantId);
-  expect(tenant.data()).toMatchObject({ ownerUid: 'owner-a', subdomain: 'owner-salon' });
+  expect(tenant.data()).toMatchObject({
+    ownerUid: 'owner-a',
+    subdomain: 'owner-salon',
+    timezone: 'Africa/Algiers',
+  });
   expect(subdomain.data()).toMatchObject({ ownerUid: 'owner-a', tenantId: result.tenantId });
   expect(membership.data()).toMatchObject({
     userId: 'owner-a',
