@@ -28,13 +28,31 @@ test('payment command uses intent fields rather than writable booking field name
     'functions/src/bookingPayment.ts',
   );
 
-  expect(parseBookingPaymentInput({ amount: 30, tip: 5, method: 'cash' }))
-    .toEqual({ amount: 30, tip: 5, method: 'cash' });
+  expect(parseBookingPaymentInput({
+    amountMinor: 3000,
+    tipMinor: 500,
+    method: 'cash',
+    evidence: { type: 'staff_cash_attestation' },
+  })).toEqual({
+    amountMinor: 3000,
+    tipMinor: 500,
+    method: 'cash',
+    evidence: { type: 'staff_cash_attestation' },
+  });
   expect(() => parseBookingPaymentInput({
-    amount: 30,
+    amountMinor: 3000,
     method: 'cash',
     paymentStatus: 'paid',
   })).toThrow('Server-owned payment fields cannot be supplied');
+});
+
+test.each([
+  [{ amountMinor: 3000.5, tipMinor: 0, method: 'cash', evidence: { type: 'staff_cash_attestation' } }, 'amountMinor'],
+  [{ amountMinor: 3000, tipMinor: 0.5, method: 'cash', evidence: { type: 'staff_cash_attestation' } }, 'tipMinor'],
+  [{ amountMinor: 3000, tipMinor: 0, method: 'card', evidence: { type: 'staff_cash_attestation' } }, 'Card payments require verified processor evidence'],
+])('rejects non-integral or unsupported payment evidence %#', (payment, message) => {
+  const { parseBookingPaymentInput } = loadTypeScriptModule('functions/src/bookingPayment.ts');
+  expect(() => parseBookingPaymentInput(payment)).toThrow(message);
 });
 
 test('authorized payment recording updates the booking and appends an audit event', async () => {
@@ -46,8 +64,9 @@ test('authorized payment recording updates the booking and appends an audit even
       'booking-a': {
         tenantId: 'tenant-a',
         locationId: 'tenant-a',
-        status: 'approved',
+        status: 'completed',
         paymentStatus: 'unpaid',
+        expectedAmountMinor: 4000,
         pricePaid: 0,
         tip: 0,
       },
@@ -90,7 +109,12 @@ test('authorized payment recording updates the booking and appends an audit even
     'booking-a',
     'tenant-a',
     membership,
-    { amount: 40, tip: 5, method: 'cash' },
+    {
+      amountMinor: 4000,
+      tipMinor: 500,
+      method: 'cash',
+      evidence: { type: 'staff_cash_attestation' },
+    },
     firestore,
   );
 
@@ -98,6 +122,8 @@ test('authorized payment recording updates the booking and appends an audit even
     paymentStatus: 'paid',
     pricePaid: 40,
     tip: 5,
+    pricePaidMinor: 4000,
+    tipMinor: 500,
     paymentMethod: 'cash',
     paymentRecordedBy: 'manager-a',
   });
@@ -107,4 +133,28 @@ test('authorized payment recording updates the booking and appends an audit even
     tenantId: 'tenant-a',
     bookingId: 'booking-a',
   });
+});
+
+test.each([
+  [{ status: 'approved', paymentStatus: 'unpaid', expectedAmountMinor: 4000 }, 'Booking is not completed'],
+  [{ status: 'completed', paymentStatus: 'paid', expectedAmountMinor: 4000 }, 'Booking payment is already recorded'],
+  [{ status: 'completed', paymentStatus: 'unpaid', expectedAmountMinor: 5000 }, 'Payment amount does not match booking amount'],
+])('rejects payment when booking state is not payable %#', async (bookingState, message) => {
+  const { recordBookingPayment } = loadTypeScriptModule('functions/src/bookingPayment.ts');
+  const membership = {
+    id: 'membership-a', userId: 'manager-a', brandId: 'tenant-a', locationId: 'tenant-a',
+    status: 'active', role: 'admin', permissions: { manageBookings: true },
+  };
+  const state = { bookings: { 'booking-a': { tenantId: 'tenant-a', locationId: 'tenant-a', ...bookingState } }, memberships: { 'membership-a': membership }, audit_logs: {} };
+  const firestore = {
+    collection: name => ({ doc: id => ({ collectionName: name, id: id ?? 'audit-a' }) }),
+    runTransaction: async callback => callback({
+      getAll: async (...refs) => refs.map(ref => ({ exists: Boolean(state[ref.collectionName][ref.id]), data: () => state[ref.collectionName][ref.id] })),
+      update: () => {}, create: () => {},
+    }),
+  };
+
+  await expect(recordBookingPayment('manager-a', 'booking-a', 'tenant-a', membership, {
+    amountMinor: 4000, tipMinor: 0, method: 'cash', evidence: { type: 'staff_cash_attestation' },
+  }, firestore)).rejects.toThrow(message);
 });

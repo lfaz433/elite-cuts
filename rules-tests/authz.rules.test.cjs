@@ -129,3 +129,25 @@ test('a member cannot create a membership or read another users membership', asy
     where('status', '==', 'active'),
   )));
 });
+
+test('client receives a server-issued notification addressed to their uid without membership', async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'notifications', 'client-notification'), {
+      tenantId: 'location-a',
+      locationId: 'location-a',
+      recipientId: 'client-a',
+      serverIssued: true,
+      title: 'Confirmed',
+      message: 'Your booking is confirmed',
+      read: false,
+    });
+  });
+  const db = asUser('client-a');
+
+  const snapshot = await assertSucceeds(getDocs(query(
+    collection(db, 'notifications'),
+    where('recipientId', '==', 'client-a'),
+    where('tenantId', '==', 'location-a'),
+  )));
+  expect(snapshot.docs.map(document => document.id)).toEqual(['client-notification']);
+});

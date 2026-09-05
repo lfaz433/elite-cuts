@@ -4,8 +4,38 @@ service cloud.firestore {
 
     // Legacy tenant access is accepted only from server-issued custom claims.
     // Client-writable profile data is never an authority source.
-    function isMemberOfTenant(tId) {
+    function hasLegacyTenantClaim(tId) {
       return request.auth != null && request.auth.token.tenantId == tId;
+    }
+
+    function membershipPath(tId) {
+      return /databases/$(database)/documents/memberships/$(tId + '__' + request.auth.uid);
+    }
+
+    function hasActiveMembership(tId) {
+      return request.auth != null
+        && exists(membershipPath(tId))
+        && get(membershipPath(tId)).data.userId == request.auth.uid
+        && get(membershipPath(tId)).data.locationId == tId
+        && get(membershipPath(tId)).data.status == 'active';
+    }
+
+    function isTenantOwner(tId) {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/tenants/$(tId))
+        && get(/databases/$(database)/documents/tenants/$(tId)).data.ownerUid == request.auth.uid;
+    }
+
+    function isMemberOfTenant(tId) {
+      return hasLegacyTenantClaim(tId) || hasActiveMembership(tId) || isTenantOwner(tId);
+    }
+
+    function isTenantAuthority(tId) {
+      return request.auth != null && isMemberOfTenant(tId);
+    }
+
+    function safeTenantUpdateFields() {
+      return ['name', 'phone', 'address', 'branding', 'onboardingComplete', 'isDemo', 'settings', 'updatedAt'];
     }
 
     function isSuperAdmin() {
@@ -56,12 +86,13 @@ service cloud.firestore {
     // 1. Tenants Collection (Public reads for domain resolution, admin write controls)
     match /tenants/{tenantId} {
       allow read: if true;
-      // Allow create if: superadmin, already a member, OR the authenticated user is the owner
-      // (the ownerUid check handles brand-new signups before server provisioning completes)
-      allow create: if isSuperAdmin() 
-        || isMemberOfTenant(tenantId)
-        || (request.auth != null && request.resource.data.ownerUid == request.auth.uid);
-      allow update, delete: if isSuperAdmin() || isMemberOfTenant(tenantId);
+      allow create: if isSuperAdmin();
+      allow update: if isSuperAdmin() || (
+        isTenantAuthority(tenantId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(safeTenantUpdateFields())
+        && request.resource.data.settings.maxBarbersLimit == resource.data.settings.maxBarbersLimit
+      );
+      allow delete: if isSuperAdmin();
     }
 
     // 1.1 Per-tenant business info subcollection
@@ -73,13 +104,14 @@ service cloud.firestore {
     // 1.5 Subdomains Reservation Collection
     match /subdomains/{subdomainName} {
       allow read: if true;
-      allow create: if request.auth != null && request.resource.data.ownerUid == request.auth.uid;
-      allow delete: if isSuperAdmin() || (request.auth != null && resource.data.ownerUid == request.auth.uid);
+      allow create: if false;
+      allow delete: if isSuperAdmin();
     }
 
     // 2. Scoped Business Operations Collections
     match /bookings/{bookingId} {
-      allow read: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow read: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId)
+        || (request.auth != null && request.auth.uid == resource.data.clientId);
       // Booking lifecycle writes are exclusive to authenticated/validated
       // server endpoints. Admin SDK writes bypass these client rules.
       allow create: if false;
@@ -100,6 +132,10 @@ service cloud.firestore {
           'pricePaid',
           'tip',
           'paymentMethod',
+          'expectedAmountMinor',
+          'durationMinutes',
+          'pricePaidMinor',
+          'tipMinor',
           'paymentRecordedAt',
           'paymentRecordedBy'
         ]);

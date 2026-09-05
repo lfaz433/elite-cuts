@@ -80,3 +80,13 @@ test('bootstraps the caller as the fixed owner membership atomically', async () 
     },
   });
 });
+
+test('reservation is the authoritative source for duplicate subdomain rejection', async () => {
+  await db.collection('subdomains').doc('reserved-only').set({
+    ownerUid: 'first-owner', tenantId: 'deleted-tenant',
+  });
+
+  await expect(bootstrapTenantOwner('second-owner', {
+    subdomain: 'reserved-only', shopName: 'Second Salon', planId: 'basic',
+  }, db)).rejects.toMatchObject({ code: 'already-exists' });
+});

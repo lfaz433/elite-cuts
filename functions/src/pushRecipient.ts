@@ -3,7 +3,7 @@ import * as admin from 'firebase-admin';
 export interface PushRecipientAssociation {
   sourceAlias: string;
   userId: string;
-  membershipId: string;
+  membershipId?: string;
 }
 
 export async function resolvePushRecipient(
@@ -15,6 +15,9 @@ export async function resolvePushRecipient(
   if (typeof sourceAlias !== 'string' || !sourceAlias.trim()) return null;
 
   let userId = sourceAlias;
+  if (sourceKind === 'client') {
+    return { sourceAlias, userId };
+  }
   if (sourceKind === 'barber') {
     const barber = await firestore.collection('barbers').doc(sourceAlias).get();
     const barberData = barber.data();

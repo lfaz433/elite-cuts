@@ -18,20 +18,17 @@ const FAIL = '\x1b[31m✗ FAIL\x1b[0m';
 const tests = [
   {
     id: 'SA-1',
-    description: 'Tenants: create rule allows ownerUid == request.auth.uid (Fix for new signups)',
+    description: 'Tenants: browser creation is denied in favor of server bootstrap',
     check: () => {
       // Must contain the ownerUid check in the tenants block
       const tenantsBlock = rules.match(/match \/tenants\/\{tenantId\}[^}]+(?:\{[^}]*\}[^}]*)*?\}/s)?.[0] || '';
-      return (
-        tenantsBlock.includes('request.resource.data.ownerUid == request.auth.uid') ||
-        rules.includes('request.resource.data.ownerUid == request.auth.uid')
-      );
+      return tenantsBlock.includes('allow create: if isSuperAdmin()');
     },
   },
   {
     id: 'SA-2',
-    description: 'Subdomains: create rule allows ownerUid == request.auth.uid',
-    check: () => rules.includes("request.resource.data.ownerUid == request.auth.uid"),
+    description: 'Subdomains: browser creation is denied',
+    check: () => /match \/subdomains\/\{subdomainName\}[\s\S]*?allow create: if false;/.test(rules),
   },
   {
     id: 'SA-3',
@@ -72,23 +69,17 @@ const tests = [
   },
   {
     id: 'SA-9',
-    description: 'Tenants: update/delete still requires membership (not just ownerUid)',
+    description: 'Tenants: update requires scoped authority and immutable server fields',
     check: () => {
       const lines = rules.split('\n');
-      const updateLine = lines.find(l => l.includes('allow update, delete') && l.includes('isMemberOfTenant'));
-      return !!updateLine;
+      return rules.includes('isTenantAuthority(tenantId)') && rules.includes('hasOnly(safeTenantUpdateFields())');
     },
   },
   {
     id: 'SA-10',
-    description: 'Tenants: create rule includes all 3 conditions (superadmin OR member OR ownerUid)',
+    description: 'Bookings: clients can read records addressed to their uid',
     check: () => {
-      const createSection = rules.split('allow create')[1]?.split(';')[0] || '';
-      return (
-        createSection.includes('isSuperAdmin') &&
-        createSection.includes('isMemberOfTenant') &&
-        createSection.includes('ownerUid')
-      );
+      return rules.includes('request.auth.uid == resource.data.clientId');
     },
   },
 ];

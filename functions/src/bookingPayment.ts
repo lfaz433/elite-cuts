@@ -2,12 +2,13 @@ import * as admin from 'firebase-admin';
 import { Membership } from './authz';
 
 export interface BookingPaymentInput {
-  amount: number;
-  tip: number;
-  method: 'cash' | 'card';
+  amountMinor: number;
+  tipMinor: number;
+  method: 'cash';
+  evidence: { type: 'staff_cash_attestation' };
 }
 
-const allowedKeys = new Set(['amount', 'tip', 'method']);
+const allowedKeys = new Set(['amountMinor', 'tipMinor', 'method', 'evidence']);
 
 export function parseBookingPaymentInput(value: unknown): BookingPaymentInput {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -18,21 +19,33 @@ export function parseBookingPaymentInput(value: unknown): BookingPaymentInput {
     throw new Error('Server-owned payment fields cannot be supplied');
   }
   if (
-    typeof input.amount !== 'number'
-    || !Number.isFinite(input.amount)
-    || input.amount < 0
-    || input.amount > 1_000_000
+    typeof input.amountMinor !== 'number'
+    || !Number.isSafeInteger(input.amountMinor)
+    || input.amountMinor < 0
+    || input.amountMinor > 100_000_000
   ) {
-    throw new Error('amount is invalid');
+    throw new Error('amountMinor is invalid');
   }
-  const tip = input.tip ?? 0;
-  if (typeof tip !== 'number' || !Number.isFinite(tip) || tip < 0 || tip > 1_000_000) {
-    throw new Error('tip is invalid');
+  const tipMinor = input.tipMinor ?? 0;
+  if (typeof tipMinor !== 'number' || !Number.isSafeInteger(tipMinor) || tipMinor < 0 || tipMinor > 100_000_000) {
+    throw new Error('tipMinor is invalid');
   }
-  if (input.method !== 'cash' && input.method !== 'card') {
+  if (input.method === 'card') {
+    throw new Error('Card payments require verified processor evidence');
+  }
+  if (input.method !== 'cash') {
     throw new Error('method is invalid');
   }
-  return { amount: input.amount, tip, method: input.method };
+  const evidence = input.evidence as Record<string, unknown> | undefined;
+  if (!evidence || Object.keys(evidence).length !== 1 || evidence.type !== 'staff_cash_attestation') {
+    throw new Error('Cash payment evidence is required');
+  }
+  return {
+    amountMinor: input.amountMinor,
+    tipMinor,
+    method: input.method,
+    evidence: { type: 'staff_cash_attestation' },
+  };
 }
 
 export async function recordBookingPayment(
@@ -69,12 +82,22 @@ export async function recordBookingPayment(
     ) {
       throw new Error('Payment authorization changed');
     }
+    if (booking?.status !== 'completed') throw new Error('Booking is not completed');
+    if (booking?.paymentStatus === 'paid') throw new Error('Booking payment is already recorded');
+    if (!Number.isSafeInteger(booking?.expectedAmountMinor)) {
+      throw new Error('Booking has no trusted expected amount');
+    }
+    if (payment.amountMinor !== booking.expectedAmountMinor) {
+      throw new Error('Payment amount does not match booking amount');
+    }
 
     const recordedAt = admin.firestore.FieldValue.serverTimestamp();
     transaction.update(bookingRef, {
       paymentStatus: 'paid',
-      pricePaid: payment.amount,
-      tip: payment.tip,
+      pricePaidMinor: payment.amountMinor,
+      tipMinor: payment.tipMinor,
+      pricePaid: payment.amountMinor / 100,
+      tip: payment.tipMinor / 100,
       paymentMethod: payment.method,
       paymentRecordedAt: recordedAt,
       paymentRecordedBy: callerUid,
@@ -93,9 +116,10 @@ export async function recordBookingPayment(
       },
       after: {
         paymentStatus: 'paid',
-        pricePaid: payment.amount,
-        tip: payment.tip,
+        pricePaidMinor: payment.amountMinor,
+        tipMinor: payment.tipMinor,
         paymentMethod: payment.method,
+        evidenceType: payment.evidence.type,
       },
       createdAt: recordedAt,
     });

@@ -94,7 +94,7 @@ export async function bootstrapTenantOwner(
   const input = parseInput(value);
   const tenantRef = firestore.collection('tenants').doc();
   const subdomainRef = firestore.collection('subdomains').doc(input.subdomain);
-  const membershipRef = firestore.collection('memberships').doc();
+  const membershipRef = firestore.collection('memberships').doc(`${tenantRef.id}__${callerUid}`);
   const createdAt = admin.firestore.FieldValue.serverTimestamp();
 
   await firestore.runTransaction(async transaction => {

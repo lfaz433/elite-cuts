@@ -51,7 +51,7 @@ import { toast } from 'sonner';
 import { QRCodeCanvas } from 'qrcode.react';
 import type { Barber, Service, Product } from '../context/BusinessContext';
 import { db } from '../../lib/firebase';
-import { collection, query, where, getDocs, updateDoc, doc, addDoc, setDoc, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, updateDoc, doc, addDoc, setDoc } from 'firebase/firestore';
 import { usePagination } from '../../hooks/usePagination';
 import { PaginationBar } from '../ui/PaginationBar';
 import NotificationCenter from '../ui/NotificationCenter';
@@ -78,6 +78,7 @@ const ProductManagement = lazy(() => import('../admin/ProductManagement').then(m
 const FinanceReport = lazy(() => import('../admin/FinanceReport').then(m => ({ default: m.FinanceReport })));
 const ExpenseModal = lazy(() => import('../modals/ExpenseModal'));
 const DepositModal = lazy(() => import('../modals/DepositModal'));
+const MAIN_DOMAIN = import.meta.env.VITE_MAIN_DOMAIN?.trim().toLowerCase() || '';
 
 const compressImage = (file: File, maxDim: number = 400, quality: number = 0.5): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -147,9 +148,8 @@ export default function AdminDashboard() {
     if (!sub || sub === 'elite-cuts-default' || sub === 'platform') {
       return window.location.origin;
     }
-    // Always use 'barbeboard.pro' in production for subdomains since it has working wildcard subdomains on Vercel
-    const baseDomain = 'barbeboard.pro';
-    return `https://${sub}.${baseDomain}`;
+    if (!MAIN_DOMAIN) return window.location.origin;
+    return `https://${sub}.${MAIN_DOMAIN}`;
   };
   const [activeTab, setActiveTab] = useState(() => {
     const path = window.location.pathname;
@@ -166,29 +166,6 @@ export default function AdminDashboard() {
       navigate(`/admin/${activeTab}`, { replace: true });
     }
   }, [activeTab, navigate]);
-
-  // Auto-heal admin user document if tenantId is missing or incorrectly set to 'platform'
-  useEffect(() => {
-    if (user && tenant && tenant.tenantId && tenant.tenantId !== 'platform') {
-      const checkAndHeal = async () => {
-        try {
-          const userDocRef = doc(db, 'users', user.uid);
-          const userDocSnap = await getDoc(userDocRef);
-          if (userDocSnap.exists()) {
-            const data = userDocSnap.data();
-            if (!data.tenantId || data.tenantId === 'platform') {
-              await updateDoc(userDocRef, { tenantId: tenant.tenantId });
-              console.log(`[AdminDashboard] Auto-healed tenantId for user ${user.uid} to ${tenant.tenantId}`);
-              toast.success("Permissions synchronisées avec succès !");
-            }
-          }
-        } catch (e) {
-          console.error("Auto-heal check failed:", e);
-        }
-      };
-      checkAndHeal();
-    }
-  }, [user, tenant]);
 
   // Deep linking logic for highlighting and scrolling to reservations
   useEffect(() => {

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Scissors, Check, AlertTriangle, ArrowRight, ArrowLeft, Loader2, Sparkles, Shield, User, Globe, Store } from 'lucide-react';
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { doc, setDoc, collection, getDocs, query, serverTimestamp, where } from 'firebase/firestore';
+import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { auth, db, functions } from '../../lib/firebase';
 import { useNavigate } from 'react-router';
@@ -112,9 +112,8 @@ export default function Register() {
     setIsCheckingSubdomain(true);
     setSubdomainError('');
     try {
-      const q = query(collection(db, 'tenants'), where('subdomain', '==', subdomain));
-      const querySnapshot = await getDocs(q);
-      const isTaken = !querySnapshot.empty;
+      const reservation = await getDoc(doc(db, 'subdomains', subdomain));
+      const isTaken = reservation.exists();
       setSubdomainAvailable(!isTaken);
       if (isTaken) {
         setSubdomainError('Ce sous-domaine est déjà utilisé.');

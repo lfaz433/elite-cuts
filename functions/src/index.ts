@@ -381,7 +381,9 @@ export const transitionBookingStatusHandler = async (
         tenantId,
         locationId,
         recipientId: recipientAssociation.userId,
-        recipientMembershipId: recipientAssociation.membershipId,
+        ...(recipientAssociation.membershipId
+          ? { recipientMembershipId: recipientAssociation.membershipId }
+          : {}),
         reservationId: bookingId,
         read: false,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),

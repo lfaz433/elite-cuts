@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { db } from '../../lib/firebase';
-import { collection, query, where, getDocs, addDoc, doc, getDoc, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
 
 export interface TenantData {
@@ -33,23 +33,22 @@ export function useTenant() {
   return context;
 }
 
+const MAIN_DOMAIN = import.meta.env.VITE_MAIN_DOMAIN?.trim().toLowerCase() || '';
+
 function extractSubdomain(hostname: string): string {
+  const normalizedHost = hostname.trim().toLowerCase();
   if (
-    hostname === 'localhost' ||
-    hostname === '127.0.0.1' ||
-    hostname.endsWith('.vercel.app') ||
-    hostname === 'barberboard.pro' ||
-    hostname === 'www.barberboard.pro' ||
-    hostname === 'barbeboard.pro' ||
-    hostname === 'www.barbeboard.pro'
+    normalizedHost === 'localhost' ||
+    normalizedHost === '127.0.0.1' ||
+    normalizedHost.endsWith('.vercel.app') ||
+    (MAIN_DOMAIN !== '' && (
+      normalizedHost === MAIN_DOMAIN || normalizedHost === `www.${MAIN_DOMAIN}`
+    ))
   ) {
     return 'elite-cuts-default';
   }
-  if (hostname === 'demo.barberboard.pro' || hostname === 'demo.barbeboard.pro') {
-    return 'demo';
-  }
-  if (hostname.endsWith('.barberboard.pro') || hostname.endsWith('.barbeboard.pro')) {
-    return hostname.split('.')[0];
+  if (MAIN_DOMAIN !== '' && normalizedHost.endsWith(`.${MAIN_DOMAIN}`)) {
+    return normalizedHost.slice(0, -(MAIN_DOMAIN.length + 1)).split('.').pop() || 'elite-cuts-default';
   }
   return 'elite-cuts-default';
 }
@@ -140,22 +139,21 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     if (isLoading) return; // Wait until initial subdomain tenant is resolved
 
     const auth = getAuth();
-    let unsubscribeSnapshot: (() => void) | undefined;
 
-    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
-      if (unsubscribeSnapshot) {
-        unsubscribeSnapshot();
-        unsubscribeSnapshot = undefined;
-      }
-
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (user) {
-        unsubscribeSnapshot = onSnapshot(doc(db, 'users', user.uid), async (userDoc) => {
-          const userTenantId = userDoc.data()?.tenantId;
-          const currentTenant = tenantRef.current;
-          
-          if (userTenantId && currentTenant && userTenantId !== currentTenant.tenantId) {
-            // Load the correct tenant for this user
-            const tenantDoc = await getDoc(doc(db, 'tenants', userTenantId));
+        const currentTenant = tenantRef.current;
+        if (currentTenant?.tenantId === 'platform') {
+          const memberships = await getDocs(query(
+            collection(db, 'memberships'),
+            where('userId', '==', user.uid),
+            where('status', '==', 'active'),
+          ));
+          const locationId = memberships.docs
+            .map(membership => membership.data().locationId)
+            .find((value): value is string => typeof value === 'string' && value !== '');
+          if (locationId) {
+            const tenantDoc = await getDoc(doc(db, 'tenants', locationId));
             if (tenantDoc.exists()) {
               const data = tenantDoc.data();
               setTenant({
@@ -175,7 +173,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
               });
             }
           }
-        });
+        }
       } else {
         // Reset to initial subdomain tenant on logout
         if (initialTenantRef.current) {
@@ -186,7 +184,6 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       unsubscribeAuth();
-      if (unsubscribeSnapshot) unsubscribeSnapshot();
     };
   }, [isLoading]);
 

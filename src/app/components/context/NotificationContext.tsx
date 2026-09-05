@@ -31,8 +31,8 @@ interface NotificationContextType {
 
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
-// Define your OneSignal App ID here
-const ONESIGNAL_APP_ID = "812f9b44-12d9-4391-97b7-6f0b2798987d";
+const ONESIGNAL_APP_ID = import.meta.env.VITE_ONESIGNAL_APP_ID?.trim() || '';
+const ONESIGNAL_SAFARI_WEB_ID = import.meta.env.VITE_ONESIGNAL_SAFARI_WEB_ID?.trim() || '';
 
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
@@ -45,13 +45,14 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   useEffect(() => {
     const initOneSignal = async () => {
       if (typeof window === 'undefined') return;
+      if (!ONESIGNAL_APP_ID) return;
       if ((window as any).__onesignal_initialized) return;
       (window as any).__onesignal_initialized = true;
 
       try {
         await OneSignal.init({
           appId: ONESIGNAL_APP_ID,
-          safari_web_id: "web.onesignal.auto.184299bc-1c91-4dec-a5d4-b75cfd155372",
+          ...(ONESIGNAL_SAFARI_WEB_ID ? { safari_web_id: ONESIGNAL_SAFARI_WEB_ID } : {}),
           allowLocalhostAsSecureOrigin: true, // Useful for testing on localhost
           notifyButton: {
             enable: false, // We'll use our custom modal instead of the floating bell
@@ -156,11 +157,10 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     const recipientId = user.role === 'admin' ? 'admin' : (user.barberId || user.uid);
     if (!recipientId) return;
 
-    // Merge and deduplicate notifications from both snapshots
-    const mergeAndSet = (byUid: AppNotification[], byEmail: AppNotification[]) => {
+    const mergeAndSet = (byUid: AppNotification[]) => {
       const seen = new Set<string>();
       const merged: AppNotification[] = [];
-      for (const n of [...byUid, ...byEmail]) {
+      for (const n of byUid) {
         if (!seen.has(n.id)) {
           seen.add(n.id);
           merged.push(n);
@@ -175,9 +175,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     };
 
     let byUidNotifs: AppNotification[] = [];
-    let byEmailNotifs: AppNotification[] = [];
-
-    // Primary query: match by uid / 'admin' / barberId
+    // Server-issued client notifications are addressed only to authenticated UIDs.
     const qByUid = query(
       collection(db, 'notifications'),
       where('recipientId', '==', recipientId),
@@ -186,28 +184,13 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
     const unsubUid = onSnapshot(qByUid, (snapshot) => {
       byUidNotifs = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as AppNotification));
-      mergeAndSet(byUidNotifs, byEmailNotifs);
+      mergeAndSet(byUidNotifs);
     });
-
-    // Fix 2: Secondary query for client users — match by email to catch guest-booking notifications
-    let unsubEmail: (() => void) | null = null;
-    if (user.role === 'client' && user.email) {
-      const qByEmail = query(
-        collection(db, 'notifications'),
-        where('recipientId', '==', user.email),
-        where('tenantId', '==', tenantId)
-      );
-      unsubEmail = onSnapshot(qByEmail, (snapshot) => {
-        byEmailNotifs = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as AppNotification));
-        mergeAndSet(byUidNotifs, byEmailNotifs);
-      });
-    }
 
     return () => {
       unsubUid();
-      if (unsubEmail) unsubEmail();
     };
-  }, [user?.uid, user?.role, user?.barberId, user?.email, tenantId]);
+  }, [user?.uid, user?.role, user?.barberId, tenantId]);
 
   // Fix 2: Handle mobile browser background throttling
   useEffect(() => {
@@ -225,17 +208,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
             where('recipientId', '==', recipientId),
             where('tenantId', '==', tenantId)
           ));
-          let merged = snapshotUid.docs.map(d => ({ id: d.id, ...d.data() } as AppNotification));
-
-          if (user.role === 'client' && user.email) {
-            const snapshotEmail = await getDocs(query(
-              collection(db, 'notifications'),
-              where('recipientId', '==', user.email),
-              where('tenantId', '==', tenantId)
-            ));
-            const emailNotifs = snapshotEmail.docs.map(d => ({ id: d.id, ...d.data() } as AppNotification));
-            merged = [...merged, ...emailNotifs];
-          }
+          const merged = snapshotUid.docs.map(d => ({ id: d.id, ...d.data() } as AppNotification));
 
           const seen = new Set<string>();
           const deduped: AppNotification[] = [];
@@ -257,7 +230,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [user?.uid, user?.role, user?.barberId, user?.email, tenantId]);
+  }, [user?.uid, user?.role, user?.barberId, tenantId]);
 
   const unreadCount = notifications.filter(n => !n.read).length;
 

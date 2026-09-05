@@ -17,6 +17,7 @@ import {
 import { toast } from 'sonner';
 import { useCallback } from 'react';
 import { useTenant } from './TenantContext';
+import { useAuth } from './AuthContext';
 
 export interface Service {
   id: string;
@@ -331,6 +332,7 @@ const BusinessContext = createContext<BusinessContextType | undefined>(undefined
 
 export function BusinessProvider({ children }: { children: ReactNode }) {
   const { tenantId, subdomain } = useTenant();
+  const { user } = useAuth();
   const [services, setServices] = useState<Service[]>([]);
   const [barbers, setBarbers] = useState<Barber[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -416,7 +418,12 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
         },
         body: JSON.stringify({
           bookingId: id,
-          payment: { amount, tip, method },
+          payment: {
+            amountMinor: Math.round(amount * 100),
+            tipMinor: Math.round(tip * 100),
+            method,
+            evidence: { type: 'staff_cash_attestation' },
+          },
         }),
       },
     );
@@ -471,7 +478,14 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       markLoaded('businessInfo');
     }, () => markLoaded('businessInfo'));
 
-    const unsubBookings = onSnapshot(query(collection(db, 'bookings'), where('tenantId', '==', tenantId)), (snapshot) => {
+    const bookingsQuery = user?.role === 'client'
+      ? query(
+        collection(db, 'bookings'),
+        where('tenantId', '==', tenantId),
+        where('clientId', '==', user.uid),
+      )
+      : query(collection(db, 'bookings'), where('tenantId', '==', tenantId));
+    const unsubBookings = onSnapshot(bookingsQuery, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Booking));
       setBookings(data);
       markLoaded();
@@ -563,7 +577,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       unsubGallery(); unsubProducts(); unsubSales(); unsubAttendance(); unsubSettlements(); unsubExpenses(); unsubDeposits();
       unsubPayrollReqs(); unsubPayrollPays(); unsubCampaigns(); unsubClients(); unsubNotes();
     };
-  }, [tenantId]);
+  }, [tenantId, user?.role, user?.uid]);
 
 
 
