@@ -1,7 +1,13 @@
 import { httpsCallable } from 'firebase/functions';
 import { functions } from '../firebase';
 import type { CityId } from './discovery';
-import { parseJobPost, type JobPost, type RelationshipType } from './jobRecords';
+import {
+  parseJobPost,
+  parseSalonHiringWorkspace,
+  type JobPost,
+  type RelationshipType,
+  type SalonHiringWorkspace,
+} from './jobRecords';
 
 export * from './jobRecords';
 
@@ -23,6 +29,10 @@ const reviewApplicationCall = httpsCallable<{
 }, { applicationId: string; status: 'rejected' | 'invited'; invitationId?: string }>(
   functions,
   'reviewJobApplication',
+);
+const listSalonHiringWorkspaceCall = httpsCallable<{ locationId: string }, unknown>(
+  functions,
+  'listSalonHiringWorkspace',
 );
 
 export async function listCityJobs(cityId: CityId): Promise<JobPost[]> {
@@ -58,4 +68,11 @@ export async function reviewJobApplication(
   decision: 'reject' | 'invite',
 ): Promise<{ status: 'rejected' | 'invited'; invitationId?: string }> {
   return (await reviewApplicationCall({ applicationId, decision })).data;
+}
+
+export async function listSalonHiringWorkspace(locationId: string): Promise<SalonHiringWorkspace> {
+  const result = await listSalonHiringWorkspaceCall({ locationId });
+  const workspace = parseSalonHiringWorkspace(result.data, locationId);
+  if (!workspace) throw new Error('The hiring service returned an invalid response');
+  return workspace;
 }

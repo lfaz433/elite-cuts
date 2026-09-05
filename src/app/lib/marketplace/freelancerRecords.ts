@@ -13,6 +13,7 @@ export interface FreelancerProfile {
   languages: string[];
   serviceSummary: string;
   serviceIds: string[];
+  servicePricesMinor: Record<string, number>;
   visible: boolean;
   radiusKm: number;
   travelFeeMinor: number;
@@ -48,6 +49,15 @@ function deposit(value: unknown): value is DepositPreference {
     && typeof record.value === 'number';
 }
 
+function servicePrices(value: unknown, serviceIds: string[]): value is Record<string, number> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const prices = value as Record<string, unknown>;
+  const priceIds = Object.keys(prices);
+  return priceIds.length === serviceIds.length
+    && priceIds.every(serviceId => serviceIds.includes(serviceId))
+    && serviceIds.every(serviceId => Number.isInteger(prices[serviceId]) && (prices[serviceId] as number) >= 0);
+}
+
 export function parseFreelancerProfile(uid: string, value: unknown): FreelancerProfile | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const profile = value as Record<string, unknown>;
@@ -59,6 +69,7 @@ export function parseFreelancerProfile(uid: string, value: unknown): FreelancerP
     || !strings(profile.languages)
     || typeof profile.serviceSummary !== 'string'
     || !strings(profile.serviceIds)
+    || !servicePrices(profile.servicePricesMinor, profile.serviceIds)
     || typeof profile.visible !== 'boolean'
     || typeof profile.radiusKm !== 'number'
     || typeof profile.travelFeeMinor !== 'number'
@@ -74,6 +85,7 @@ export function parseFreelancerProfile(uid: string, value: unknown): FreelancerP
     languages: profile.languages,
     serviceSummary: profile.serviceSummary,
     serviceIds: profile.serviceIds,
+    servicePricesMinor: profile.servicePricesMinor,
     visible: profile.visible,
     radiusKm: profile.radiusKm,
     travelFeeMinor: profile.travelFeeMinor,
@@ -115,6 +127,7 @@ export function emptyFreelancerProfile(displayName = ''): FreelancerProfileInput
     languages: ['fr'],
     serviceSummary: '',
     serviceIds: [],
+    servicePricesMinor: {},
     visible: false,
     radiusKm: 10,
     travelFeeMinor: 0,

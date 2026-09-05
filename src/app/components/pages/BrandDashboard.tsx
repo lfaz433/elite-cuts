@@ -12,6 +12,8 @@ import LocationForm from '../brand/LocationForm';
 import LocationList from '../brand/LocationList';
 import MembershipPermissionManager, { type PermissionMember } from '../brand/MembershipPermissionManager';
 import PermissionEditor from '../brand/PermissionEditor';
+import SalonBookingManager from '../brand/SalonBookingManager';
+import SalonHiringManager from '../brand/SalonHiringManager';
 import WorkerInviteDialog from '../brand/WorkerInviteDialog';
 import { useAuth } from '../context/AuthContext';
 import { useWorkspace } from '../context/WorkspaceContext';
@@ -325,11 +327,15 @@ export default function BrandDashboard() {
                   )}
                 </section>
               ) : (
-                <section className="grid gap-4 sm:grid-cols-3">
-                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5"><p className="text-xs uppercase tracking-wider text-white/40">Ville</p><p className="mt-2 text-lg font-black">{selectedLocation.city}</p></div>
-                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5"><p className="text-xs uppercase tracking-wider text-white/40">Pays</p><p className="mt-2 text-lg font-black">{selectedLocation.countryCode}</p></div>
-                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5"><p className="text-xs uppercase tracking-wider text-white/40">Périmètre</p><p className="mt-2 text-lg font-black">Emplacement actif</p></div>
-                </section>
+                <>
+                  <section className="grid gap-4 sm:grid-cols-3">
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5"><p className="text-xs uppercase tracking-wider text-white/40">Ville</p><p className="mt-2 text-lg font-black">{selectedLocation.city}</p></div>
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5"><p className="text-xs uppercase tracking-wider text-white/40">Pays</p><p className="mt-2 text-lg font-black">{selectedLocation.countryCode}</p></div>
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5"><p className="text-xs uppercase tracking-wider text-white/40">Périmètre</p><p className="mt-2 text-lg font-black">Emplacement actif</p></div>
+                  </section>
+                  {(isPrincipal || permissionValue.manageBookings) && <SalonBookingManager locationId={selectedLocation.id} />}
+                  {(isPrincipal || permissionValue.manageJobs) && <SalonHiringManager locationId={selectedLocation.id} canInviteWorkers={isPrincipal || permissionValue.inviteWorkers} />}
+                </>
               )}
             </div>
           ) : !loading && !error ? (

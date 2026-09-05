@@ -6,15 +6,24 @@ test('parses only a complete owned freelancer profile', () => {
   assert.deepEqual(parseFreelancerProfile('freelancer-a', {
     uid: 'freelancer-a', displayName: 'Ada', bio: 'Paris', cityId: 'fr-paris',
     languages: ['fr'], serviceSummary: 'Coupe', serviceIds: ['cut'], visible: false,
+    servicePricesMinor: { cut: 2500 },
     radiusKm: 10, travelFeeMinor: 500, deposit: { mode: 'none', value: 0 },
     cancellationWindowHours: 24, availability: ['2099-09-07T10:00'],
   }), {
     uid: 'freelancer-a', displayName: 'Ada', bio: 'Paris', cityId: 'fr-paris',
     languages: ['fr'], serviceSummary: 'Coupe', serviceIds: ['cut'], visible: false,
+    servicePricesMinor: { cut: 2500 },
     radiusKm: 10, travelFeeMinor: 500, deposit: { mode: 'none', value: 0 },
     cancellationWindowHours: 24, availability: ['2099-09-07T10:00'],
   });
   assert.equal(parseFreelancerProfile('freelancer-b', { uid: 'freelancer-a' }), null);
+  assert.equal(parseFreelancerProfile('freelancer-a', {
+    uid: 'freelancer-a', displayName: 'Ada', bio: 'Paris', cityId: 'fr-paris',
+    languages: ['fr'], serviceSummary: 'Coupe', serviceIds: ['cut'], visible: false,
+    servicePricesMinor: { beard: 2500 },
+    radiusKm: 10, travelFeeMinor: 500, deposit: { mode: 'none', value: 0 },
+    cancellationWindowHours: 24, availability: [],
+  }), null);
 });
 
 test('accepts an owned portfolio record and rejects one belonging to another freelancer', () => {

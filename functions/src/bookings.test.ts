@@ -90,10 +90,39 @@ describe('marketplace booking lifecycle', () => {
     }, firestore);
 
     expect(result).toEqual({ bookingId: 'booking-a', status: 'confirmed' });
-    expect(state.availability['location-a'].availableSlots).toEqual([]);
+    expect(state.availability['location-a']).toMatchObject({
+      availableSlots: [], reservedSlots: ['2099-09-05T10:30'],
+    });
     expect(state.bookingRequests['booking-a']).toMatchObject({
       ownerId: 'location-a', ownerType: 'salon', clientId: 'client-a', status: 'confirmed',
     });
+  });
+
+  test('rejects a second booking after the first transaction consumes the slot', async () => {
+    const { createMarketplaceBooking } = loadBookings();
+    const state = {
+      publicProfiles: {
+        'salon__location-a': {
+          kind: 'salon', visible: true, approvalStatus: 'approved', serviceIds: ['cut'], homeVisit: false,
+        },
+      },
+      salonLocations: { 'location-a': { brandId: 'brand-a', bookingPolicy: 'automatic' } },
+      availability: { 'location-a': { availableSlots: ['2099-09-05T10:30'] } },
+      bookingRequests: {}, bookingRequestPrivate: {}, auditEvents: {},
+    };
+    const firestore = basicTransactionFirestore(state);
+    const request = {
+      profileId: 'salon__location-a', serviceId: 'cut', date: '2099-09-05', time: '10:30',
+      clientName: 'Ada Client',
+    };
+
+    await expect(createMarketplaceBooking('client-a', request, firestore)).resolves.toMatchObject({
+      status: 'confirmed',
+    });
+    await expect(createMarketplaceBooking('client-b', {
+      ...request, clientName: 'Bob Client',
+    }, firestore)).rejects.toThrow('no longer available');
+    expect(Object.values(state.bookingRequests)).toHaveLength(1);
   });
 
   test('releases a home address only to the freelancer who accepts the request', async () => {
@@ -120,18 +149,24 @@ describe('marketplace booking lifecycle', () => {
 
   test('does not read availability after writing a freelancer decline', async () => {
     const { respondToMarketplaceBooking } = loadBookings();
-    const state = { bookingRequests: { 'booking-a': { ownerId: 'freelancer-a', ownerType: 'freelancer', clientId: 'client-a', serviceId: 'cut', date: '2099-09-05', time: '10:30', status: 'pending_approval' } }, bookingRequestPrivate: {}, availability: { 'freelancer-a': { availableSlots: [] } }, auditEvents: {} };
+    const state = { bookingRequests: { 'booking-a': { ownerId: 'freelancer-a', ownerType: 'freelancer', clientId: 'client-a', serviceId: 'cut', date: '2099-09-05', time: '10:30', status: 'pending_approval' } }, bookingRequestPrivate: {}, availability: { 'freelancer-a': { availableSlots: [], reservedSlots: ['2099-09-05T10:30'] } }, auditEvents: {} };
     const firestore = orderedTransactionFirestore(state);
 
     await expect(respondToMarketplaceBooking('freelancer-a', { bookingId: 'booking-a', decision: 'decline' }, firestore)).resolves.toMatchObject({ status: 'declined' });
+    expect(state.availability['freelancer-a']).toMatchObject({
+      availableSlots: ['2099-09-05T10:30'], reservedSlots: [],
+    });
   });
 
   test('does not read availability after writing a client cancellation', async () => {
     const { cancelMarketplaceBooking } = loadBookings();
-    const state = { bookingRequests: { 'booking-a': { ownerId: 'freelancer-a', ownerType: 'freelancer', clientId: 'client-a', serviceId: 'cut', date: '2099-09-05', time: '10:30', status: 'confirmed' } }, bookingRequestPrivate: {}, availability: { 'freelancer-a': { availableSlots: [] } }, auditEvents: {} };
+    const state = { bookingRequests: { 'booking-a': { ownerId: 'freelancer-a', ownerType: 'freelancer', clientId: 'client-a', serviceId: 'cut', date: '2099-09-05', time: '10:30', status: 'confirmed' } }, bookingRequestPrivate: {}, availability: { 'freelancer-a': { availableSlots: [], reservedSlots: ['2099-09-05T10:30'] } }, auditEvents: {} };
     const firestore = orderedTransactionFirestore(state);
 
     await expect(cancelMarketplaceBooking('client-a', 'booking-a', firestore)).resolves.toEqual({ bookingId: 'booking-a', status: 'cancelled' });
+    expect(state.availability['freelancer-a']).toMatchObject({
+      availableSlots: ['2099-09-05T10:30'], reservedSlots: [],
+    });
   });
 
   test('rejects a freelancer booking when the public profile has not enabled home visits', async () => {
@@ -140,6 +175,99 @@ describe('marketplace booking lifecycle', () => {
     const firestore = basicTransactionFirestore(state);
 
     await expect(createMarketplaceBooking('client-a', { profileId: 'freelancer__freelancer-a', serviceId: 'cut', date: '2099-09-05', time: '10:30', clientName: 'Ada Client', homeAddress: { line1: '12 rue des Fleurs', city: 'Paris' } }, firestore)).rejects.toThrow('Home visits are not available');
+  });
+
+  test('rejects a home visit outside the freelancer service radius', async () => {
+    const { createMarketplaceBooking } = loadBookings();
+    const state = {
+      publicProfiles: {
+        'freelancer__freelancer-a': {
+          kind: 'freelancer', visible: true, approvalStatus: 'approved',
+          serviceIds: ['cut'], homeVisit: true,
+        },
+      },
+      freelancerProfiles: {
+        'freelancer-a': {
+          radiusKm: 5, travelFeeMinor: 800, cancellationWindowHours: 24,
+          servicePricesMinor: { cut: 2500 },
+          publicProfile: { latitude: 48.8566, longitude: 2.3522 },
+        },
+      },
+      availability: { 'freelancer-a': { availableSlots: ['2099-09-05T10:30'] } },
+      bookingRequests: {}, bookingRequestPrivate: {}, auditEvents: {},
+    };
+    const firestore = basicTransactionFirestore(state);
+
+    await expect(createMarketplaceBooking('client-a', {
+      profileId: 'freelancer__freelancer-a', serviceId: 'cut',
+      date: '2099-09-05', time: '10:30', clientName: 'Ada Client',
+      approximateArea: 'Grenoble', approximateLocation: { latitude: 45.1885, longitude: 5.7245 },
+      homeAddress: { line1: '12 rue des Fleurs', city: 'Grenoble' },
+    }, firestore)).rejects.toThrow('outside this professional’s service radius');
+    expect(state.bookingRequests).toEqual({});
+  });
+
+  test('snapshots freelancer price, travel and cancellation policy from server-owned settings', async () => {
+    const { createMarketplaceBooking } = loadBookings();
+    const state = {
+      publicProfiles: {
+        'freelancer__freelancer-a': {
+          kind: 'freelancer', visible: true, approvalStatus: 'approved',
+          serviceIds: ['cut'], homeVisit: true,
+        },
+      },
+      freelancerProfiles: {
+        'freelancer-a': {
+          radiusKm: 12, travelFeeMinor: 800, cancellationWindowHours: 24,
+          servicePricesMinor: { cut: 2500 },
+          publicProfile: { latitude: 48.8566, longitude: 2.3522 },
+        },
+      },
+      availability: { 'freelancer-a': { availableSlots: ['2099-09-05T10:30'] } },
+      bookingRequests: {}, bookingRequestPrivate: {}, auditEvents: {},
+    };
+    const firestore = basicTransactionFirestore(state);
+
+    await createMarketplaceBooking('client-a', {
+      profileId: 'freelancer__freelancer-a', serviceId: 'cut',
+      date: '2099-09-05', time: '10:30', clientName: 'Ada Client',
+      approximateArea: 'Paris 11e', approximateLocation: { latitude: 48.858, longitude: 2.36 },
+      homeAddress: { line1: '12 rue des Fleurs', city: 'Paris' },
+    }, firestore);
+
+    expect(state.bookingRequests['booking-a']).toMatchObject({
+      servicePriceMinor: 2500,
+      travelFeeMinor: 800,
+      totalPriceMinor: 3300,
+      serviceRadiusKm: 12,
+      cancellationWindowHours: 24,
+    });
+    expect(state.bookingRequests['booking-a'].distanceKm).toBeGreaterThan(0);
+    expect(state.bookingRequests['booking-a']).not.toHaveProperty('approximateLocation');
+  });
+
+  test('prevents client cancellation after the snapshotted cancellation deadline', async () => {
+    const { cancelMarketplaceBooking } = loadBookings();
+    const state = {
+      bookingRequests: {
+        'booking-a': {
+          ownerId: 'freelancer-a', ownerType: 'freelancer', clientId: 'client-a',
+          serviceId: 'cut', date: '2099-09-05', time: '10:30', status: 'confirmed',
+          cancellationDeadlineMs: 2_000,
+        },
+      },
+      availability: {
+        'freelancer-a': { availableSlots: [], reservedSlots: ['2099-09-05T10:30'] },
+      },
+      auditEvents: {},
+    };
+    const firestore = orderedTransactionFirestore(state);
+
+    await expect(cancelMarketplaceBooking(
+      'client-a', 'booking-a', firestore, new Date(2_001),
+    )).rejects.toThrow('cancellation window has closed');
+    expect(state.bookingRequests['booking-a'].status).toBe('confirmed');
+    expect(state.availability['freelancer-a'].reservedSlots).toEqual(['2099-09-05T10:30']);
   });
 
   test('returns an exact address only to the client or accepting freelancer after confirmation', async () => {
@@ -153,6 +281,107 @@ describe('marketplace booking lifecycle', () => {
     state.bookingRequests['booking-a'].status = 'pending_approval';
     await expect(getMarketplaceBookingAddress('freelancer-a', 'booking-a', firestore)).rejects.toThrow('not available before acceptance');
   });
+
+  test('lets an exact-location booking manager configure salon slots without reopening reservations', async () => {
+    const { saveSalonAvailability } = loadBookings();
+    const reservedSlot = '2099-09-05T10:30';
+    const state = {
+      salonLocations: { 'location-a': { brandId: 'brand-a' } },
+      memberships: {
+        'brand-a__location-a__manager-a': {
+          userId: 'manager-a', brandId: 'brand-a', locationId: 'location-a', status: 'active',
+          permissions: { manageBookings: true },
+        },
+      },
+      availability: {
+        'location-a': { ownerId: 'location-a', ownerType: 'salon', availableSlots: [], reservedSlots: [reservedSlot] },
+      },
+      auditEvents: {},
+    };
+    const firestore = scopedFirestore(state);
+
+    await expect(saveSalonAvailability('manager-a', {
+      locationId: 'location-a', availableSlots: [reservedSlot, '2099-09-05T11:30'],
+    }, firestore)).resolves.toEqual({ locationId: 'location-a', availableSlots: ['2099-09-05T11:30'] });
+    expect(state.availability['location-a']).toMatchObject({
+      ownerId: 'location-a', ownerType: 'salon',
+      configuredSlots: [reservedSlot, '2099-09-05T11:30'],
+      availableSlots: ['2099-09-05T11:30'], reservedSlots: [reservedSlot],
+    });
+
+    await expect(saveSalonAvailability('outsider-a', {
+      locationId: 'location-a', availableSlots: ['2099-09-05T12:30'],
+    }, firestore)).rejects.toThrow('Permission denied');
+  });
+
+  test('lists only exact-location salon booking requests for an authorized manager', async () => {
+    const { listSalonBookingWorkspace } = loadBookings();
+    const state = {
+      salonLocations: { 'location-a': { brandId: 'brand-a' } },
+      memberships: {
+        'brand-a__principal__principal-a': {
+          userId: 'principal-a', brandId: 'brand-a', role: 'principal_admin', status: 'active',
+        },
+      },
+      availability: {
+        'location-a': { ownerId: 'location-a', ownerType: 'salon', availableSlots: ['2099-09-05T11:30'] },
+      },
+      bookingRequests: {
+        'booking-a': {
+          profileId: 'salon__location-a', ownerId: 'location-a', ownerType: 'salon',
+          brandId: 'brand-a', locationId: 'location-a', clientId: 'client-a', clientName: 'Ada',
+          serviceId: 'cut', date: '2099-09-05', time: '11:30', status: 'pending_approval',
+        },
+        'booking-cross-brand': {
+          profileId: 'salon__location-a', ownerId: 'location-a', ownerType: 'salon',
+          brandId: 'brand-b', locationId: 'location-a', clientId: 'client-b', clientName: 'Eve',
+          serviceId: 'cut', date: '2099-09-05', time: '12:30', status: 'pending_approval',
+        },
+        'booking-other-location': {
+          profileId: 'salon__location-b', ownerId: 'location-b', ownerType: 'salon',
+          brandId: 'brand-a', locationId: 'location-b', clientId: 'client-c', clientName: 'Bob',
+          serviceId: 'cut', date: '2099-09-05', time: '13:30', status: 'pending_approval',
+        },
+      },
+    };
+    const firestore = scopedFirestore(state);
+
+    await expect(listSalonBookingWorkspace('principal-a', {
+      locationId: 'location-a',
+    }, firestore)).resolves.toEqual({
+      locationId: 'location-a',
+      availableSlots: ['2099-09-05T11:30'],
+      bookings: [expect.objectContaining({ id: 'booking-a', clientId: 'client-a' })],
+    });
+  });
+
+  test('allows an exact-location booking manager to respond to a manual salon request', async () => {
+    const { respondToMarketplaceBooking } = loadBookings();
+    const state = {
+      bookingRequests: {
+        'booking-a': {
+          profileId: 'salon__location-a', ownerId: 'location-a', ownerType: 'salon',
+          brandId: 'brand-a', locationId: 'location-a', clientId: 'client-a', clientName: 'Ada',
+          serviceId: 'cut', date: '2099-09-05', time: '10:30', status: 'pending_approval',
+        },
+      },
+      bookingRequestPrivate: {},
+      memberships: {
+        'brand-a__location-a__manager-a': {
+          userId: 'manager-a', brandId: 'brand-a', locationId: 'location-a', status: 'active',
+          permissions: { manageBookings: true },
+        },
+      },
+      availability: { 'location-a': { availableSlots: [], reservedSlots: ['2099-09-05T10:30'] } },
+      auditEvents: {},
+    };
+    const firestore = scopedFirestore(state);
+
+    await expect(respondToMarketplaceBooking('manager-a', {
+      bookingId: 'booking-a', decision: 'accept',
+    }, firestore)).resolves.toMatchObject({ id: 'booking-a', status: 'confirmed' });
+    expect(state.bookingRequests['booking-a']).toMatchObject({ status: 'confirmed', statusUpdatedBy: 'manager-a' });
+  });
 });
 
 function readFirestore(state) {
@@ -160,7 +389,24 @@ function readFirestore(state) {
 }
 
 function basicTransactionFirestore(state) {
-  const firestore = readFirestore(state);
+  let nextId = 0;
+  const firestore = {
+    collection(name) {
+      return {
+        doc(id) {
+          const resolvedId = id ?? (name === 'bookingRequests' ? 'booking-a' : `${name}-${++nextId}`);
+          return {
+            collectionName: name,
+            id: resolvedId,
+            get: async () => ({
+              exists: Boolean(state[name]?.[resolvedId]),
+              data: () => state[name]?.[resolvedId],
+            }),
+          };
+        },
+      };
+    },
+  };
   firestore.runTransaction = async callback => callback({
     getAll: async (...refs) => refs.map(ref => ({ exists: Boolean(state[ref.collectionName]?.[ref.id]), data: () => state[ref.collectionName]?.[ref.id] })),
     create(ref, value) { state[ref.collectionName][ref.id] = value; },
@@ -182,5 +428,59 @@ function orderedTransactionFirestore(state) {
       update(ref, value) { wrote = true; state[ref.collectionName][ref.id] = { ...state[ref.collectionName][ref.id], ...value }; },
     });
   };
+  return firestore;
+}
+
+function scopedFirestore(state) {
+  let nextId = 0;
+  const collection = name => {
+    const filters = [];
+    const reference = {
+      doc(id) {
+        const resolvedId = id ?? `${name}-${++nextId}`;
+        return {
+          collectionName: name,
+          id: resolvedId,
+          get: async () => ({
+            exists: Boolean(state[name]?.[resolvedId]),
+            id: resolvedId,
+            data: () => state[name]?.[resolvedId],
+          }),
+        };
+      },
+      where(field, operator, value) {
+        expect(operator).toBe('==');
+        filters.push([field, value]);
+        return reference;
+      },
+      async get() {
+        return {
+          docs: Object.entries(state[name] ?? {}).filter(([, value]) => (
+            filters.every(([field, expected]) => value[field] === expected)
+          )).map(([id, value]) => ({ id, data: () => value })),
+        };
+      },
+    };
+    return reference;
+  };
+  const firestore = { collection };
+  firestore.runTransaction = async callback => callback({
+    getAll: async (...refs) => refs.map(ref => ({
+      exists: Boolean(state[ref.collectionName]?.[ref.id]),
+      id: ref.id,
+      data: () => state[ref.collectionName]?.[ref.id],
+    })),
+    create(ref, value) {
+      state[ref.collectionName] ??= {};
+      state[ref.collectionName][ref.id] = value;
+    },
+    set(ref, value) {
+      state[ref.collectionName] ??= {};
+      state[ref.collectionName][ref.id] = value;
+    },
+    update(ref, value) {
+      state[ref.collectionName][ref.id] = { ...state[ref.collectionName][ref.id], ...value };
+    },
+  });
   return firestore;
 }

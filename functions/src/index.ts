@@ -31,8 +31,10 @@ import {
 import {
   cancelBookingFunction,
   getBookingAddressFunction,
+  listSalonBookingWorkspaceFunction,
   requestBookingFunction,
   respondToBookingFunction,
+  saveSalonAvailabilityFunction,
 } from './bookings';
 import {
   createFreelancerPortfolioItemFunction,
@@ -44,6 +46,7 @@ import {
   applyToJobFunction,
   createJobPostFunction,
   listCityJobsFunction,
+  listSalonHiringWorkspaceFunction,
   reviewJobApplicationFunction,
 } from './jobs';
 import { createConfirmedDepositFunction } from './deposits';
@@ -71,11 +74,14 @@ export const requestBooking = requestBookingFunction;
 export const respondToBooking = respondToBookingFunction;
 export const cancelBooking = cancelBookingFunction;
 export const getBookingAddress = getBookingAddressFunction;
+export const listSalonBookingWorkspace = listSalonBookingWorkspaceFunction;
+export const saveSalonAvailability = saveSalonAvailabilityFunction;
 export const saveFreelancerProfile = saveFreelancerProfileFunction;
 export const createFreelancerPortfolioItem = createFreelancerPortfolioItemFunction;
 export const deleteFreelancerPortfolioItem = deleteFreelancerPortfolioItemFunction;
 export const createJobPost = createJobPostFunction;
 export const listCityJobs = listCityJobsFunction;
+export const listSalonHiringWorkspace = listSalonHiringWorkspaceFunction;
 export const applyToJob = applyToJobFunction;
 export const reviewJobApplication = reviewJobApplicationFunction;
 export const createConfirmedDeposit = createConfirmedDepositFunction;

@@ -14,6 +14,14 @@ export default function ProfileSettings({ value, onChange }: Props) {
     onChange({ ...value, [key]: next })
   );
   const field = 'mt-2 w-full rounded-xl border border-white/10 bg-black px-3 py-3 text-sm text-white outline-none focus:border-[#D4AF37]';
+  const updateServices = (rawValue: string) => {
+    const serviceIds = list(rawValue);
+    const servicePricesMinor = Object.fromEntries(serviceIds.map(serviceId => [
+      serviceId,
+      value.servicePricesMinor[serviceId] ?? 0,
+    ]));
+    onChange({ ...value, serviceIds, servicePricesMinor });
+  };
   return (
     <section className="rounded-3xl border border-white/10 bg-[#111] p-6">
       <div className="flex items-center justify-between gap-4">
@@ -25,8 +33,25 @@ export default function ProfileSettings({ value, onChange }: Props) {
         <label className="text-xs font-bold uppercase tracking-wider text-white/45">Ville<select className={field} value={value.cityId} onChange={event => update('cityId', event.currentTarget.value as FreelancerProfileInput['cityId'])}><option value="fr-paris">Paris</option><option value="fr-grenoble">Grenoble</option><option value="fr-mulhouse">Mulhouse</option></select></label>
         <label className="text-xs font-bold uppercase tracking-wider text-white/45 sm:col-span-2">Bio<textarea className={field} rows={4} maxLength={1000} value={value.bio} onChange={event => update('bio', event.currentTarget.value)} /></label>
         <label className="text-xs font-bold uppercase tracking-wider text-white/45 sm:col-span-2">Résumé des services<textarea className={field} rows={3} maxLength={500} value={value.serviceSummary} onChange={event => update('serviceSummary', event.currentTarget.value)} /></label>
-        <label className="text-xs font-bold uppercase tracking-wider text-white/45">Services (identifiants séparés par des virgules)<input className={field} value={value.serviceIds.join(', ')} onChange={event => update('serviceIds', list(event.currentTarget.value))} /></label>
+        <label className="text-xs font-bold uppercase tracking-wider text-white/45">Services (identifiants séparés par des virgules)<input className={field} value={value.serviceIds.join(', ')} onChange={event => updateServices(event.currentTarget.value)} /></label>
         <label className="text-xs font-bold uppercase tracking-wider text-white/45">Langues (séparées par des virgules)<input className={field} value={value.languages.join(', ')} onChange={event => update('languages', list(event.currentTarget.value))} /></label>
+        {value.serviceIds.map(serviceId => (
+          <label key={serviceId} className="text-xs font-bold uppercase tracking-wider text-white/45">
+            Prix de {serviceId} (€)
+            <input
+              className={field}
+              type="number"
+              min="0"
+              max="10000"
+              step="0.01"
+              value={(value.servicePricesMinor[serviceId] ?? 0) / 100}
+              onChange={event => update('servicePricesMinor', {
+                ...value.servicePricesMinor,
+                [serviceId]: Math.max(0, Math.round(Number(event.currentTarget.value || 0) * 100)),
+              })}
+            />
+          </label>
+        ))}
       </div>
     </section>
   );

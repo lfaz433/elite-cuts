@@ -19,6 +19,7 @@ const JOB_KEYS = new Set([
 ]);
 const APPLICATION_KEYS = new Set(['jobId', 'portfolioItemIds', 'message']);
 const REVIEW_KEYS = new Set(['applicationId', 'decision']);
+const HIRING_WORKSPACE_KEYS = new Set(['locationId']);
 const NO_PERMISSIONS = {
   manageBookings: false,
   manageStaff: false,
@@ -140,6 +141,25 @@ function canManageJobs(
   return principalAllowed || membershipAllowed;
 }
 
+function canInviteWorkers(
+  callerUid: string,
+  brandId: string,
+  locationId: string,
+  principal: admin.firestore.DocumentData | undefined,
+  membership: admin.firestore.DocumentData | undefined,
+): boolean {
+  const principalAllowed = principal?.userId === callerUid
+    && principal.brandId === brandId
+    && principal.role === 'principal_admin'
+    && principal.status === 'active';
+  const membershipAllowed = membership?.userId === callerUid
+    && membership.brandId === brandId
+    && membership.locationId === locationId
+    && membership.status === 'active'
+    && (membership.permissions as RecordValue | undefined)?.inviteWorkers === true;
+  return principalAllowed || membershipAllowed;
+}
+
 export async function createJobPost(
   callerUid: string | null,
   value: unknown,
@@ -231,6 +251,93 @@ export async function listCityJobs(
       terms: record.terms,
     }] : [];
   });
+}
+
+export async function listSalonHiringWorkspace(
+  callerUid: string | null,
+  value: unknown,
+  firestore: Firestore = admin.firestore(),
+): Promise<{
+  locationId: string;
+  cityId: CityId;
+  jobs: Array<RecordValue & { id: string }>;
+  applications: Array<RecordValue & { id: string }>;
+}> {
+  if (!callerUid) throw new functions.https.HttpsError('unauthenticated', 'Authentication is required');
+  const input = inputRecord(value, HIRING_WORKSPACE_KEYS, 'locationId is required');
+  const locationId = documentId(input.locationId, 'locationId');
+  const locationRef = firestore.collection('salonLocations').doc(locationId);
+  const locationSnapshot = await locationRef.get();
+  const location = locationSnapshot.data() as RecordValue | undefined;
+  if (!locationSnapshot.exists || typeof location?.brandId !== 'string') {
+    throw new functions.https.HttpsError('not-found', 'Salon location not found');
+  }
+  const brandId = location.brandId;
+  const [principal, membership] = await Promise.all([
+    firestore.collection('memberships').doc(`${brandId}__principal__${callerUid}`).get(),
+    firestore.collection('memberships').doc(locationMembershipId(brandId, locationId, callerUid)).get(),
+  ]);
+  if (!canManageJobs(callerUid, brandId, locationId, principal.data(), membership.data())) {
+    throw new functions.https.HttpsError('permission-denied', 'Permission denied');
+  }
+  const scopedCityId = locationCityId(location);
+  const [jobSnapshot, applicationSnapshot] = await Promise.all([
+    firestore.collection('jobPosts').where('locationId', '==', locationId).get(),
+    firestore.collection('jobApplications').where('locationId', '==', locationId).get(),
+  ]);
+  const jobs = jobSnapshot.docs.flatMap(document => {
+    const job = activeJob(document.data());
+    return job
+      && job.brandId === brandId
+      && job.locationId === locationId
+      && job.cityId === scopedCityId
+      ? [{
+        id: document.id,
+        brandId,
+        locationId,
+        cityId: scopedCityId,
+        relationshipType: job.relationshipType,
+        title: job.title,
+        description: job.description,
+        serviceIds: job.serviceIds,
+        schedule: job.schedule,
+        terms: job.terms,
+      }]
+      : [];
+  }).sort((left, right) => left.id.localeCompare(right.id));
+  const jobIds = new Set(jobs.map(job => job.id));
+  const applications = applicationSnapshot.docs.flatMap(document => {
+    const application = document.data() as RecordValue;
+    if (
+      application.brandId !== brandId
+      || application.locationId !== locationId
+      || application.cityId !== scopedCityId
+      || !jobIds.has(String(application.jobId))
+      || (application.relationshipType !== 'employee' && application.relationshipType !== 'chair_rental')
+      || !['submitted', 'rejected', 'invited'].includes(String(application.status))
+      || typeof application.applicantId !== 'string'
+      || typeof application.applicantEmail !== 'string'
+      || typeof application.applicantName !== 'string'
+      || typeof application.message !== 'string'
+      || !Array.isArray(application.portfolioItemIds)
+      || application.portfolioItemIds.some(item => typeof item !== 'string')
+    ) return [];
+    return [{
+      id: document.id,
+      jobId: application.jobId,
+      applicantId: application.applicantId,
+      applicantEmail: application.applicantEmail,
+      applicantName: application.applicantName,
+      portfolioItemIds: application.portfolioItemIds,
+      message: application.message,
+      brandId,
+      locationId,
+      cityId: scopedCityId,
+      relationshipType: application.relationshipType,
+      status: application.status,
+    }];
+  }).sort((left, right) => left.id.localeCompare(right.id));
+  return { locationId, cityId: scopedCityId, jobs, applications };
 }
 
 export async function applyToJob(
@@ -373,6 +480,18 @@ export async function reviewJobApplication(
     )) {
       throw new functions.https.HttpsError('permission-denied', 'Permission denied');
     }
+    if (decision === 'invite' && !canInviteWorkers(
+      callerUid,
+      String(job.brandId),
+      String(job.locationId),
+      principalSnapshot.data(),
+      membershipSnapshot.data(),
+    )) {
+      throw new functions.https.HttpsError(
+        'permission-denied',
+        'Worker invitation permission is required',
+      );
+    }
     const now = admin.firestore.FieldValue.serverTimestamp();
     if (decision === 'reject') {
       transaction.update(applicationRef, { status: 'rejected', reviewedBy: callerUid, updatedAt: now });
@@ -414,6 +533,10 @@ export const createJobPostFunction = functions.https.onCall((data, context) => (
 
 export const listCityJobsFunction = functions.https.onCall((data, context) => (
   listCityJobs(context.auth?.uid ?? null, data)
+));
+
+export const listSalonHiringWorkspaceFunction = functions.https.onCall((data, context) => (
+  listSalonHiringWorkspace(context.auth?.uid ?? null, data)
 ));
 
 export const applyToJobFunction = functions.https.onCall((data, context) => (

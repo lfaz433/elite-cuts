@@ -13,6 +13,7 @@ export interface FreelancerProfileInput {
   languages: string[];
   serviceSummary: string;
   serviceIds: string[];
+  servicePricesMinor: Record<string, number>;
   visible: boolean;
   radiusKm: number;
   travelFeeMinor: number;
@@ -23,6 +24,7 @@ export interface FreelancerProfileInput {
 
 const PROFILE_KEYS = new Set([
   'displayName', 'bio', 'cityId', 'languages', 'serviceSummary', 'serviceIds',
+  'servicePricesMinor',
   'visible', 'radiusKm', 'travelFeeMinor', 'deposit', 'cancellationWindowHours',
   'availability',
 ]);
@@ -85,6 +87,36 @@ function availabilityList(value: unknown): string[] {
   return slots.sort();
 }
 
+function servicePrices(value: unknown, serviceIds: string[]): Record<string, number> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new functions.https.HttpsError('invalid-argument', 'servicePricesMinor is invalid');
+  }
+  const prices = value as RecordValue;
+  const priceIds = Object.keys(prices);
+  if (
+    priceIds.length !== serviceIds.length
+    || priceIds.some(serviceId => !serviceIds.includes(serviceId))
+  ) {
+    throw new functions.https.HttpsError(
+      'invalid-argument',
+      'servicePricesMinor must contain exactly one price for each service',
+    );
+  }
+  return Object.fromEntries(serviceIds.map(serviceId => [
+    serviceId,
+    integer(prices[serviceId], `servicePricesMinor.${serviceId}`, 0, 1_000_000),
+  ]));
+}
+
+function storedSlots(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((slot): slot is string => (
+      typeof slot === 'string'
+      && /^\d{4}-\d{2}-\d{2}T([01]\d|2[0-3]):[0-5]\d$/.test(slot)
+    ))
+    : [];
+}
+
 function depositPreference(value: unknown): FreelancerProfileInput['deposit'] {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new functions.https.HttpsError('invalid-argument', 'deposit is invalid');
@@ -112,13 +144,15 @@ export function parseFreelancerProfileInput(value: unknown): FreelancerProfileIn
   if (typeof input.visible !== 'boolean') {
     throw new functions.https.HttpsError('invalid-argument', 'visible is invalid');
   }
+  const serviceIds = stringList(input.serviceIds, 'serviceIds', 24, 128);
   return {
     displayName: text(input.displayName, 'displayName', 120),
     bio: text(input.bio, 'bio', 1000, true),
     cityId: input.cityId as CityId,
     languages: stringList(input.languages, 'languages', 12, 40),
     serviceSummary: text(input.serviceSummary, 'serviceSummary', 500),
-    serviceIds: stringList(input.serviceIds, 'serviceIds', 24, 128),
+    serviceIds,
+    servicePricesMinor: servicePrices(input.servicePricesMinor, serviceIds),
     visible: input.visible,
     radiusKm: integer(input.radiusKm, 'radiusKm', 1, 100),
     travelFeeMinor: integer(input.travelFeeMinor, 'travelFeeMinor', 0, 1_000_000),
@@ -189,11 +223,19 @@ export async function saveFreelancerProfile(
   const auditRef = firestore.collection('auditEvents').doc();
 
   await firestore.runTransaction(async transaction => {
-    const [existingSnapshot, portfolioSnapshot] = await Promise.all([
+    const [existingSnapshot, availabilitySnapshot, portfolioSnapshot] = await Promise.all([
       transaction.get(profileRef),
+      transaction.get(availabilityRef),
       transaction.get(approvedPortfolioQuery(callerUid, firestore)),
     ]);
     const existing = existingSnapshot.data() as RecordValue | undefined;
+    const existingAvailability = availabilitySnapshot.data() as RecordValue | undefined;
+    const currentlyAvailable = new Set(storedSlots(existingAvailability?.availableSlots));
+    const reservedSlots = [...new Set([
+      ...storedSlots(existingAvailability?.reservedSlots),
+      ...storedSlots(existing?.availability).filter(slot => !currentlyAvailable.has(slot)),
+    ])].sort();
+    const reserved = new Set(reservedSlots);
     const currentPublicProfile = existing?.publicProfile as RecordValue | undefined;
     const approvalStatus = currentPublicProfile?.approvalStatus === 'approved'
       ? 'approved'
@@ -222,7 +264,9 @@ export async function saveFreelancerProfile(
     transaction.set(availabilityRef, {
       ownerId: callerUid,
       ownerType: 'freelancer',
-      availableSlots: input.availability,
+      configuredSlots: input.availability,
+      availableSlots: input.availability.filter(slot => !reserved.has(slot)),
+      reservedSlots,
       updatedAt: now,
     });
     transaction.create(auditRef, {

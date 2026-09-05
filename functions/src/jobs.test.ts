@@ -189,7 +189,8 @@ describe('freelancer jobs and settings', () => {
       memberships: {
         'brand-a__location-paris__manager-a': {
           userId: 'manager-a', brandId: 'brand-a', locationId: 'location-paris',
-          role: 'salon_admin', status: 'active', permissions: { manageJobs: true },
+          role: 'salon_admin', status: 'active',
+          permissions: { manageJobs: true, inviteWorkers: true },
         },
       },
       invitations: {}, auditEvents: {},
@@ -206,6 +207,131 @@ describe('freelancer jobs and settings', () => {
     });
   });
 
+  test('requires inviteWorkers when a job review creates a membership invitation', async () => {
+    const { reviewJobApplication } = loadModule('jobs.ts');
+    const application = {
+      jobId: 'job-paris', applicantId: 'freelancer-a', applicantEmail: 'ada@example.test',
+      applicantName: 'Ada Barber', brandId: 'brand-a', locationId: 'location-paris',
+      cityId: 'fr-paris', relationshipType: 'employee', status: 'submitted',
+    };
+    const baseState = {
+      jobPosts: { 'job-paris': parisEmployeeJob },
+      jobApplications: { 'application-a': application },
+      memberships: {
+        'brand-a__location-paris__manager-a': {
+          userId: 'manager-a', brandId: 'brand-a', locationId: 'location-paris',
+          role: 'salon_admin', status: 'active',
+          permissions: { manageJobs: true, inviteWorkers: false },
+        },
+      },
+      invitations: {}, auditEvents: {},
+    };
+    const inviteAttempt = firestoreState(baseState);
+
+    await expect(reviewJobApplication('manager-a', {
+      applicationId: 'application-a', decision: 'invite',
+    }, inviteAttempt.firestore)).rejects.toMatchObject({ code: 'permission-denied' });
+    expect(inviteAttempt.state.invitations).toEqual({});
+
+    const rejection = firestoreState(baseState);
+    await expect(reviewJobApplication('manager-a', {
+      applicationId: 'application-a', decision: 'reject',
+    }, rejection.firestore)).resolves.toEqual({
+      applicationId: 'application-a', status: 'rejected',
+    });
+  });
+
+  test('preserves Principal Admin invitation authority during application selection', async () => {
+    const { reviewJobApplication } = loadModule('jobs.ts');
+    const { firestore, state } = firestoreState({
+      jobPosts: { 'job-paris': parisEmployeeJob },
+      jobApplications: {
+        'application-a': {
+          jobId: 'job-paris', applicantId: 'freelancer-a', applicantEmail: 'ada@example.test',
+          applicantName: 'Ada Barber', brandId: 'brand-a', locationId: 'location-paris',
+          cityId: 'fr-paris', relationshipType: 'employee', status: 'submitted',
+        },
+      },
+      memberships: {
+        'brand-a__principal__principal-a': {
+          userId: 'principal-a', brandId: 'brand-a', role: 'principal_admin', status: 'active',
+          permissions: {},
+        },
+      },
+      invitations: {}, auditEvents: {},
+    });
+
+    const result = await reviewJobApplication('principal-a', {
+      applicationId: 'application-a', decision: 'invite',
+    }, firestore);
+
+    expect(result.status).toBe('invited');
+    expect(state.invitations[result.invitationId]).toMatchObject({
+      invitedBy: 'principal-a', role: 'worker', locationId: 'location-paris',
+    });
+  });
+
+  test('lists only authorized location and city scoped jobs and applications', async () => {
+    const { listSalonHiringWorkspace } = loadModule('jobs.ts');
+    const baseState = {
+      salonLocations: {
+        'location-paris': { brandId: 'brand-a', cityId: 'fr-paris', countryCode: 'FR' },
+      },
+      memberships: {
+        'brand-a__location-paris__manager-a': {
+          userId: 'manager-a', brandId: 'brand-a', locationId: 'location-paris',
+          role: 'salon_admin', status: 'active', permissions: { manageJobs: true },
+        },
+        'brand-a__location-paris__outsider-a': {
+          userId: 'outsider-a', brandId: 'brand-a', locationId: 'location-paris',
+          role: 'salon_admin', status: 'active', permissions: { manageJobs: false },
+        },
+      },
+      jobPosts: {
+        'job-paris': parisEmployeeJob,
+        'job-wrong-city': { ...parisEmployeeJob, cityId: 'fr-grenoble' },
+        'job-other-location': { ...parisEmployeeJob, locationId: 'location-other' },
+      },
+      jobApplications: {
+        'application-paris': {
+          jobId: 'job-paris', applicantId: 'freelancer-a', applicantEmail: 'ada@example.test',
+          applicantName: 'Ada Barber', portfolioItemIds: ['portfolio-a'], message: 'Bonjour.',
+          brandId: 'brand-a', locationId: 'location-paris', cityId: 'fr-paris',
+          relationshipType: 'employee', status: 'submitted',
+        },
+        'application-wrong-brand': {
+          jobId: 'job-paris', applicantId: 'freelancer-b', applicantEmail: 'b@example.test',
+          applicantName: 'B', portfolioItemIds: [], message: 'Bonjour.',
+          brandId: 'brand-other', locationId: 'location-paris', cityId: 'fr-paris',
+          relationshipType: 'employee', status: 'submitted',
+        },
+        'application-other-location': {
+          jobId: 'job-other-location', applicantId: 'freelancer-c', applicantEmail: 'c@example.test',
+          applicantName: 'C', portfolioItemIds: [], message: 'Bonjour.',
+          brandId: 'brand-a', locationId: 'location-other', cityId: 'fr-paris',
+          relationshipType: 'employee', status: 'submitted',
+        },
+      },
+    };
+    const authorized = firestoreState(baseState);
+
+    await expect(listSalonHiringWorkspace('manager-a', {
+      locationId: 'location-paris',
+    }, authorized.firestore)).resolves.toEqual({
+      locationId: 'location-paris',
+      cityId: 'fr-paris',
+      jobs: [expect.objectContaining({ id: 'job-paris', locationId: 'location-paris' })],
+      applications: [expect.objectContaining({
+        id: 'application-paris', jobId: 'job-paris', applicantId: 'freelancer-a',
+      })],
+    });
+
+    const unauthorized = firestoreState(baseState);
+    await expect(listSalonHiringWorkspace('outsider-a', {
+      locationId: 'location-paris',
+    }, unauthorized.firestore)).rejects.toMatchObject({ code: 'permission-denied' });
+  });
+
   test('preserves server moderation while saving owned visibility and availability', async () => {
     const { saveFreelancerProfile } = loadModule('freelancers.ts');
     const { firestore, state } = firestoreState({
@@ -218,6 +344,7 @@ describe('freelancer jobs and settings', () => {
     await saveFreelancerProfile('freelancer-a', {
       displayName: 'Ada Barber', bio: 'Barbière indépendante à Paris.', cityId: 'fr-paris',
       languages: ['fr', 'en'], serviceSummary: 'Coupe et barbe', serviceIds: ['cut', 'beard'],
+      servicePricesMinor: { cut: 2500, beard: 1800 },
       visible: true, radiusKm: 12, travelFeeMinor: 800,
       deposit: { mode: 'fixed', value: 1000 }, cancellationWindowHours: 24,
       availability: ['2099-09-07T10:00', '2099-09-07T11:00'],
@@ -225,10 +352,45 @@ describe('freelancer jobs and settings', () => {
 
     expect(state.freelancerProfiles['freelancer-a']).toMatchObject({
       uid: 'freelancer-a', visible: true, radiusKm: 12, travelFeeMinor: 800,
+      servicePricesMinor: { cut: 2500, beard: 1800 },
       publicProfile: { approvalStatus: 'approved', visible: true, cityId: 'fr-paris' },
     });
     expect(state.availability['freelancer-a']).toMatchObject({
       ownerId: 'freelancer-a', availableSlots: ['2099-09-07T10:00', '2099-09-07T11:00'],
+    });
+  });
+
+  test('does not reopen a transactionally consumed slot from a stale profile draft', async () => {
+    const { saveFreelancerProfile } = loadModule('freelancers.ts');
+    const consumedSlot = '2099-09-07T10:00';
+    const { firestore, state } = firestoreState({
+      freelancerProfiles: {
+        'freelancer-a': {
+          ...profileA,
+          availability: [consumedSlot],
+          publicProfile: { approvalStatus: 'approved', visible: true },
+        },
+      },
+      availability: {
+        'freelancer-a': {
+          ownerId: 'freelancer-a', ownerType: 'freelancer', availableSlots: [],
+        },
+      },
+      portfolioItems: {}, auditEvents: {},
+    });
+
+    await saveFreelancerProfile('freelancer-a', {
+      displayName: 'Ada Barber', bio: 'Barbière indépendante à Paris.', cityId: 'fr-paris',
+      languages: ['fr'], serviceSummary: 'Coupe', serviceIds: ['cut'],
+      servicePricesMinor: { cut: 2500 },
+      visible: true, radiusKm: 12, travelFeeMinor: 800,
+      deposit: { mode: 'none', value: 0 }, cancellationWindowHours: 24,
+      availability: [consumedSlot, '2099-09-07T11:00'],
+    }, firestore);
+
+    expect(state.availability['freelancer-a']).toMatchObject({
+      availableSlots: ['2099-09-07T11:00'],
+      reservedSlots: [consumedSlot],
     });
   });
 
