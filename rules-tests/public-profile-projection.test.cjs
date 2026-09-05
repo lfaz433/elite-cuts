@@ -91,7 +91,7 @@ test('the public discovery sanitizer re-whitelists a malformed stored projection
     approvalStatus: 'approved',
     displayName: 'Atelier Paris',
     serviceIds: ['cut', 'beard'],
-    homeVisit: false,
+    homeVisit: true,
     address: '17 rue privée',
     phone: '+33100000000',
   })).toEqual({
@@ -109,6 +109,25 @@ test('the public discovery sanitizer re-whitelists a malformed stored projection
   });
 });
 
+test('stale source and public projections cannot advertise home visits', () => {
+  const {
+    projectFreelancerPublicProfile,
+    sanitizePublicProfile,
+  } = loadTypeScriptModule('functions/src/publicProfiles.ts');
+  const stalePublicFields = {
+    approvalStatus: 'approved', visible: true, cityId: 'fr-paris',
+    latitude: 48.8566, longitude: 2.3522, serviceSummary: 'Coupe à domicile',
+    portfolioUrls: [], serviceIds: ['cut'], homeVisit: true,
+  };
+
+  expect(projectFreelancerPublicProfile('freelancer-a', {
+    displayName: 'Ada Barber', cityId: 'fr-paris', publicProfile: stalePublicFields,
+  })).toEqual(expect.objectContaining({ kind: 'freelancer', homeVisit: false }));
+  expect(sanitizePublicProfile('freelancer__freelancer-a', {
+    kind: 'freelancer', displayName: 'Ada Barber', ...stalePublicFields,
+  })).toEqual(expect.objectContaining({ id: 'freelancer__freelancer-a', homeVisit: false }));
+});
+
 test('the anonymous server listing rejects a disabled city and unpublished records', async () => {
   const { listApprovedPublicProfiles } = loadTypeScriptModule('functions/src/publicProfiles.ts');
   const records = [
@@ -117,7 +136,7 @@ test('the anonymous server listing rejects a disabled city and unpublished recor
       data: () => ({
         kind: 'salon', cityId: 'fr-paris', latitude: 48.8566, longitude: 2.3522,
         serviceSummary: 'Coupe et barbe', portfolioUrls: [], visible: true,
-        approvalStatus: 'approved', displayName: 'Atelier Paris', serviceIds: [], homeVisit: false,
+        approvalStatus: 'approved', displayName: 'Atelier Paris', serviceIds: [], homeVisit: true,
       }),
     },
     {
@@ -136,7 +155,7 @@ test('the anonymous server listing rejects a disabled city and unpublished recor
   };
 
   await expect(listApprovedPublicProfiles('fr-paris', firestore)).resolves.toEqual([
-    expect.objectContaining({ id: 'salon__paris', cityId: 'fr-paris' }),
+    expect.objectContaining({ id: 'salon__paris', cityId: 'fr-paris', homeVisit: false }),
   ]);
   await expect(listApprovedPublicProfiles('fr-grenoble', firestore)).resolves.toEqual([]);
 });
@@ -146,7 +165,7 @@ test('the anonymous server detail response applies enabled-city and sanitizer gu
   const profile = {
     kind: 'salon', cityId: 'fr-paris', latitude: 48.8566, longitude: 2.3522,
     serviceSummary: 'Coupe et barbe', portfolioUrls: [], visible: true,
-    approvalStatus: 'approved', displayName: 'Atelier Paris', serviceIds: [], homeVisit: false,
+    approvalStatus: 'approved', displayName: 'Atelier Paris', serviceIds: [], homeVisit: true,
     address: '17 rue privée',
   };
   const firestore = {

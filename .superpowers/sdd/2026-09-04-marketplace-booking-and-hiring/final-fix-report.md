@@ -23,6 +23,10 @@ The final residual pass added three bounded corrections on top of the original w
 2. **Availability intent:** `configuredSlots` is now distinct from `availableSlots` in the salon callable, response parser, and editor. Reserved slots remain visible in configuration during a no-op save. An explicit empty configuration remains empty after decline/cancellation; only legacy documents with no `configuredSlots` field retain the compatibility behavior of restoring released slots.
 3. **Client promotions:** the Promotions tab and coupon display are restored. Clients do not attach a tenant-wide campaign listener. An authenticated callable derives salon association from server-owned client booking records, computes conservative per-salon segments from completed history, and returns only active exact-tenant matches or campaigns explicitly targeted to the caller UID. The existing admin listener is attached only when `manageServices` is provable. Campaign loading/errors are independent from booking/history listeners, so one failure does not erase valid data from another source.
 
+## Final public-discovery fail-closed correction
+
+Public discovery now forces `homeVisit: false` at both projection creation and response sanitization. This closes the stale-document path without requiring a source update, trigger run, or migration: an already-stored approved public profile with `homeVisit: true` is returned as false by both list and detail APIs, so the client home-visit filter and badges receive no positive availability signal. The legacy source field remains tolerated only for backward compatibility and is deliberately ignored until trusted address geocoding is available.
+
 No Stripe/payment configuration, provider integration, deployment, migration, staging write, production access, or external-account action was performed.
 
 ## Test-first evidence
@@ -36,12 +40,14 @@ No Stripe/payment configuration, provider integration, deployment, migration, st
 - Home-visit correction tests cover rejection of caller coordinates, fail-closed behavior before a slot write, Paris winter/summer offsets, DST gaps/ambiguities, correction of a stale UTC-derived deadline, and late-cancellation denial.
 - Availability tests cover stale freelancer drafts, a second booking attempt after the first transaction consumes the slot, explicit-empty release/cancellation behavior, legacy compatibility, and independent configured/available salon workspace fields.
 - Campaign tests cover authentication, rejection of caller-selected scope, exact client booking queries, explicit UID targeting, cross-tenant exclusion, server-derived VIP/inactive/new segments, client response parsing, permission-gated admin listeners, UI loading/empty/error states, and coupon rendering.
+- The public-profile regression first failed in four paths—new projection, stored-document sanitizer, list response, and detail response—when supplied stale `homeVisit: true` data. All four are green only after the shared projector/sanitizer forces false.
 
 ## Verification
 
 - `cd functions && npx jest src/jobs.test.ts src/bookings.test.ts src/campaigns.test.ts --runInBand` — **43/43 passed**.
 - `/Users/mac/Documents/ChatGPT/barberboard/elite-cuts/node_modules/.bin/tsx --test $(rg --files src/app | rg '\.(test|spec)\.(ts|tsx)$' | sort)` — **54/54 passed**.
-- `npx jest --config rules-tests/jest.config.cjs --runInBand` with the 14 non-emulator contract suites (`booking-create`, `booking-payment`, `booking-status`, transition state/UI, business info, environment, HTTP endpoints, legacy authority, membership permissions, public scrub/projection, push target, worker credential static) — **126/126 passed**.
+- `npx jest --config rules-tests/jest.config.cjs --runInBand rules-tests/public-profile-projection.test.cjs` — **8/8 passed**.
+- `npx jest --config rules-tests/jest.config.cjs --runInBand` with the 14 non-emulator contract suites (`booking-create`, `booking-payment`, `booking-status`, transition state/UI, business info, environment, HTTP endpoints, legacy authority, membership permissions, public scrub/projection, push target, worker credential static) — **127/127 passed**.
 - `node rules-tests/static-analysis.cjs` — **15/15 passed**.
 - Focused Firestore-emulator run of `rules-tests/booking-privacy.rules.test.cjs` using the locally installed JDK 21 — **3/3 passed**, including exact client-scoped marketplace and legacy booking queries, denied cross-client query, and denied unscoped legacy query.
 - `cd functions && npm run build` — passed.

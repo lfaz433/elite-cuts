@@ -110,7 +110,6 @@ export function sanitizePublicProfile(id: string, value: unknown): PublicProfile
     || !serviceSummary
     || !portfolioUrls
     || !serviceIds
-    || typeof profile.homeVisit !== 'boolean'
     || publicCoordinate(profile.latitude, -90, 90) === null
     || publicCoordinate(profile.longitude, -180, 180) === null
   ) {
@@ -128,7 +127,9 @@ export function sanitizePublicProfile(id: string, value: unknown): PublicProfile
     visible: true,
     displayName,
     serviceIds,
-    homeVisit: profile.homeVisit,
+    // Fail closed for both current and stale stored projections until trusted
+    // address geocoding can verify home-visit eligibility server-side.
+    homeVisit: false,
   };
 }
 
@@ -169,7 +170,6 @@ function buildPublicProfile(
     || !serviceSummary
     || !portfolioUrls
     || !serviceIds
-    || (config.homeVisit !== undefined && typeof config.homeVisit !== 'boolean')
   ) {
     return null;
   }
@@ -189,7 +189,9 @@ function buildPublicProfile(
     approvalStatus: 'approved',
     displayName: name,
     serviceIds,
-    homeVisit: config.homeVisit === true,
+    // Source configuration is deliberately ignored while home visits cannot be
+    // validated against a trusted geocoded service area.
+    homeVisit: false,
   };
 }
 
