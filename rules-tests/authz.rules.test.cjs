@@ -6,7 +6,9 @@ const {
 const { readFileSync } = require('fs');
 const {
   collection,
+  deleteDoc,
   doc,
+  getDoc,
   getDocs,
   query,
   setDoc,
@@ -128,6 +130,144 @@ test('a member cannot create a membership or read another users membership', asy
     where('userId', '==', 'client-b'),
     where('status', '==', 'active'),
   )));
+});
+
+test('public barber documents are readable only when credential fields are absent', async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await Promise.all([
+      setDoc(doc(ctx.firestore(), 'barbers', 'safe-barber'), {
+        tenantId: 'location-a', name: 'Safe Barber', email: 'safe@example.test', publicCredentialSafe: true,
+      }),
+      setDoc(doc(ctx.firestore(), 'barbers', 'legacy-password-barber'), {
+        tenantId: 'location-a', name: 'Legacy Barber', password: 'plaintext',
+      }),
+    ]);
+  });
+  const anonymous = testEnv.unauthenticatedContext().firestore();
+
+  await assertSucceeds(getDoc(doc(anonymous, 'barbers', 'safe-barber')));
+  await assertFails(getDoc(doc(anonymous, 'barbers', 'legacy-password-barber')));
+});
+
+test('tenant members cannot write credential fields into public barber documents', async () => {
+  await seedMembership('location-a__manager-a', 'manager-a', {
+    brandId: 'location-a', locationId: 'location-a', role: 'principal_admin',
+  });
+  const manager = asUser('manager-a');
+
+  await assertFails(setDoc(doc(manager, 'barbers', 'unsafe-barber'), {
+    tenantId: 'location-a', name: 'Unsafe Barber', password: 'plaintext',
+  }));
+  await assertSucceeds(setDoc(doc(manager, 'barbers', 'safe-barber'), {
+    tenantId: 'location-a', name: 'Safe Barber', email: 'safe@example.test', publicCredentialSafe: true,
+  }));
+  await assertFails(setDoc(doc(manager, 'barbers', 'fake-safe-barber'), {
+    tenantId: 'location-a', name: 'Unsafe Barber', publicCredentialSafe: true,
+    metadata: { password: 'nested-plaintext' },
+  }));
+  await assertFails(updateDoc(doc(manager, 'barbers', 'safe-barber'), {
+    temporaryPassword: 'plaintext',
+  }));
+});
+
+test('public barber timestamp fields cannot hide nested credential maps', async () => {
+  await seedMembership('location-a__manager-a', 'manager-a', {
+    brandId: 'location-a', locationId: 'location-a', role: 'principal_admin',
+  });
+  const manager = asUser('manager-a');
+
+  await assertFails(setDoc(doc(manager, 'barbers', 'unsafe-created-at'), {
+    tenantId: 'location-a',
+    name: 'Unsafe Barber',
+    publicCredentialSafe: true,
+    createdAt: { token: 'nested-secret' },
+  }));
+  await assertFails(setDoc(doc(manager, 'barbers', 'unsafe-updated-at'), {
+    tenantId: 'location-a',
+    name: 'Unsafe Barber',
+    publicCredentialSafe: true,
+    updatedAt: { password: 'nested-secret' },
+  }));
+});
+
+test('a marketplace worker can access only their bridged location tenant operations', async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await Promise.all([
+      setDoc(doc(ctx.firestore(), 'tenants', 'location-market'), {
+        brandId: 'brand-market', ownerUid: 'principal-a',
+      }),
+      setDoc(doc(ctx.firestore(), 'tenants', 'location-other'), {
+        brandId: 'brand-market', ownerUid: 'principal-a',
+      }),
+      setDoc(doc(ctx.firestore(), 'memberships', 'brand-market__location-market__worker-a'), {
+        userId: 'worker-a',
+        brandId: 'brand-market',
+        locationId: 'location-market',
+        role: 'worker',
+        status: 'active',
+        permissions: {},
+      }),
+      setDoc(doc(ctx.firestore(), 'bookings', 'market-booking'), {
+        tenantId: 'location-market',
+        locationId: 'location-market',
+        clientId: 'client-a',
+        status: 'pending',
+      }),
+    ]);
+  });
+  const worker = asUser('worker-a');
+
+  await assertSucceeds(getDoc(doc(worker, 'bookings', 'market-booking')));
+  await assertSucceeds(setDoc(doc(worker, 'services', 'market-service'), {
+    tenantId: 'location-market', name: 'Cut', price: 25,
+  }));
+  await assertFails(setDoc(doc(worker, 'services', 'other-service'), {
+    tenantId: 'location-other', name: 'Cross-location cut', price: 25,
+  }));
+});
+
+test('public business info is readable only after a trusted safe marker is present', async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await Promise.all([
+      setDoc(doc(ctx.firestore(), 'tenants', 'location-a', 'businessInfo', 'safe'), {
+        name: 'Safe Salon',
+        publicCredentialSafe: true,
+      }),
+      setDoc(doc(ctx.firestore(), 'tenants', 'location-a', 'businessInfo', 'legacy'), {
+        name: 'Legacy Salon',
+        password: 'plaintext',
+      }),
+    ]);
+  });
+  const anonymous = testEnv.unauthenticatedContext().firestore();
+
+  await assertSucceeds(getDoc(doc(anonymous, 'tenants', 'location-a', 'businessInfo', 'safe')));
+  await assertFails(getDoc(doc(anonymous, 'tenants', 'location-a', 'businessInfo', 'legacy')));
+});
+
+test('browser clients cannot create, change, or delete public business info', async () => {
+  await seedMembership('location-a__manager-a', 'manager-a', {
+    brandId: 'location-a',
+    locationId: 'location-a',
+    permissions: { manageStaff: true },
+  });
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'tenants', 'location-a', 'businessInfo', 'info'), {
+      name: 'Safe Salon',
+      publicCredentialSafe: true,
+    });
+  });
+  const manager = asUser('manager-a');
+
+  await assertFails(setDoc(doc(manager, 'tenants', 'location-a', 'businessInfo', 'new'), {
+    name: 'Unsafe direct write',
+    branding: { credentials: { password: 'plaintext' } },
+    publicCredentialSafe: true,
+  }));
+  await assertFails(updateDoc(doc(manager, 'tenants', 'location-a', 'businessInfo', 'info'), {
+    name: 'Direct update',
+  }));
+  await assertFails(deleteDoc(doc(manager, 'tenants', 'location-a', 'businessInfo', 'info')));
 });
 
 test('client receives a server-issued notification addressed to their uid without membership', async () => {

@@ -1,16 +1,10 @@
-import fs from 'fs';
-import { OAuth2Client } from 'google-auth-library';
 import { Firestore } from '@google-cloud/firestore';
+import { requireStagingWrite, STAGING_PROJECT_ID } from './lib/staging-write-guard.mjs';
 
-const cliConfig = JSON.parse(fs.readFileSync('/Users/mac/.config/configstore/firebase-tools.json', 'utf8'));
-const accessToken = cliConfig.tokens.access_token;
-
-const authClient = new OAuth2Client();
-authClient.setCredentials({ access_token: accessToken });
+if (!requireStagingWrite(process.argv.slice(2), process.env, 'Financial reset')) process.exit(0);
 
 const db = new Firestore({
-  projectId: 'elite-cuts-app',
-  authClient: authClient
+  projectId: STAGING_PROJECT_ID,
 });
 
 const TENANT_ID = 'barberboard-demo';

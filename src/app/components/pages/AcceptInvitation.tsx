@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { db, functions } from '../../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import InvitationDecisionView, { type InvitationView } from './InvitationDecisionView';
+import EmailVerificationView from './EmailVerificationView';
 
 interface InvitationResponseResult {
   membershipId: string;
@@ -25,22 +26,35 @@ function toInvitationView(value: Record<string, unknown>): InvitationView | null
 
 export default function AcceptInvitation() {
   const { invitationId } = useParams();
-  const { refreshSession } = useAuth();
+  const {
+    user,
+    refreshSession,
+    resendEmailVerification,
+    refreshEmailVerification,
+  } = useAuth();
   const navigate = useNavigate();
   const [invitation, setInvitation] = useState<InvitationView | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [outcome, setOutcome] = useState<'active' | 'declined' | null>(null);
+  const [verificationBusy, setVerificationBusy] = useState(false);
+  const [reloadCounter, setReloadCounter] = useState(0);
 
   useEffect(() => {
     let active = true;
     const load = async () => {
+      if (!user?.emailVerified) {
+        setLoading(false);
+        return;
+      }
       if (!invitationId) {
         setError('Lien d’invitation invalide.');
         setLoading(false);
         return;
       }
+      setLoading(true);
+      setError('');
       try {
         const snapshot = await getDoc(doc(db, 'invitations', invitationId));
         const record = snapshot.exists() ? toInvitationView(snapshot.data()) : null;
@@ -55,7 +69,38 @@ export default function AcceptInvitation() {
     };
     void load();
     return () => { active = false; };
-  }, [invitationId]);
+  }, [invitationId, reloadCounter, user?.emailVerified]);
+
+  const resendVerification = async () => {
+    setVerificationBusy(true);
+    try {
+      await resendEmailVerification();
+      toast.success('E-mail de vérification renvoyé.');
+    } catch (reason) {
+      console.error('Verification resend failed:', reason);
+      toast.error('Impossible de renvoyer l’e-mail de vérification.');
+    } finally {
+      setVerificationBusy(false);
+    }
+  };
+
+  const refreshVerification = async () => {
+    setVerificationBusy(true);
+    try {
+      const verified = await refreshEmailVerification();
+      if (verified) {
+        toast.success('Adresse e-mail vérifiée.');
+        setReloadCounter(value => value + 1);
+      } else {
+        toast.info('La vérification n’est pas encore confirmée.');
+      }
+    } catch (reason) {
+      console.error('Verification refresh failed:', reason);
+      toast.error('Impossible d’actualiser la vérification.');
+    } finally {
+      setVerificationBusy(false);
+    }
+  };
 
   const respond = async (accept: boolean) => {
     if (!invitationId) return;
@@ -83,7 +128,14 @@ export default function AcceptInvitation() {
         <Scissors className="h-5 w-5" /> Barberboard
       </button>
       <div className="mx-auto flex max-w-3xl justify-center">
-        {loading ? (
+        {!user?.emailVerified ? (
+          <EmailVerificationView
+            email={user?.email ?? ''}
+            busy={verificationBusy}
+            onResend={() => void resendVerification()}
+            onRefresh={() => void refreshVerification()}
+          />
+        ) : loading ? (
           <div className="flex items-center gap-3 text-white/50"><Loader2 className="h-5 w-5 animate-spin text-[#D4AF37]" /> Chargement de l’invitation…</div>
         ) : error ? (
           <section role="alert" className="w-full max-w-xl rounded-3xl border border-red-400/20 bg-red-400/10 p-8 text-center text-red-100">{error}</section>

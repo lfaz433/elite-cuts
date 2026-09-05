@@ -183,7 +183,11 @@ export default function SuperAdmin() {
       const tenantId = tenant.id;
       const [bookingsSnap, barbersSnap, servicesSnap, salesSnap, expensesSnap] = await Promise.all([
         getDocs(query(collection(db, 'bookings'), where('tenantId', '==', tenantId))),
-        getDocs(query(collection(db, 'barbers'), where('tenantId', '==', tenantId))),
+        getDocs(query(
+          collection(db, 'barbers'),
+          where('tenantId', '==', tenantId),
+          where('publicCredentialSafe', '==', true),
+        )),
         getDocs(query(collection(db, 'services'), where('tenantId', '==', tenantId))),
         getDocs(query(collection(db, 'sales'), where('tenantId', '==', tenantId))),
         getDocs(query(collection(db, 'expenses'), where('tenantId', '==', tenantId)))

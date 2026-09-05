@@ -14,7 +14,11 @@ export interface TenantData {
     trialEndsAt?: number;
     currentPeriodEnd?: number;
   };
-  settings: { maxBarbersLimit: number; allowOnlineBooking: boolean };
+  settings: {
+    maxBarbersLimit: number;
+    allowOnlineBooking: boolean;
+    bookingPolicy?: 'manual' | 'automatic';
+  };
   onboardingComplete?: boolean;
   isDemo?: boolean;
   subdomain?: string;

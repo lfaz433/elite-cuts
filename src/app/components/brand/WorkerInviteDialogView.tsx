@@ -7,6 +7,7 @@ export type InvitationRole = 'salon_admin' | 'worker';
 export interface WorkerInviteDialogProps {
   locationId: string;
   open: boolean;
+  canInviteSalonAdmins?: boolean;
   onOpenChange: (open: boolean) => void;
   onCreated?: (invitationId: string) => void;
 }
@@ -25,6 +26,7 @@ interface WorkerInviteDialogViewProps extends WorkerInviteDialogProps {
 export default function WorkerInviteDialogView({
   locationId,
   open,
+  canInviteSalonAdmins = false,
   onOpenChange,
   onCreated,
   createInvitation,
@@ -44,6 +46,10 @@ export default function WorkerInviteDialogView({
       setCreatedLink('');
     }
   }, [open]);
+
+  useEffect(() => {
+    if (!canInviteSalonAdmins && role === 'salon_admin') setRole('worker');
+  }, [canInviteSalonAdmins, role]);
 
   if (!open) return null;
 
@@ -111,7 +117,7 @@ export default function WorkerInviteDialogView({
             Rôle
             <select value={role} onChange={(event) => setRole(event.currentTarget.value as InvitationRole)} className="mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none focus:border-[#D4AF37]/70">
               <option value="worker">Collaborateur</option>
-              <option value="salon_admin">Salon Admin</option>
+              {canInviteSalonAdmins && <option value="salon_admin">Salon Admin</option>}
             </select>
           </label>
           <p className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-xs leading-relaxed text-white/45">

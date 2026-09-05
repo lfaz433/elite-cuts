@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router';
-import { Suspense } from 'react';
+import { Suspense, useMemo } from 'react';
 import { Toaster } from 'sonner';
 import PublicLayout from './components/layouts/PublicLayout';
 import LandingPage from './components/pages/LandingPage';
@@ -15,7 +15,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import { Scissors } from 'lucide-react';
 import { lazy } from 'react';
 import { brandDashboardHomePath, hasBrandDashboardAccess } from './lib/marketplace/access';
-import { loginPathForProtectedRoute } from './lib/authReturn';
+import { loginPathForProtectedRoute, postLoginDestination } from './lib/authReturn';
 
 const MAIN_DOMAIN = import.meta.env.VITE_MAIN_DOMAIN?.trim().toLowerCase() || '';
 
@@ -90,11 +90,15 @@ function BrandRequired({ children }: { children: React.ReactNode }) {
 // --- Conditional Home Router ---
 function HomeRouter() {
   const { user, isLoading } = useAuth();
+  const route = useLocation();
+  const authenticatedDestination = useMemo(() => user
+    ? postLoginDestination(route.search, brandDashboardHomePath(user), window.sessionStorage)
+    : null, [route.search, user]);
   
   if (isLoading) return <AppLoader />;
   
   if (user) {
-    return <Navigate to={brandDashboardHomePath(user)} replace />;
+    return <Navigate to={authenticatedDestination ?? brandDashboardHomePath(user)} replace />;
   }
 
   const hostname = window.location.hostname;
@@ -125,6 +129,7 @@ function AppRoutes() {
         <Route index element={<HomeRouter />} />
         <Route path="register" element={<Register />} />
         <Route path="docs" element={<DocsPage />} />
+        <Route path="book" element={<AuthRequired><LandingPage /></AuthRequired>} />
       </Route>
       <Route path="/boutique" element={<BoutiquePage />} />
       <Route path="/login" element={<Navigate to="/?login=true" replace />} />

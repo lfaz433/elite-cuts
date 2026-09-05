@@ -45,3 +45,9 @@ export function assertTransition(from: BookingStatus, to: BookingStatus): void {
     throw new Error(`Invalid booking transition: ${from} -> ${to}`);
   }
 }
+
+export function assertStandaloneTransition(to: StoredBookingStatus): void {
+  if (normalizeBookingStatus(to) === 'completed') {
+    throw new Error('Completion requires the atomic payment command');
+  }
+}

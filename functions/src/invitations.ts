@@ -176,11 +176,32 @@ function existingMembershipRecord(
   return value as ExistingMembership;
 }
 
+function workerBarberId(locationId: string, uid: string): string {
+  return `${locationId}__${uid}`;
+}
+
+export function safeWorkerPublicProfile(
+  invitation: InvitationRecord,
+  uid: string,
+) {
+  return {
+    name: invitation.displayName,
+    email: invitation.email,
+    userId: uid,
+    uid,
+    brandId: invitation.brandId,
+    locationId: invitation.locationId,
+    tenantId: invitation.locationId,
+    publicCredentialSafe: true,
+  };
+}
+
 export function assertInvitationSender(
   membership: LocationMembership | undefined,
   callerUid: string,
   brandId: string,
   locationId: string,
+  targetRole: InvitationRole,
 ): void {
   if (
     !membership
@@ -191,11 +212,18 @@ export function assertInvitationSender(
   ) {
     throw new functions.https.HttpsError('permission-denied', 'Permission denied');
   }
+  const isPrincipal = membership.role === 'principal_admin';
   const permissions = membership.permissions as Record<string, unknown> | undefined;
-  if (permissions?.inviteWorkers !== true) {
+  if (!isPrincipal && permissions?.inviteWorkers !== true) {
     throw new functions.https.HttpsError(
       'permission-denied',
       'Worker invitations are disabled for this administrator',
+    );
+  }
+  if (targetRole === 'salon_admin' && !isPrincipal) {
+    throw new functions.https.HttpsError(
+      'permission-denied',
+      'Only a Principal Admin can invite a Salon Admin',
     );
   }
 }
@@ -231,25 +259,45 @@ export async function createWorkerInvitation(
   }
   const input = parseCreateInput(value);
   const locationRef = firestore.collection('salonLocations').doc(input.locationId);
+  const legacyTenantRef = firestore.collection('tenants').doc(input.locationId);
   const invitationRef = firestore.collection('invitations').doc();
 
   await firestore.runTransaction(async transaction => {
-    const locationSnapshot = await transaction.get(locationRef);
+    const [locationSnapshot, legacyTenantSnapshot] = await transaction.getAll(
+      locationRef,
+      legacyTenantRef,
+    );
     const location = locationSnapshot.data();
-    if (!locationSnapshot.exists || typeof location?.brandId !== 'string') {
+    const brandId = locationSnapshot.exists && typeof location?.brandId === 'string'
+      ? location.brandId
+      : legacyTenantSnapshot.exists
+        ? input.locationId
+        : null;
+    if (!brandId) {
       throw new functions.https.HttpsError('not-found', 'Salon location not found');
     }
     const membershipRef = firestore.collection('memberships')
-      .doc(locationMembershipId(location.brandId, input.locationId, callerUid));
-    const membershipSnapshot = await transaction.get(membershipRef);
+      .doc(locationMembershipId(brandId, input.locationId, callerUid));
+    const legacyMembershipRef = firestore.collection('memberships')
+      .doc(`${input.locationId}__${callerUid}`);
+    const [membershipSnapshot, legacyMembershipSnapshot] = await transaction.getAll(
+      membershipRef,
+      legacyMembershipRef,
+    );
+    const senderMembership = membershipSnapshot.exists
+      ? membershipSnapshot.data()
+      : legacyMembershipSnapshot.exists
+        ? legacyMembershipSnapshot.data()
+        : undefined;
     assertInvitationSender(
-      membershipSnapshot.exists ? membershipSnapshot.data() : undefined,
+      senderMembership,
       callerUid,
-      location.brandId,
+      brandId,
       input.locationId,
+      input.role,
     );
     transaction.create(invitationRef, {
-      brandId: location.brandId,
+      brandId,
       locationId: input.locationId,
       email: input.email,
       displayName: input.displayName,
@@ -317,7 +365,29 @@ export async function respondToInvitation(
       );
     }
 
+    const effectiveRole = membership?.role ?? invitation.role;
+    const isWorker = effectiveRole === 'worker' || effectiveRole === 'barber';
+    const barberId = isWorker ? workerBarberId(invitation.locationId, decoded.uid) : null;
+    const barberRef = barberId ? firestore.collection('barbers').doc(barberId) : null;
+    const barberSnapshot = barberRef ? await transaction.get(barberRef) : null;
+    if (
+      barberSnapshot?.exists
+      && (
+        barberSnapshot.data()?.userId !== decoded.uid
+        || barberSnapshot.data()?.locationId !== invitation.locationId
+      )
+    ) {
+      throw new functions.https.HttpsError('failed-precondition', 'Worker profile conflicts with this invitation');
+    }
+    if (barberRef) {
+      transaction.set(
+        barberRef,
+        safeWorkerPublicProfile(invitation, decoded.uid),
+      );
+    }
+
     if (membership?.status === 'active') {
+      if (barberId) transaction.update(membershipRef, { barberId });
       transaction.update(invitationRef, {
         status: 'accepted',
         respondedBy: decoded.uid,
@@ -341,6 +411,7 @@ export async function respondToInvitation(
       invitedBy: invitation.invitedBy,
       createdAt: respondedAt,
       acceptedAt: respondedAt,
+      ...(barberId ? { barberId } : {}),
     };
     if (membership) {
       transaction.set(membershipRef, membershipData);

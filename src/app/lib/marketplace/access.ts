@@ -55,6 +55,23 @@ export async function resolveMarketplaceManager(
   return undefined;
 }
 
+export async function resolveMarketplaceWorker(
+  memberships: MembershipSummary[],
+  belongsToMarketplace: (membership: MembershipSummary) => Promise<boolean>,
+): Promise<MembershipSummary | undefined> {
+  const candidates = memberships.filter(membership => (
+    membership.status === 'active'
+    && typeof membership.locationId === 'string'
+    && typeof membership.barberId === 'string'
+    && (membership.role === 'worker' || membership.role === 'barber')
+    && !isManagerEligibleMembership(membership)
+  ));
+  for (const candidate of candidates) {
+    if (await belongsToMarketplace(candidate)) return candidate;
+  }
+  return undefined;
+}
+
 interface BrandRouteUser {
   role: string;
   brandId?: string;

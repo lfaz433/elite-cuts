@@ -1,15 +1,21 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
 import { getFirestore, doc, setDoc, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
+import { requireStagingWrite, STAGING_PROJECT_ID } from './lib/staging-write-guard.mjs';
 
+if (!requireStagingWrite(process.argv.slice(2), process.env, 'Client demo seed')) process.exit(0);
+const operatorEmail = process.env.DEMO_SEED_OPERATOR_EMAIL;
+const operatorPassword = process.env.DEMO_SEED_OPERATOR_PASSWORD;
+const demoAdminPassword = process.env.DEMO_ADMIN_PASSWORD;
+const demoClientPassword = process.env.DEMO_CLIENT_PASSWORD;
+const firebaseApiKey = process.env.STAGING_FIREBASE_API_KEY;
+if (!operatorEmail || !operatorPassword || !demoAdminPassword || !demoClientPassword || !firebaseApiKey) {
+  throw new Error('Client demo seed requires operator, demo-user, and staging API credentials via environment variables.');
+}
 const firebaseConfig = {
-  apiKey: "AIzaSyB455BHQ7ZIAcO0jwXYbYuzlcvXKt2Qpx4",
-  authDomain: "elite-cuts-app.firebaseapp.com",
-  projectId: "elite-cuts-app",
-  storageBucket: "elite-cuts-app.firebasestorage.app",
-  messagingSenderId: "499181564992",
-  appId: "1:499181564992:web:afc888388b72144ccc9ba5",
-  measurementId: "G-QDWD7EKPM7"
+  apiKey: firebaseApiKey,
+  authDomain: `${STAGING_PROJECT_ID}.firebaseapp.com`,
+  projectId: STAGING_PROJECT_ID,
 };
 
 const app = initializeApp(firebaseConfig);
@@ -71,7 +77,7 @@ async function main() {
 
   // 1. Authenticate as Super Admin to have full Firestore access
   console.log('🔑 Authenticating as super admin...');
-  await signInWithEmailAndPassword(auth, 'admin-elite@test.com', 'password123');
+  await signInWithEmailAndPassword(auth, operatorEmail, operatorPassword);
   console.log('✅ Super admin authenticated.');
 
   // 2. Clear Firestore demo data
@@ -80,13 +86,12 @@ async function main() {
   // 3. Create Firebase Auth users
   // (Creating new users signed in state will change, but that's fine, we will re-authenticate as admin if needed)
   console.log('👤 Seeding Firebase Auth users...');
-  const adminUid = await createAuthUser('demo-admin@barberboard.pro', 'Demo1234!');
-  const barberUid = await createAuthUser('demo-barber@barberboard.pro', 'Demo1234!');
-  const clientUid = await createAuthUser('demo-client@barberboard.pro', 'Demo1234!');
+  const adminUid = await createAuthUser('demo-admin@barberboard.pro', demoAdminPassword);
+  const clientUid = await createAuthUser('demo-client@barberboard.pro', demoClientPassword);
 
   // Re-authenticate as super admin to ensure we have permission to write Firestore docs
   console.log('🔑 Re-authenticating as super admin...');
-  await signInWithEmailAndPassword(auth, 'admin-elite@test.com', 'password123');
+  await signInWithEmailAndPassword(auth, operatorEmail, operatorPassword);
 
   // 4. Create Tenant
   console.log('📦 Creating tenant document...');
@@ -96,7 +101,7 @@ async function main() {
     ownerUid: adminUid,
     subscription: { status: 'active', planId: 'pro' },
     branding: { primaryColor: '#D4AF37', businessName: 'Gold Cuts Paris', logoUrl: '' },
-    settings: { maxBarbersLimit: 8, allowOnlineBooking: true },
+    settings: { maxBarbersLimit: 8, allowOnlineBooking: true, bookingPolicy: 'manual' },
     onboardingComplete: true,
     isDemo: true,
     createdAt: Date.now(),
@@ -107,7 +112,6 @@ async function main() {
   console.log('👤 Seeding user profiles in Firestore...');
   const usersToSeed = [
     { uid: adminUid, email: 'demo-admin@barberboard.pro', name: 'Admin Demo', role: 'admin' },
-    { uid: barberUid, email: 'demo-barber@barberboard.pro', name: 'Karim B.', role: 'barber' },
     { uid: clientUid, email: 'demo-client@barberboard.pro', name: 'Client Demo', role: 'client' },
   ];
   for (const u of usersToSeed) {
@@ -135,6 +139,7 @@ async function main() {
     await setDoc(docRef, {
       ...b,
       tenantId: TENANT_ID,
+      publicCredentialSafe: true,
       image: '',
       createdAt: Date.now(),
     });
@@ -323,9 +328,8 @@ async function main() {
 
   console.log('\n✅ Demo seed complete!\n');
   console.log('Login credentials:');
-  console.log('  Admin:  demo-admin@barberboard.pro / Demo1234!');
-  console.log('  Barber: demo-barber@barberboard.pro / Demo1234!');
-  console.log('  Client: demo-client@barberboard.pro / Demo1234!\n');
+  console.log('  Demo credentials were supplied through the environment and are not printed.\n');
+  console.log('  Staff access is created only through the worker-owned invitation flow.\n');
   process.exit(0);
 }
 

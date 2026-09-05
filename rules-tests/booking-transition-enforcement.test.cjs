@@ -22,12 +22,26 @@ beforeEach(async () => testEnv.clearFirestore());
 
 async function seedBooking() {
   await testEnv.withSecurityRulesDisabled(async context => {
-    await setDoc(doc(context.firestore(), 'bookings', 'booking-a'), {
-      tenantId: 'tenant-a',
-      locationId: 'tenant-a',
-      status: 'pending',
-      clientName: 'Client',
-    });
+    await Promise.all([
+      setDoc(doc(context.firestore(), 'tenants', 'tenant-a'), {
+        brandId: 'tenant-a',
+        ownerUid: 'principal-a',
+      }),
+      setDoc(doc(context.firestore(), 'memberships', 'tenant-a__manager-a'), {
+        userId: 'manager-a',
+        brandId: 'tenant-a',
+        locationId: 'tenant-a',
+        role: 'salon_admin',
+        status: 'active',
+        permissions: { manageBookings: true },
+      }),
+      setDoc(doc(context.firestore(), 'bookings', 'booking-a'), {
+        tenantId: 'tenant-a',
+        locationId: 'tenant-a',
+        status: 'pending',
+        clientName: 'Client',
+      }),
+    ]);
   });
 }
 

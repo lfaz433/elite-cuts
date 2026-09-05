@@ -23,6 +23,7 @@ export interface MembershipSummary {
 export interface SessionUser {
   uid: string;
   email: string;
+  emailVerified: boolean;
   displayName: string;
   memberships: MembershipSummary[];
 }
@@ -82,6 +83,7 @@ export async function loadSessionUser(firebaseUser: FirebaseUser): Promise<Sessi
   return {
     uid: firebaseUser.uid,
     email: firebaseUser.email?.trim().toLowerCase() ?? '',
+    emailVerified: firebaseUser.emailVerified,
     displayName: typeof profile.displayName === 'string'
       ? profile.displayName
       : typeof profile.name === 'string'

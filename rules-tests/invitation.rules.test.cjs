@@ -88,6 +88,20 @@ test('a location administrator without inviteWorkers cannot create an invitation
   }, adminDb)).rejects.toMatchObject({ code: 'permission-denied' });
 });
 
+test('a delegated Salon Admin with inviteWorkers cannot invite another Salon Admin', async () => {
+  await seedLocation({ inviteWorkers: true });
+
+  await expect(createWorkerInvitation('salon-admin', {
+    locationId: 'paris',
+    email: 'peer-admin@example.com',
+    displayName: 'Peer Admin',
+    role: 'salon_admin',
+  }, adminDb)).rejects.toMatchObject({ code: 'permission-denied' });
+
+  const invitations = await adminDb.collection('invitations').get();
+  expect(invitations.empty).toBe(true);
+});
+
 test('an invitation cannot be accepted by a different email account', async () => {
   await seedLocation({ inviteWorkers: true });
   const created = await createWorkerInvitation('salon-admin', {
@@ -156,6 +170,17 @@ test('the invited account activates its own membership only after acceptance', a
     role: 'worker',
     status: 'active',
     invitationId: created.invitationId,
+    barberId: 'paris__worker-account',
+  });
+  const barber = await adminDb.collection('barbers').doc('paris__worker-account').get();
+  expect(barber.data()).toMatchObject({
+    userId: 'worker-account',
+    tenantId: 'paris',
+    locationId: 'paris',
+    brandId: 'brand-france',
+    name: 'Invited Worker',
+    email: 'worker@example.com',
+    publicCredentialSafe: true,
   });
   expect(acceptedInvitation.data()).toMatchObject({
     status: 'accepted',
@@ -275,7 +300,7 @@ test('a re-invite resolves against an existing active membership without changin
     locationId: 'paris',
     email: 'worker@example.com',
     displayName: 'Invited Worker',
-    role: 'salon_admin',
+    role: 'worker',
   }, adminDb);
 
   const response = await respondToInvitation({

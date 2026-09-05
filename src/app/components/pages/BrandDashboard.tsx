@@ -1,17 +1,25 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 import { Building2, LayoutDashboard, LockKeyhole, LogOut, Plus, ShieldCheck, UserPlus } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router';
-import { db } from '../../lib/firebase';
-import { DEFAULT_WORKER_PERMISSIONS, PERMISSION_KEYS } from '../../lib/marketplace/permissions';
+import { toast } from 'sonner';
+import { db, functions } from '../../lib/firebase';
+import { DEFAULT_SALON_ADMIN_PERMISSIONS, DEFAULT_WORKER_PERMISSIONS, PERMISSION_KEYS } from '../../lib/marketplace/permissions';
 import type { PermissionKey, SalonLocation } from '../../lib/marketplace/types';
 import { isManagerEligibleMembership, isVerifiedMarketplacePrincipal, managerLocationForRoute, managerLocationIds } from '../../lib/marketplace/access';
 import LocationForm from '../brand/LocationForm';
 import LocationList from '../brand/LocationList';
+import MembershipPermissionManager, { type PermissionMember } from '../brand/MembershipPermissionManager';
 import PermissionEditor from '../brand/PermissionEditor';
 import WorkerInviteDialog from '../brand/WorkerInviteDialog';
 import { useAuth } from '../context/AuthContext';
 import { useWorkspace } from '../context/WorkspaceContext';
+
+const updateMembershipPermissions = httpsCallable<
+  { membershipId: string; permissions: Record<PermissionKey, boolean> },
+  { membershipId: string; permissions: Record<PermissionKey, boolean> }
+>(functions, 'updateMembershipPermissions');
 
 function locationRecord(id: string, data: Record<string, unknown>): SalonLocation | null {
   if (
@@ -32,6 +40,29 @@ function locationRecord(id: string, data: Record<string, unknown>): SalonLocatio
   };
 }
 
+function permissionMemberRecord(id: string, data: Record<string, unknown>): PermissionMember | null {
+  if (
+    data.role !== 'salon_admin'
+    || data.status !== 'active'
+    || typeof data.permissions !== 'object'
+    || data.permissions === null
+  ) return null;
+  const permissionValues = data.permissions as Record<string, unknown>;
+  const permissions = { ...DEFAULT_SALON_ADMIN_PERMISSIONS } as Record<PermissionKey, boolean>;
+  for (const key of PERMISSION_KEYS) {
+    if (typeof permissionValues[key] !== 'boolean') return null;
+    permissions[key] = permissionValues[key] as boolean;
+  }
+  return {
+    id,
+    displayName: typeof data.displayName === 'string' && data.displayName.trim()
+      ? data.displayName.trim()
+      : 'Salon Admin',
+    email: typeof data.email === 'string' ? data.email : 'Compte membre',
+    permissions,
+  };
+}
+
 export default function BrandDashboard() {
   const { user, logout, refreshSession } = useAuth();
   const { brandId, locationId, selectLocation } = useWorkspace();
@@ -43,6 +74,12 @@ export default function BrandDashboard() {
   const [error, setError] = useState('');
   const [showLocationForm, setShowLocationForm] = useState(false);
   const [showWorkerInvite, setShowWorkerInvite] = useState(false);
+  const [permissionMembers, setPermissionMembers] = useState<PermissionMember[]>([]);
+  const [selectedPermissionMemberId, setSelectedPermissionMemberId] = useState('');
+  const [permissionDraft, setPermissionDraft] = useState<Record<PermissionKey, boolean>>({
+    ...DEFAULT_SALON_ADMIN_PERMISSIONS,
+  });
+  const [savingPermissions, setSavingPermissions] = useState(false);
 
   const isPrincipal = isVerifiedMarketplacePrincipal(user);
   const assignedLocationIds = useMemo(() => (
@@ -106,6 +143,39 @@ export default function BrandDashboard() {
     }
   }, [locationId, locations, navigate, route.pathname, selectLocation]);
 
+  useEffect(() => {
+    if (!isPrincipal || !brandId || !locationId) {
+      setPermissionMembers([]);
+      setSelectedPermissionMemberId('');
+      return;
+    }
+    let cancelled = false;
+    void getDocs(query(
+      collection(db, 'memberships'),
+      where('brandId', '==', brandId),
+      where('locationId', '==', locationId),
+    )).then(snapshot => {
+      if (cancelled) return;
+      const members = snapshot.docs
+        .map(item => permissionMemberRecord(item.id, item.data()))
+        .filter((item): item is PermissionMember => item !== null)
+        .sort((left, right) => left.displayName.localeCompare(right.displayName));
+      setPermissionMembers(members);
+      setSelectedPermissionMemberId(current => {
+        const selected = members.find(member => member.id === current) ?? members[0];
+        setPermissionDraft(selected?.permissions ?? { ...DEFAULT_SALON_ADMIN_PERMISSIONS });
+        return selected?.id ?? '';
+      });
+    }).catch(reason => {
+      if (cancelled) return;
+      console.error('Failed to load Salon Admin memberships:', reason);
+      setPermissionMembers([]);
+      setSelectedPermissionMemberId('');
+      toast.error('Impossible de charger les membres de ce salon.');
+    });
+    return () => { cancelled = true; };
+  }, [brandId, isPrincipal, locationId]);
+
   const selectedLocation = locations.find(location => location.id === locationId) ?? null;
   const selectedMembership = user?.memberships.find(membership => (
     membership.brandId === brandId
@@ -117,6 +187,34 @@ export default function BrandDashboard() {
     ...(selectedMembership?.permissions ?? {}),
   } as Record<PermissionKey, boolean>;
   const permissionsView = route.pathname.endsWith('/permissions');
+
+  const selectPermissionMember = (membershipId: string) => {
+    const member = permissionMembers.find(item => item.id === membershipId);
+    setSelectedPermissionMemberId(membershipId);
+    if (member) setPermissionDraft({ ...member.permissions });
+  };
+
+  const savePermissionMember = async (membershipId: string) => {
+    if (!isPrincipal || !membershipId) return;
+    setSavingPermissions(true);
+    try {
+      const result = await updateMembershipPermissions({
+        membershipId,
+        permissions: permissionDraft,
+      });
+      setPermissionMembers(current => current.map(member => (
+        member.id === membershipId
+          ? { ...member, permissions: { ...result.data.permissions } }
+          : member
+      )));
+      toast.success('Droits du Salon Admin enregistrés.');
+    } catch (reason) {
+      console.error('Membership permission update failed:', reason);
+      toast.error('Impossible d’enregistrer ces droits.');
+    } finally {
+      setSavingPermissions(false);
+    }
+  };
 
   const openLocation = (id: string) => {
     selectLocation(id);
@@ -184,7 +282,7 @@ export default function BrandDashboard() {
                       <h2 className="mt-2 text-3xl font-black">{selectedLocation.name}</h2>
                       <p className="mt-2 text-sm text-white/45">{selectedLocation.address || `${selectedLocation.city}, ${selectedLocation.countryCode}`}</p>
                     </div>
-                    {permissionValue.inviteWorkers && (
+                    {(isPrincipal || permissionValue.inviteWorkers) && (
                       <button type="button" onClick={() => setShowWorkerInvite(true)} className="inline-flex items-center gap-2 rounded-xl bg-[#D4AF37] px-4 py-2.5 text-sm font-black text-black">
                         <UserPlus className="h-4 w-4" /> Inviter
                       </button>
@@ -206,11 +304,25 @@ export default function BrandDashboard() {
                   <div className="mb-6 flex items-start gap-3">
                     <ShieldCheck className="mt-0.5 h-5 w-5 text-[#D4AF37]" />
                     <div>
-                      <h3 className="font-black">Droits de votre accès</h3>
-                      <p className="mt-1 text-sm text-white/45">Ces autorisations sont attribuées côté serveur et affichées en lecture seule.</p>
+                      <h3 className="font-black">{isPrincipal ? 'Droits des Salon Admins' : 'Droits de votre accès'}</h3>
+                      <p className="mt-1 text-sm text-white/45">{isPrincipal ? 'Sélectionnez un membre de ce salon. Chaque changement est enregistré dans le journal d’audit.' : 'Ces autorisations sont attribuées côté serveur et affichées en lecture seule.'}</p>
                     </div>
                   </div>
-                  <PermissionEditor value={permissionValue} onChange={() => undefined} disabledKeys={PERMISSION_KEYS} showRole={false} />
+                  {isPrincipal ? (
+                    permissionMembers.length > 0 ? (
+                      <MembershipPermissionManager
+                        members={permissionMembers}
+                        selectedId={selectedPermissionMemberId}
+                        value={permissionDraft}
+                        onSelect={selectPermissionMember}
+                        onChange={setPermissionDraft}
+                        onSave={savePermissionMember}
+                        saving={savingPermissions}
+                      />
+                    ) : <p className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-5 text-sm text-white/50">Aucun Salon Admin actif pour cet emplacement.</p>
+                  ) : (
+                    <PermissionEditor value={permissionValue} onChange={() => undefined} disabledKeys={PERMISSION_KEYS} showRole={false} />
+                  )}
                 </section>
               ) : (
                 <section className="grid gap-4 sm:grid-cols-3">
@@ -232,6 +344,7 @@ export default function BrandDashboard() {
       {selectedLocation && (
         <WorkerInviteDialog
           locationId={selectedLocation.id}
+          canInviteSalonAdmins={isPrincipal}
           open={showWorkerInvite}
           onOpenChange={setShowWorkerInvite}
         />

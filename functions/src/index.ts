@@ -3,8 +3,9 @@ import * as admin from 'firebase-admin';
 import Stripe from 'stripe';
 import { requireMembership } from './authz';
 import { createBooking } from './bookingCreate';
-import { recordBookingPayment } from './bookingPayment';
+import { completeBookingAndRecordPayment, recordBookingPayment } from './bookingPayment';
 import {
+  assertStandaloneTransition,
   assertTransition,
   isStoredBookingStatus,
   normalizeBookingStatus,
@@ -13,8 +14,13 @@ import { bootstrapTenantOwnerFunction } from './bootstrapTenant';
 import { assertTransitionTransactionState } from './bookingTransitionState';
 import { verifyFirebaseIdToken } from './httpAuth';
 import { resolvePushRecipient } from './pushRecipient';
-import { bootstrapBrandOwnerFunction, createSalonLocationFunction } from './memberships';
+import {
+  bootstrapBrandOwnerFunction,
+  createSalonLocationFunction,
+  updateMembershipPermissionsFunction,
+} from './memberships';
 import { createWorkerInvitationFunction, respondToInvitationFunction } from './invitations';
+import { updateBusinessInfoFunction } from './businessInfo';
 
 if (admin.apps.length === 0) {
   admin.initializeApp();
@@ -27,8 +33,10 @@ export { verifyFirebaseIdToken } from './httpAuth';
 export const bootstrapTenantOwner = bootstrapTenantOwnerFunction;
 export const bootstrapBrandOwner = bootstrapBrandOwnerFunction;
 export const createSalonLocation = createSalonLocationFunction;
+export const updateMembershipPermissions = updateMembershipPermissionsFunction;
 export const createWorkerInvitation = createWorkerInvitationFunction;
 export const respondToInvitation = respondToInvitationFunction;
+export const updateBusinessInfo = updateBusinessInfoFunction;
 
 function getStripe(): Stripe {
   const key = process.env.STRIPE_SECRET_KEY;
@@ -167,14 +175,24 @@ export const createBookingHandler = async (
     return;
   }
 
+  const decodedToken = await verifyFirebaseIdToken(req);
+  if (!decodedToken) {
+    res.status(401).send('Unauthorized');
+    return;
+  }
   const tenantId = req.body?.tenantId;
   if (typeof tenantId !== 'string') {
     res.status(400).send('tenantId is required');
     return;
   }
-  const decodedToken = await verifyFirebaseIdToken(req);
   try {
-    const result = await createBooking(tenantId, decodedToken?.uid ?? null, req.body?.booking, db);
+    const result = await createBooking(
+      tenantId,
+      decodedToken.uid,
+      req.body?.booking,
+      db,
+      req.body?.staffAction,
+    );
     res.status(201).json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Booking creation failed';
@@ -242,6 +260,75 @@ export const recordBookingPaymentHandler = async (
 
 export const recordBookingPaymentRequest = functions.https.onRequest(recordBookingPaymentHandler);
 
+export const completeBookingPaymentHandler = async (
+  req: functions.https.Request,
+  res: functions.Response,
+): Promise<void> => {
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+  if (req.method === 'OPTIONS') {
+    res.status(204).send('');
+    return;
+  }
+  if (req.method !== 'POST') {
+    res.status(405).send('Method Not Allowed');
+    return;
+  }
+
+  const decodedToken = await verifyFirebaseIdToken(req);
+  if (!decodedToken) {
+    res.status(401).send('Unauthorized');
+    return;
+  }
+  const bookingId = req.body?.bookingId;
+  if (typeof bookingId !== 'string') {
+    res.status(400).send('bookingId is required');
+    return;
+  }
+
+  try {
+    const booking = await db.collection('bookings').doc(bookingId).get();
+    if (!booking.exists) {
+      res.status(404).send('Booking not found');
+      return;
+    }
+    const locationId = booking.data()?.locationId ?? booking.data()?.tenantId;
+    if (typeof locationId !== 'string') {
+      res.status(409).send('Booking has no location');
+      return;
+    }
+    const membership = await requireMembership(decodedToken.uid, locationId, 'manageBookings');
+    const recipientAssociation = await resolvePushRecipient(
+      db,
+      locationId,
+      booking.data()?.barberId,
+      'barber',
+    );
+    const result = await completeBookingAndRecordPayment(
+      decodedToken.uid,
+      bookingId,
+      locationId,
+      membership,
+      req.body?.payment,
+      db,
+      recipientAssociation,
+    );
+    res.status(200).json({
+      bookingId,
+      status: 'completed',
+      paymentStatus: 'paid',
+      notificationIds: result.notificationIds,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Completion payment failed';
+    const status = message.includes('Permission') || message.includes('authorization') ? 403 : 409;
+    res.status(status).send(message);
+  }
+};
+
+export const completeBookingPaymentRequest = functions.https.onRequest(completeBookingPaymentHandler);
+
 export const transitionBookingStatusHandler = async (
   req: functions.https.Request,
   res: functions.Response,
@@ -270,6 +357,12 @@ export const transitionBookingStatusHandler = async (
   const nextStatus = req.body?.status;
   if (typeof bookingId !== 'string' || !isStoredBookingStatus(nextStatus)) {
     res.status(400).send('Invalid booking status request');
+    return;
+  }
+  try {
+    assertStandaloneTransition(nextStatus);
+  } catch (error) {
+    res.status(409).send(error instanceof Error ? error.message : 'Invalid booking status request');
     return;
   }
 

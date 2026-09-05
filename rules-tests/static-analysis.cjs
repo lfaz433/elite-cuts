@@ -37,10 +37,11 @@ const tests = [
   },
   {
     id: 'SA-4',
-    description: 'Tenant authority comes from a server-issued custom claim',
+    description: 'Tenant authority comes from server-issued membership or owner records',
     check: () =>
       rules.includes('function isMemberOfTenant') &&
-      rules.includes('request.auth.token.tenantId == tId'),
+      rules.includes('hasActiveMembership(tId) || isTenantOwner(tId)') &&
+      !rules.includes('request.auth.token.tenantId == tId'),
   },
   {
     id: 'SA-5',
@@ -86,6 +87,21 @@ const tests = [
     id: 'SA-11',
     description: 'Marketplace: membership permission calls use valid CEL argument syntax',
     check: () => !/hasActiveLocationPermission\(\s*resource\.data\.brandId,\s*resource\.data\.locationId,\s*'manageStaff',\s*\)/s.test(rules),
+  },
+  {
+    id: 'SA-12',
+    description: 'Legacy tenant operations recognize deterministic marketplace location memberships',
+    check: () =>
+      rules.includes('function marketplaceTenantMembershipPath(tId)') &&
+      rules.includes('function hasActiveMarketplaceTenantMembership(tId)') &&
+      rules.includes('hasActiveLegacyMembership(tId) || hasActiveMarketplaceTenantMembership(tId)'),
+  },
+  {
+    id: 'SA-13',
+    description: 'Public barber timestamps cannot carry nested maps',
+    check: () =>
+      rules.includes("!('createdAt' in data) || data.createdAt is timestamp || data.createdAt is number") &&
+      rules.includes("!('updatedAt' in data) || data.updatedAt is timestamp || data.updatedAt is number"),
   },
 ];
 

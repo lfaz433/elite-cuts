@@ -7,7 +7,8 @@
     "serve": "npm run build && firebase emulators:start --only functions",
     "shell": "npm run build && firebase functions:shell",
     "start": "npm run shell",
-    "deploy": "firebase deploy --only functions"
+    "deploy:staging": "node ../scripts/guard-firebase-target.mjs staging && firebase deploy --only functions --project staging",
+    "deploy:production": "node ../scripts/guard-firebase-target.mjs production && firebase deploy --only functions --project production"
   },
   "engines": {
     "node": "20"

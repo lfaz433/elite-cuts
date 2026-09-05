@@ -64,6 +64,50 @@ test('booking payment handler rejects a request without Firebase authentication'
   expect(response.body).toBe('Unauthorized');
 });
 
+test('booking creation handler rejects a request without Firebase authentication', async () => {
+  const { createBookingHandler } = require('../functions/lib/index.js');
+  const response = fakeResponse();
+
+  await createBookingHandler({
+    method: 'POST',
+    headers: {},
+    body: { tenantId: 'tenant-a', booking: {} },
+  }, response);
+
+  expect(response.statusCode).toBe(401);
+  expect(response.body).toBe('Unauthorized');
+});
+
+test('booking status endpoint rejects standalone completion before any booking write', async () => {
+  const { transitionBookingStatusHandler } = require('../functions/lib/index.js');
+  const admin = require('../functions/node_modules/firebase-admin');
+  const verify = jest.spyOn(admin.auth(), 'verifyIdToken').mockResolvedValue({ uid: 'manager-a' });
+  const response = fakeResponse();
+
+  try {
+    await transitionBookingStatusHandler({
+      method: 'POST',
+      headers: { authorization: 'Bearer test-token' },
+      body: { bookingId: 'booking-a', status: 'completed' },
+    }, response);
+  } finally {
+    verify.mockRestore();
+  }
+
+  expect(response.statusCode).toBe(409);
+  expect(response.body).toBe('Completion requires the atomic payment command');
+});
+
+test('atomic completion handler rejects a request without Firebase authentication', async () => {
+  const { completeBookingPaymentHandler } = require('../functions/lib/index.js');
+  const response = fakeResponse();
+
+  await completeBookingPaymentHandler({ method: 'POST', headers: {}, body: {} }, response);
+
+  expect(response.statusCode).toBe(401);
+  expect(response.body).toBe('Unauthorized');
+});
+
 test('webhook handler fails closed when Stripe configuration is absent', async () => {
   const oldSecret = process.env.STRIPE_SECRET_KEY;
   const oldWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;

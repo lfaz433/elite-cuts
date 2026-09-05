@@ -126,18 +126,20 @@ test('T3: User cannot create a tenant where ownerUid is someone elses uid', asyn
 // ═══════════════════════════════════════════════════════════════════════════
 // T4 — User with matching tenantId can add a barber (SHOULD PASS)
 // ═══════════════════════════════════════════════════════════════════════════
-test('T4: Tenant member can create a barber for their tenant', async () => {
+test('T4: Tenant owner can create a safe public barber for their tenant', async () => {
   const uid = 'admin-uid';
   const tenantId = 'salon-abc';
   await seedUser(uid, tenantId, 'admin');
+  await seedTenant(tenantId, uid);
 
-  const db = await getFirestore(testEnv, uid, { tenantId });
+  const db = await getFirestore(testEnv, uid);
 
   await assertSucceeds(
     addDoc(collection(db, 'barbers'), {
       name: 'Karim',
       tenantId: tenantId,
       specialty: 'Coupe',
+      publicCredentialSafe: true,
     })
   );
 });
@@ -156,6 +158,7 @@ test('T5: User cannot create a barber for a different tenant', async () => {
       name: 'Fake Barber',
       tenantId: 'other-tenant',
       specialty: 'Coupe',
+      publicCredentialSafe: true,
     })
   );
 });
@@ -224,7 +227,7 @@ test('active deterministic membership can operate without a legacy tenant claim'
   const db = await getFirestore(testEnv, uid);
 
   await assertSucceeds(addDoc(collection(db, 'barbers'), {
-    tenantId, name: 'Membership Barber',
+    tenantId, name: 'Membership Barber', publicCredentialSafe: true,
   }));
 });
 

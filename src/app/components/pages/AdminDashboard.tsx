@@ -51,7 +51,7 @@ import { toast } from 'sonner';
 import { QRCodeCanvas } from 'qrcode.react';
 import type { Barber, Service, Product } from '../context/BusinessContext';
 import { db } from '../../lib/firebase';
-import { collection, query, where, getDocs, updateDoc, doc, addDoc, setDoc } from 'firebase/firestore';
+import { collection, updateDoc, doc, addDoc } from 'firebase/firestore';
 import { usePagination } from '../../hooks/usePagination';
 import { PaginationBar } from '../ui/PaginationBar';
 import NotificationCenter from '../ui/NotificationCenter';
@@ -67,7 +67,7 @@ const ManualBookingModal = lazy(() => import('../modals/ManualBookingModal'));
 const BarberAnalytics = lazy(() => import('../admin/BarberAnalytics').then(m => ({ default: m.BarberAnalytics })));
 const POSSaleModal = lazy(() => import('../modals/POSSaleModal').then(m => ({ default: m.POSSaleModal })));
 const AddServiceModal = lazy(() => import('../modals/AddServiceModal'));
-import { createBarberAccount } from '../../lib/adminAuth';
+const WorkerInviteDialog = lazy(() => import('../brand/WorkerInviteDialog'));
 
 // New optimized sections
 const BrandingSection = lazy(() => import('../admin/BrandingSection').then(m => ({ default: m.BrandingSection })));
@@ -217,6 +217,7 @@ export default function AdminDashboard() {
       const facebookInput = document.getElementById('settings-facebook') as HTMLInputElement;
       const websiteInput = document.getElementById('settings-website') as HTMLInputElement;
       const coordsInput = document.getElementById('settings-coords') as HTMLInputElement;
+      const bookingPolicyInput = document.getElementById('settings-booking-policy') as HTMLSelectElement;
       const updated: any = {};
       if (nameInput) updated.name = nameInput.value;
       if (phoneInput) updated.phone = phoneInput.value;
@@ -226,6 +227,7 @@ export default function AdminDashboard() {
       if (tiktokInput) updated.tiktok = tiktokInput.value;
       if (facebookInput) updated.facebook = facebookInput.value;
       if (websiteInput) updated.website = websiteInput.value;
+      if (bookingPolicyInput) updated.bookingPolicy = bookingPolicyInput.value;
       
       if (weeklyHoursState) {
         updated.weeklyHours = weeklyHoursState;
@@ -294,6 +296,7 @@ export default function AdminDashboard() {
   const [highlightedIds, setHighlightedIds] = useState<Set<string>>(new Set());
   const [bookingToReject, setBookingToReject] = useState<string | null>(null);
   const [activeBookingId, setActiveBookingId] = useState<string | null>(null);
+  const [legacyInviteOpen, setLegacyInviteOpen] = useState(false);
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
   const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
   const [approvalAmounts, setApprovalAmounts] = useState<Record<string, number>>({});
@@ -1081,9 +1084,13 @@ export default function AdminDashboard() {
                             )}
                             {booking.status === 'pending' && (
                               <button 
-                                onClick={() => {
-                                  updateBookingStatus(booking.id, 'approved', 'admin');
-                                  toast.success("RÉSERVATION APPROUVÉE");
+                                onClick={async () => {
+                                  try {
+                                    await updateBookingStatus(booking.id, 'approved', 'admin');
+                                    toast.success("RÉSERVATION APPROUVÉE");
+                                  } catch (error) {
+                                    toast.error(error instanceof Error ? error.message : 'Impossible d’approuver la réservation');
+                                  }
                                 }} 
                                 className="flex-1 sm:flex-none px-4 sm:px-5 py-2.5 bg-green-500/10 text-green-400 border border-green-500/20 rounded-2xl hover:bg-green-500 hover:text-white transition-all text-xs font-black uppercase tracking-wider text-center"
                               >
@@ -1202,7 +1209,14 @@ export default function AdminDashboard() {
                                 <div className="flex gap-2">
                                   {booking.status === 'pending' && (
                                     <>
-                                      <button onClick={() => updateBookingStatus(booking.id, 'approved', 'admin')} className="p-2 bg-green-500/10 text-green-500 hover:bg-green-500 hover:text-black rounded-xl transition-all shadow-lg" title="Approuver">
+                                      <button onClick={async () => {
+                                        try {
+                                          await updateBookingStatus(booking.id, 'approved', 'admin');
+                                          toast.success("RÉSERVATION APPROUVÉE");
+                                        } catch (error) {
+                                          toast.error(error instanceof Error ? error.message : 'Impossible d’approuver la réservation');
+                                        }
+                                      }} className="p-2 bg-green-500/10 text-green-500 hover:bg-green-500 hover:text-black rounded-xl transition-all shadow-lg" title="Approuver">
                                         <CheckCircle className="w-4 h-4" />
                                       </button>
                                       <button onClick={() => setBookingToReject(booking.id)} className="p-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-black rounded-xl transition-all shadow-lg" title="Rejeter">
@@ -2071,6 +2085,18 @@ export default function AdminDashboard() {
                         <input id="settings-address" defaultValue={businessInfo.address} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold" />
                       </div>
 
+                      <div>
+                        <label className="block text-white/30 text-[10px] font-black uppercase tracking-widest mb-2">Validation des réservations</label>
+                        <select
+                          id="settings-booking-policy"
+                          defaultValue={businessInfo.bookingPolicy ?? 'manual'}
+                          className="w-full bg-[#1a1a1a] border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-[#D4AF37] font-bold"
+                        >
+                          <option value="manual">Validation manuelle</option>
+                          <option value="automatic">Confirmation automatique</option>
+                        </select>
+                      </div>
+
                       <div className="space-y-4 pt-4 border-t border-white/5">
                         <h4 className="text-xs font-black uppercase text-[#D4AF37] tracking-wider mb-2">Réseaux Sociaux & Liens</h4>
                         
@@ -2416,11 +2442,15 @@ export default function AdminDashboard() {
                           Annuler
                         </button>
                         <button
-                          onClick={() => {
+                          onClick={async () => {
                             if (bookingToReject) {
-                              updateBookingStatus(bookingToReject, 'rejected', 'admin');
-                              toast.success("RÉSERVATION REJETÉE AVEC SUCCÈS");
-                              setBookingToReject(null);
+                              try {
+                                await updateBookingStatus(bookingToReject, 'rejected', 'admin');
+                                toast.success("RÉSERVATION REJETÉE AVEC SUCCÈS");
+                                setBookingToReject(null);
+                              } catch (error) {
+                                toast.error(error instanceof Error ? error.message : 'Impossible de rejeter la réservation');
+                              }
                             }
                           }}
                           className="flex-1 py-3 px-4 bg-red-500 hover:bg-red-600 text-white rounded-xl font-bold transition-colors"
@@ -2453,7 +2483,11 @@ export default function AdminDashboard() {
       </div>
 
       <Suspense fallback={null}>
-        {barberModalOpen && <BarberModal barber={editingBarber} services={services} isSaving={isSaving} handleImageUpload={handleImageUpload} onClose={() => setBarberModalOpen(false)} onSave={async (data) => {
+        {barberModalOpen && <BarberModal barber={editingBarber} services={services} isSaving={isSaving} handleImageUpload={handleImageUpload} onClose={() => setBarberModalOpen(false)} onInvite={() => {
+          setBarberModalOpen(false);
+          if (user?.brandId) navigate('/brand');
+          else setLegacyInviteOpen(true);
+        }} onSave={async (data) => {
           setIsSaving(true);
           try {
             // Trim and lowercase the email address
@@ -2463,7 +2497,7 @@ export default function AdminDashboard() {
             if (editingBarber) {
               await updateBarber(editingBarber.id, data);
               
-              // Secure Audit Logging for profile/credentials update
+              // Audit profile changes only. Worker credentials are never handled here.
               try {
                 await addDoc(collection(db, 'audit_logs'), {
                   action: 'update_barber',
@@ -2471,70 +2505,25 @@ export default function AdminDashboard() {
                   barberName: data.name,
                   adminEmail: user?.email || 'admin@test.com',
                   timestamp: new Date().toISOString(),
-                  details: 'Barber profile or credentials modified by admin'
+                  details: 'Barber profile modified by admin'
                 });
               } catch (auditErr) {
                 console.warn("Audit logging failed (non-fatal):", auditErr);
               }
             } else {
-              let newBarberUid: string | null = null;
-              if (data.email && data.password) {
-                try {
-                  const authResult = await Promise.race([
-                    createBarberAccount(data.email, data.password),
-                    new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Auth Timeout")), 35000))
-                  ]);
-                  newBarberUid = (authResult as any)?.uid ?? null;
-                } catch (err: any) {
-                  if (err.code === 'auth/email-already-in-use') {
-                    console.warn("Email already in use");
-                  } else if (err.message === "Auth Timeout") {
-                    console.warn("Auth creation taking time, proceeding...");
-                  } else throw err;
-                }
-              }
-
-              // Pre-create users/{uid} so barber reaches their dashboard on first login
-              if (newBarberUid) {
-                try {
-                  await setDoc(doc(db, 'users', newBarberUid), {
-                    uid: newBarberUid,
-                    email: data.email,
-                    name: data.name,
-                    role: 'barber',
-                    tenantId: tenant.tenantId,
-                    onboardingComplete: true,
-                    createdAt: new Date(),
-                  });
-                } catch (e) {
-                  console.warn("Could not pre-create barber user profile:", e);
-                }
-              }
               await addBarber(data as any);
               
-              // Secure Audit Logging for new barber profile/credentials creation
+              // Audit profile creation only. Account access is invitation-owned.
               try {
                 await addDoc(collection(db, 'audit_logs'), {
                   action: 'create_barber',
                   barberName: data.name,
                   adminEmail: user?.email || 'admin@test.com',
                   timestamp: new Date().toISOString(),
-                  details: 'New barber profile and credentials created by admin'
+                  details: 'New barber profile created by admin; account access requires invitation'
                 });
               } catch (auditErr) {
                 console.warn("Audit logging failed (non-fatal):", auditErr);
-              }
-
-              // Try to pre-set user profile role for immediate Barber Dashboard routing
-              try {
-                const usersCol = collection(db, 'users');
-                const q = query(usersCol, where('email', '==', data.email));
-                const snap = await getDocs(q);
-                if (!snap.empty) {
-                  await updateDoc(doc(db, 'users', snap.docs[0].id), { role: 'barber' });
-                }
-              } catch (e) {
-                console.warn("Could not pre-set user role", e);
               }
             }
             await triggerSuccess(() => setBarberModalOpen(false));
@@ -2543,7 +2532,13 @@ export default function AdminDashboard() {
             console.error(err);
             toast.error(err.message ?? 'Erreur lors de l\'enregistrement');
           }
-        }} />}
+            }} />}
+        <WorkerInviteDialog
+          locationId={tenant.tenantId}
+          open={legacyInviteOpen}
+          canInviteSalonAdmins={false}
+          onOpenChange={setLegacyInviteOpen}
+        />
         {serviceModalOpen && <ServiceModal service={editingService} isSaving={isSaving} handleImageUpload={handleImageUpload} onClose={() => setServiceModalOpen(false)} onSave={async (data) => {
           setIsSaving(true);
           try {

@@ -54,6 +54,14 @@ test.each(['declined', 'cancelled', 'completed'])(
   },
 );
 
+test('standalone status endpoint rejects completion so payment and completion stay atomic', () => {
+  const { assertStandaloneTransition } = loadTypeScriptModule('functions/src/bookingStatus.ts');
+
+  expect(() => assertStandaloneTransition('completed'))
+    .toThrow('Completion requires the atomic payment command');
+  expect(() => assertStandaloneTransition('confirmed')).not.toThrow();
+});
+
 test('an HTTP request without a Firebase bearer token is anonymous', async () => {
   const { verifyFirebaseIdToken } = loadTypeScriptModule('functions/src/httpAuth.ts');
 

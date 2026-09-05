@@ -2,6 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, R
 import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
+  reload,
+  sendEmailVerification,
   signInWithEmailAndPassword,
   signOut,
   updateProfile,
@@ -15,7 +17,8 @@ import {
 } from '../../lib/session';
 import { legacyRoleForLocation, membershipForLocation } from '../../lib/sessionAccess';
 import type { MembershipRole } from '../../lib/marketplace/types';
-import { resolveMarketplaceManager } from '../../lib/marketplace/access';
+import { resolveMarketplaceManager, resolveMarketplaceWorker } from '../../lib/marketplace/access';
+import { refreshVerifiedEmail, sendAccountVerification } from '../../lib/emailVerification';
 import { useTenant } from './TenantContext';
 
 type LegacyRole = 'client' | 'admin' | 'barber' | 'superadmin';
@@ -39,6 +42,8 @@ interface AuthContextType {
   signup: (email: string, password: string, name: string, phone?: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
+  resendEmailVerification: () => Promise<void>;
+  refreshEmailVerification: () => Promise<boolean>;
   isAuthenticated: boolean;
 }
 
@@ -79,6 +84,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return false;
       }
     });
+    const marketplaceWorker = marketplaceManager ? undefined : await resolveMarketplaceWorker(
+      session.memberships,
+      async membership => {
+        try {
+          if (!membership.locationId) return false;
+          const location = await getDoc(doc(db, 'salonLocations', membership.locationId));
+          return location.exists() && location.data().brandId === membership.brandId;
+        } catch (error) {
+          console.warn('Marketplace worker verification failed:', error);
+          return false;
+        }
+      },
+    );
     const isPlatformAdmin = token.claims.superadmin === true || token.claims.platformAdmin === true;
     const claimedTenantId = typeof token.claims.tenantId === 'string'
       ? token.claims.tenantId
@@ -88,6 +106,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       : undefined;
     const role = isPlatformAdmin
       ? 'superadmin'
+      : marketplaceWorker
+        ? 'barber'
       : activeMembership
         ? membershipRole(activeMembership)
         : legacyRoleForLocation(token.claims.role, claimedTenantId, tenantId);
@@ -97,11 +117,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       id: session.uid,
       name: session.displayName || (role === 'admin' ? 'Administrateur' : 'Utilisateur'),
       role,
-      barberId: activeMembership?.barberId,
-      tenantId: activeMembership?.locationId ?? scopedClaimTenantId ?? tenantId,
-      marketplaceRole: marketplaceManager?.role as MembershipRole | undefined,
-      brandId: marketplaceManager?.brandId,
-      marketplaceMembershipId: marketplaceManager?.id,
+      barberId: activeMembership?.barberId ?? marketplaceWorker?.barberId,
+      tenantId: activeMembership?.locationId ?? marketplaceWorker?.locationId ?? scopedClaimTenantId ?? tenantId,
+      marketplaceRole: (marketplaceManager ?? marketplaceWorker)?.role as MembershipRole | undefined,
+      brandId: (marketplaceManager ?? marketplaceWorker)?.brandId,
+      marketplaceMembershipId: (marketplaceManager ?? marketplaceWorker)?.id,
     });
   }, [tenantId]);
 
@@ -122,6 +142,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           id: firebaseUser.uid,
           uid: firebaseUser.uid,
           email: firebaseUser.email?.trim().toLowerCase() ?? '',
+          emailVerified: firebaseUser.emailVerified,
           displayName: firebaseUser.displayName ?? '',
           name: firebaseUser.displayName ?? 'Utilisateur',
           role: 'client',
@@ -153,6 +174,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       phone: phone ?? '',
       createdAt: serverTimestamp(),
     });
+    await sendAccountVerification(firebaseUser, sendEmailVerification);
   };
 
   const logout = async () => {
@@ -172,6 +194,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [hydrateSession]);
 
+  const resendEmailVerification = useCallback(async () => {
+    if (!auth.currentUser) throw new Error('Authentication is required');
+    await sendAccountVerification(auth.currentUser, sendEmailVerification);
+  }, []);
+
+  const refreshEmailVerification = useCallback(async () => {
+    if (!auth.currentUser) return false;
+    const verified = await refreshVerifiedEmail(auth.currentUser, reload);
+    if (verified) await hydrateSession(auth.currentUser);
+    return verified;
+  }, [hydrateSession]);
+
   const value = useMemo(() => ({
     user,
     isLoading,
@@ -179,8 +213,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signup,
     logout,
     refreshSession,
+    resendEmailVerification,
+    refreshEmailVerification,
     isAuthenticated: user !== null,
-  }), [user, isLoading, refreshSession]);
+  }), [user, isLoading, refreshSession, resendEmailVerification, refreshEmailVerification]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

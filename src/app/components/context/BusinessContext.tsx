@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useMemo, ReactNode } from 'react';
-import { auth, db } from '../../lib/firebase';
+import { auth, db, functions } from '../../lib/firebase';
+import { httpsCallable } from 'firebase/functions';
 import { 
   collection, 
   onSnapshot, 
@@ -8,6 +9,7 @@ import {
   deleteDoc, 
   doc, 
   setDoc,
+  deleteField,
   query,
   orderBy,
   where,
@@ -18,6 +20,13 @@ import { toast } from 'sonner';
 import { useCallback } from 'react';
 import { useTenant } from './TenantContext';
 import { useAuth } from './AuthContext';
+import {
+  sanitizeBarberCreate,
+  sanitizeBarberUpdate,
+  sanitizeBusinessInfo,
+} from '../../lib/publicStaff';
+import { staffCreateActionForBooking } from '../../lib/bookingIntent';
+import { runBestEffortAfterCommit } from '../../lib/truthfulAction';
 
 export interface Service {
   id: string;
@@ -40,7 +49,6 @@ export interface Barber {
   workingDays?: number[]; // 0 = Sunday, 1 = Monday, etc.
   phone?: string;
   email?: string;
-  password?: string;
   mainServiceId?: string;
   secondaryServiceId?: string;
   archived?: boolean;
@@ -168,7 +176,6 @@ export interface BusinessInfo {
   phone: string;
   email: string;
   adminEmail?: string;
-  adminPassword?: string;
   hours: {
     weekdays: string;
     weekends: string;
@@ -198,6 +205,7 @@ export interface BusinessInfo {
     value: string;
     enabled: boolean;
   }[];
+  bookingPolicy?: 'manual' | 'automatic';
 }
 
 export interface Expense {
@@ -276,7 +284,7 @@ interface BusinessContextType {
   addBarber: (barber: Omit<Barber, 'id'>) => Promise<void>;
   updateBarber: (id: string, barber: Partial<Barber>) => Promise<void>;
   deleteBarber: (id: string) => Promise<void>;
-  addBooking: (booking: Omit<Booking, 'id' | 'createdAt'> & { status?: Booking['status'] }) => Promise<void>;
+  addBooking: (booking: Omit<Booking, 'id' | 'createdAt'> & { status?: Booking['status'] }) => Promise<{ bookingId: string; status: 'pending' | 'approved' | 'completed' }>;
   updateBookingStatus: (id: string, status: Booking['status'], actor?: 'admin' | 'barber') => Promise<void>;
   updateBooking: (id: string, updated: Partial<Booking>) => Promise<void>;
   deleteBooking: (id: string) => Promise<void>;
@@ -432,6 +440,41 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const requestCompleteBookingPayment = async (
+    id: string,
+    amount: number,
+    tip: number,
+    method: 'cash' | 'card',
+  ) => {
+    if (!auth.currentUser) throw new Error('Authenticated staff required');
+    const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID?.trim();
+    if (!projectId) throw new Error('Firebase project is not configured');
+    const action = staffCreateActionForBooking({
+      status: 'completed',
+      paymentStatus: 'paid',
+      pricePaid: amount,
+      tip,
+      paymentMethod: method,
+    });
+    if (!action || action.status !== 'completed') throw new Error('Completion payment is invalid');
+    const idToken = await auth.currentUser.getIdToken();
+    const response = await fetch(
+      `https://us-central1-${projectId}.cloudfunctions.net/completeBookingPaymentRequest`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ bookingId: id, payment: action.payment }),
+      },
+    );
+    if (!response.ok) {
+      throw new Error((await response.text()) || 'Completion payment failed');
+    }
+    return response.json() as Promise<{ notificationIds?: string[] }>;
+  };
+
   useEffect(() => {
     if (!tenantId) return;
 
@@ -459,7 +502,11 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       markLoaded('services');
     }, () => markLoaded('services'));
 
-    const unsubBarbers = onSnapshot(query(collection(db, 'barbers'), where('tenantId', '==', tenantId)), (snapshot) => {
+    const unsubBarbers = onSnapshot(query(
+      collection(db, 'barbers'),
+      where('tenantId', '==', tenantId),
+      where('publicCredentialSafe', '==', true),
+    ), (snapshot) => {
       setBarbers(snapshot.docs.map(d => {
         const data = d.data() as any;
         return {
@@ -474,7 +521,9 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
 
     // Business info is stored per-tenant under tenants/{tenantId}/businessInfo/info
     const unsubInfo = onSnapshot(doc(db, 'tenants', tenantId, 'businessInfo', 'info'), (snap) => {
-      if (snap.exists()) setBusinessInfo(snap.data() as BusinessInfo);
+      if (snap.exists()) {
+        setBusinessInfo(sanitizeBusinessInfo(snap.data()) as unknown as BusinessInfo);
+      }
       markLoaded('businessInfo');
     }, () => markLoaded('businessInfo'));
 
@@ -595,8 +644,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
 
   const addBarber = async (barber: Omit<Barber, 'id'>) => {
     const cleanedBarber = {
-      ...barber,
-      email: barber.email?.trim().toLowerCase() || '',
+      ...sanitizeBarberCreate(barber as unknown as Record<string, unknown>),
       archived: false,
       tenantId
     };
@@ -608,11 +656,14 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   };
 
   const updateBarber = async (id: string, updated: Partial<Barber>) => {
-    const cleanedUpdate = { ...updated };
-    if (cleanedUpdate.email) {
-      cleanedUpdate.email = cleanedUpdate.email.trim().toLowerCase();
-    }
-    await updateDoc(doc(db, 'barbers', id), cleanedUpdate);
+    const cleanedUpdate = sanitizeBarberUpdate(updated as Record<string, unknown>);
+    await updateDoc(doc(db, 'barbers', id), {
+      ...cleanedUpdate,
+      password: deleteField(),
+      temporaryPassword: deleteField(),
+      adminPassword: deleteField(),
+      credentials: deleteField(),
+    });
   };
 
   const deleteBarber = async (id: string) => {
@@ -650,13 +701,13 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     if (!tenantId) throw new Error('Tenant is required');
     const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID?.trim();
     if (!projectId) throw new Error('Firebase project is not configured');
-    const requestedStatus = booking.status ?? 'pending';
-    const requestedPayment = {
-      status: booking.paymentStatus,
-      amount: Number(booking.pricePaid ?? 0),
+    const staffAction = staffCreateActionForBooking({
+      status: booking.status ?? 'pending',
+      paymentStatus: booking.paymentStatus,
+      pricePaid: Number(booking.pricePaid ?? 0),
       tip: Number(booking.tip ?? 0),
-      method: booking.paymentMethod ?? 'cash',
-    };
+      paymentMethod: booking.paymentMethod ?? 'cash',
+    });
     const bookingPayload: Record<string, unknown> = { ...booking };
     for (const serverOwnedField of [
       'id', 'status', 'tenantId', 'locationId', 'clientId', 'createdAt',
@@ -665,37 +716,31 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     ]) {
       delete bookingPayload[serverOwnedField];
     }
-    const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+    if (!auth.currentUser) throw new Error('Authentication is required to create a booking');
+    const idToken = await auth.currentUser.getIdToken();
     const response = await fetch(
       `https://us-central1-${projectId}.cloudfunctions.net/createBookingRequest`,
       {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {}),
+          'Authorization': `Bearer ${idToken}`,
         },
-        body: JSON.stringify({ tenantId, booking: bookingPayload }),
+        body: JSON.stringify({
+          tenantId,
+          booking: bookingPayload,
+          ...(staffAction ? { staffAction } : {}),
+        }),
       },
     );
     if (!response.ok) {
       throw new Error((await response.text()) || 'Booking creation failed');
     }
-    const { bookingId } = await response.json() as { bookingId: string };
-
-    if (requestedStatus !== 'pending') {
-      if (requestedStatus === 'completed') {
-        await requestBookingTransition(bookingId, 'approved');
-      }
-      await requestBookingTransition(bookingId, requestedStatus);
-    }
-    if (requestedPayment.status === 'paid') {
-      await requestBookingPayment(
-        bookingId,
-        requestedPayment.amount,
-        requestedPayment.tip,
-        requestedPayment.method,
-      );
-    }
+    const created = await response.json() as {
+      bookingId: string;
+      status: 'pending' | 'approved' | 'completed';
+    };
+    const { bookingId } = created;
 
     try {
       const targetService = services.find(s => s.id === booking.serviceId);
@@ -747,14 +792,18 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error("Error creating booking notifications:", error);
     }
+    return created;
   };
 
   const updateBookingStatus = async (id: string, status: Booking['status'], actor?: 'admin' | 'barber') => {
     const result = await requestBookingTransition(id, status);
     if (actor === 'admin' || actor === 'barber') {
-      await updateDoc(doc(db, 'bookings', id), actor === 'admin'
-        ? { unreadBarber: true }
-        : { unreadAdmin: true });
+      await runBestEffortAfterCommit(
+        () => updateDoc(doc(db, 'bookings', id), actor === 'admin'
+          ? { unreadBarber: true }
+          : { unreadAdmin: true }),
+        error => console.warn('Booking committed; unread marker update failed:', error),
+      );
     }
     for (const notificationId of result.notificationIds ?? []) {
       await sendPush(notificationId);
@@ -770,22 +819,39 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       paymentMethod,
       ...nonTransitionFields
     } = updated;
-    if (status) await updateBookingStatus(id, status);
-    if (
+    delete (nonTransitionFields as Record<string, unknown>).completedAt;
+    const hasPaymentIntent = (
       paymentStatus !== undefined
       || pricePaid !== undefined
       || tip !== undefined
       || paymentMethod !== undefined
-    ) {
+    );
+    if (status === 'completed' && hasPaymentIntent) {
       if (paymentStatus !== undefined && paymentStatus !== 'paid') {
         throw new Error('Only recording a completed payment is supported');
       }
-      await requestBookingPayment(
+      const result = await requestCompleteBookingPayment(
         id,
         Number(pricePaid ?? 0),
         Number(tip ?? 0),
         paymentMethod ?? 'cash',
       );
+      for (const notificationId of result.notificationIds ?? []) {
+        await sendPush(notificationId);
+      }
+    } else {
+      if (status) await updateBookingStatus(id, status);
+      if (hasPaymentIntent) {
+        if (paymentStatus !== undefined && paymentStatus !== 'paid') {
+          throw new Error('Only recording a completed payment is supported');
+        }
+        await requestBookingPayment(
+          id,
+          Number(pricePaid ?? 0),
+          Number(tip ?? 0),
+          paymentMethod ?? 'cash',
+        );
+      }
     }
     if (Object.keys(nonTransitionFields).length > 0) {
       await updateDoc(doc(db, 'bookings', id), nonTransitionFields);
@@ -797,8 +863,14 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   };
 
   const updateBusinessInfo = async (info: Partial<BusinessInfo>) => {
-    // Write to tenant-scoped path to keep each salon's data isolated
-    await setDoc(doc(db, 'tenants', tenantId, 'businessInfo', 'info'), { ...businessInfo, ...info }, { merge: true });
+    const sanitized = sanitizeBusinessInfo({ ...businessInfo, ...info });
+    const publicInfo = { ...sanitized };
+    delete publicInfo.publicCredentialSafe;
+    const updateBusinessInfoCallable = httpsCallable<
+      { tenantId: string; info: Record<string, unknown> },
+      { tenantId: string }
+    >(functions, 'updateBusinessInfo');
+    await updateBusinessInfoCallable({ tenantId, info: publicInfo });
   };
 
   const addToGallery = async (url: string) => {

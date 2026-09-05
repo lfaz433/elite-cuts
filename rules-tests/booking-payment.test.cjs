@@ -158,3 +158,142 @@ test.each([
     amountMinor: 4000, tipMinor: 0, method: 'cash', evidence: { type: 'staff_cash_attestation' },
   }, firestore)).rejects.toThrow(message);
 });
+
+test('completion and cash payment commit together with one audit event', async () => {
+  const { completeBookingAndRecordPayment } = loadTypeScriptModule('functions/src/bookingPayment.ts');
+  const membership = {
+    id: 'membership-a', userId: 'manager-a', brandId: 'tenant-a', locationId: 'tenant-a',
+    status: 'active', role: 'admin', permissions: { manageBookings: true },
+  };
+  const state = {
+    bookings: { 'booking-a': { tenantId: 'tenant-a', locationId: 'tenant-a', barberId: 'barber-a', date: '2026-09-05', time: '10:00', status: 'approved', paymentStatus: 'unpaid', expectedAmountMinor: 4000 } },
+    memberships: { 'membership-a': membership },
+    audit_logs: {},
+    notifications: {},
+  };
+  const firestore = {
+    collection: name => ({ doc: id => ({
+      collectionName: name,
+      id: id ?? (name === 'notifications' ? 'notification-a' : 'audit-a'),
+    }) }),
+    runTransaction: async callback => callback({
+      getAll: async (...refs) => refs.map(ref => ({ exists: Boolean(state[ref.collectionName][ref.id]), data: () => state[ref.collectionName][ref.id] })),
+      update: (ref, value) => { state[ref.collectionName][ref.id] = { ...state[ref.collectionName][ref.id], ...value }; },
+      create: (ref, value) => { state[ref.collectionName][ref.id] = value; },
+    }),
+  };
+
+  const result = await completeBookingAndRecordPayment('manager-a', 'booking-a', 'tenant-a', membership, {
+    amountMinor: 4000, tipMinor: 500, method: 'cash', evidence: { type: 'staff_cash_attestation' },
+  }, firestore, {
+    sourceAlias: 'barber-a',
+    userId: 'worker-a',
+    membershipId: 'membership-worker-a',
+  });
+
+  expect(state.bookings['booking-a']).toMatchObject({
+    status: 'completed', paymentStatus: 'paid', pricePaidMinor: 4000, tipMinor: 500,
+  });
+  expect(state.audit_logs['audit-a']).toMatchObject({
+    action: 'BOOKING_COMPLETED_AND_PAID', actorUid: 'manager-a', bookingId: 'booking-a',
+  });
+  expect(state.notifications['notification-a']).toMatchObject({
+    type: 'COMPLETED',
+    serverIssued: true,
+    tenantId: 'tenant-a',
+    locationId: 'tenant-a',
+    recipientId: 'worker-a',
+    recipientMembershipId: 'membership-worker-a',
+    reservationId: 'booking-a',
+  });
+  expect(result).toEqual({ notificationIds: ['notification-a'] });
+});
+
+function paymentFirestore(state) {
+  return {
+    collection: name => ({ doc: id => ({
+      collectionName: name,
+      id: id ?? (name === 'notifications' ? 'notification-a' : 'audit-a'),
+    }) }),
+    runTransaction: async callback => callback({
+      getAll: async (...refs) => refs.map(ref => ({
+        exists: Boolean(state[ref.collectionName]?.[ref.id]),
+        data: () => state[ref.collectionName]?.[ref.id],
+      })),
+      update: (ref, value) => {
+        state[ref.collectionName][ref.id] = { ...state[ref.collectionName][ref.id], ...value };
+      },
+      create: (ref, value) => { state[ref.collectionName][ref.id] = value; },
+    }),
+  };
+}
+
+test('marketplace staff can complete a booking when brand and location ids differ', async () => {
+  const { completeBookingAndRecordPayment } = loadTypeScriptModule('functions/src/bookingPayment.ts');
+  const membership = {
+    id: 'brand-b__location-l__manager-a', userId: 'manager-a', brandId: 'brand-b',
+    locationId: 'location-l', status: 'active', role: 'salon_admin',
+    permissions: { manageBookings: true },
+  };
+  const state = {
+    bookings: { 'booking-a': {
+      tenantId: 'location-l', locationId: 'location-l', brandId: 'brand-b',
+      serviceId: 'service-a', status: 'approved', paymentStatus: 'unpaid', expectedAmountMinor: 4000,
+    } },
+    memberships: { [membership.id]: membership }, services: {}, audit_logs: {}, notifications: {},
+  };
+
+  await completeBookingAndRecordPayment('manager-a', 'booking-a', 'location-l', membership, {
+    amountMinor: 4000, tipMinor: 0, method: 'cash', evidence: { type: 'staff_cash_attestation' },
+  }, paymentFirestore(state));
+
+  expect(state.bookings['booking-a']).toMatchObject({ status: 'completed', paymentStatus: 'paid' });
+});
+
+test('legacy booking amount is atomically resolved from its location-scoped service', async () => {
+  const { completeBookingAndRecordPayment } = loadTypeScriptModule('functions/src/bookingPayment.ts');
+  const membership = {
+    id: 'membership-a', userId: 'manager-a', brandId: 'tenant-a', locationId: 'tenant-a',
+    status: 'active', role: 'admin', permissions: { manageBookings: true },
+  };
+  const state = {
+    bookings: { 'booking-a': {
+      tenantId: 'tenant-a', locationId: 'tenant-a', serviceId: 'service-a',
+      status: 'approved', paymentStatus: 'unpaid',
+    } },
+    memberships: { 'membership-a': membership },
+    services: { 'service-a': { tenantId: 'tenant-a', price: '40 €' } },
+    audit_logs: {}, notifications: {},
+  };
+
+  await completeBookingAndRecordPayment('manager-a', 'booking-a', 'tenant-a', membership, {
+    amountMinor: 4000, tipMinor: 0, method: 'cash', evidence: { type: 'staff_cash_attestation' },
+  }, paymentFirestore(state));
+
+  expect(state.bookings['booking-a']).toMatchObject({
+    status: 'completed', paymentStatus: 'paid', expectedAmountMinor: 4000,
+  });
+});
+
+test('legacy booking resolution still rejects a payment that mismatches the trusted service price', async () => {
+  const { completeBookingAndRecordPayment } = loadTypeScriptModule('functions/src/bookingPayment.ts');
+  const membership = {
+    id: 'membership-a', userId: 'manager-a', brandId: 'tenant-a', locationId: 'tenant-a',
+    status: 'active', role: 'admin', permissions: { manageBookings: true },
+  };
+  const state = {
+    bookings: { 'booking-a': {
+      tenantId: 'tenant-a', locationId: 'tenant-a', serviceId: 'service-a',
+      status: 'approved', paymentStatus: 'unpaid',
+    } },
+    memberships: { 'membership-a': membership },
+    services: { 'service-a': { tenantId: 'tenant-a', price: '50' } },
+    audit_logs: {}, notifications: {},
+  };
+
+  await expect(completeBookingAndRecordPayment(
+    'manager-a', 'booking-a', 'tenant-a', membership,
+    { amountMinor: 4000, tipMinor: 0, method: 'cash', evidence: { type: 'staff_cash_attestation' } },
+    paymentFirestore(state),
+  )).rejects.toThrow('Payment amount does not match booking amount');
+});

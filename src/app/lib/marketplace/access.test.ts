@@ -7,6 +7,7 @@ import {
   managerLocationIds,
   managerLocationForRoute,
   resolveMarketplaceManager,
+  resolveMarketplaceWorker,
   isVerifiedMarketplacePrincipal,
 } from './access';
 
@@ -104,4 +105,25 @@ test('excludes worker-only locations from a manager dashboard and deep-link scop
     managerLocationForRoute('grenoble', managerLocationIds(memberships, 'brand-a'), null),
     'paris',
   );
+});
+
+test('an accepted marketplace worker resolves to its linked barber workspace', async () => {
+  const worker = membership({
+    id: 'brand-a__paris__worker-a',
+    locationId: 'paris',
+    role: 'worker',
+    barberId: 'paris__worker-a',
+  });
+  const resolved = await resolveMarketplaceWorker([worker], async () => true);
+  const user = {
+    role: resolved ? 'barber' : 'client',
+    brandId: resolved?.brandId,
+    marketplaceMembershipId: resolved?.id,
+    memberships: [worker],
+  };
+
+  assert.equal(resolved?.locationId, 'paris');
+  assert.equal(resolved?.barberId, 'paris__worker-a');
+  assert.equal(brandDashboardHomePath(user), '/barber');
+  assert.equal(hasBrandDashboardAccess(user), false);
 });

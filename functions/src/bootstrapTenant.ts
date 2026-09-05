@@ -134,6 +134,7 @@ export async function bootstrapTenantOwner(
       settings: {
         maxBarbersLimit: input.planId === 'basic' ? 2 : input.planId === 'pro' ? 8 : 999,
         allowOnlineBooking: true,
+        bookingPolicy: 'manual',
       },
       createdAt,
     });

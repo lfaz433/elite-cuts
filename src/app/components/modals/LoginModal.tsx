@@ -32,7 +32,7 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
     if (user && !authLoading) {
       onClose();
       // Use replace: true to prevent going back to login modal
-      navigate(postLoginDestination(route.search, `/${user.role}`), { replace: true });
+      navigate(postLoginDestination(route.search, `/${user.role}`, window.sessionStorage), { replace: true });
     }
   }, [user, authLoading, navigate, onClose, route.search]);
 
@@ -64,7 +64,7 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
         toast.success('Bon retour !');
       } else {
         await signup(cleanEmail, password, name, phone);
-        toast.success('Bienvenue ! Votre compte a été créé.');
+        toast.success('Compte créé. Vérifiez l’e-mail que nous venons d’envoyer.');
       }
     } catch (error: any) {
       console.error(error);

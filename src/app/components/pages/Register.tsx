@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Scissors, Check, AlertTriangle, ArrowRight, ArrowLeft, Loader2, Sparkles, Shield, User, Globe, Store, MapPin } from 'lucide-react';
-import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
+import { createUserWithEmailAndPassword, sendEmailVerification, updateProfile } from 'firebase/auth';
 import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { auth, db, functions } from '../../lib/firebase';
@@ -13,6 +13,7 @@ import 'react-phone-input-2/lib/style.css';
 import { loadSessionUser } from '../../lib/session';
 import { validateSubdomain } from '../../lib/validators';
 import { useAuth } from '../context/AuthContext';
+import { sendAccountVerification } from '../../lib/emailVerification';
 
 type PlanId = 'basic' | 'pro' | 'enterprise';
 type ProvisionStatus = 'pending' | 'pending_verification' | 'active' | 'failed';
@@ -231,6 +232,7 @@ export default function Register() {
         createdAt: serverTimestamp(),
       };
       await setDoc(doc(db, 'users', createdUser.uid), userProfile);
+      await sendAccountVerification(createdUser, sendEmailVerification);
 
       if (isBrandMode) {
         const bootstrapBrand = httpsCallable<Record<string, unknown>, BootstrapBrandResult>(

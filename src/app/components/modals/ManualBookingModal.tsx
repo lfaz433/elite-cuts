@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { X, Calendar, User, Phone, Mail, FileText, DollarSign, Clock } from 'lucide-react';
+import { X, Calendar, User, Phone, Mail, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { useBusiness, toLocalYYYYMMDD } from '../context/BusinessContext';
 import type { Booking } from '../context/BusinessContext';
@@ -22,11 +22,7 @@ export default function ManualBookingModal({ onClose, preSelectedBarberId }: Man
     date: toLocalYYYYMMDD(new Date()),
     time: '',
     type: 'avec-rdv' as Booking['type'],
-    paymentStatus: 'unpaid' as Booking['paymentStatus'],
     notes: '',
-    paymentMethod: 'cash' as Booking['paymentMethod'],
-    pricePaid: 0,
-    tip: 0
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -55,9 +51,6 @@ export default function ManualBookingModal({ onClose, preSelectedBarberId }: Man
 
     setIsSubmitting(true);
     try {
-      const selectedService = services.find(s => s.id === formData.serviceId);
-      const servicePrice = selectedService ? parseFloat(selectedService.price.replace(/[^0-9]/g, '')) : 25;
-
       const finalBooking = {
         clientName: formData.clientName,
         clientEmail: formData.clientEmail || 'manual@elitecuts.com',
@@ -69,10 +62,9 @@ export default function ManualBookingModal({ onClose, preSelectedBarberId }: Man
         status: 'approved' as const, // Manually added bookings are auto-approved
         notes: formData.notes,
         type: formData.type,
-        paymentStatus: formData.paymentStatus,
-        paymentMethod: formData.paymentMethod,
-        pricePaid: formData.paymentStatus === 'paid' ? servicePrice : 0,
-        tip: formData.tip
+        paymentStatus: 'unpaid' as const,
+        pricePaid: 0,
+        tip: 0,
       };
 
       await addBooking(finalBooking);
@@ -225,44 +217,8 @@ export default function ManualBookingModal({ onClose, preSelectedBarberId }: Man
                 </div>
             </div>
 
-            {/* Financial Details */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-white/5 pt-4">
-              <div>
-                <label className="block text-white/60 text-xs mb-1.5 font-bold uppercase tracking-wider">Statut Paiement</label>
-                <select
-                  value={formData.paymentStatus}
-                  onChange={e => setFormData({ ...formData, paymentStatus: e.target.value as any })}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:border-[#D4AF37] outline-none"
-                >
-                  <option value="unpaid" className="bg-[#141414]">Non Payé</option>
-                  <option value="paid" className="bg-[#141414]">Payé</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-white/60 text-xs mb-1.5 font-bold uppercase tracking-wider">Méthode de Paiement</label>
-                <select
-                  value={formData.paymentMethod}
-                  disabled={formData.paymentStatus === 'unpaid'}
-                  onChange={e => setFormData({ ...formData, paymentMethod: e.target.value as any })}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:border-[#D4AF37] outline-none disabled:opacity-30"
-                >
-                  <option value="cash" className="bg-[#141414]">Espèces</option>
-                  <option value="card" className="bg-[#141414]">Carte Bancaire</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-white/60 text-xs mb-1.5 font-bold uppercase tracking-wider">Pourboire (€)</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={formData.tip}
-                  onChange={e => setFormData({ ...formData, tip: parseFloat(e.target.value) || 0 })}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:border-[#D4AF37] outline-none"
-                  placeholder="0.00"
-                />
-              </div>
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/55">
+              Le rendez-vous est confirmé et reste non payé. L’encaissement est enregistré au moment de terminer le service.
             </div>
 
             {/* Notes */}

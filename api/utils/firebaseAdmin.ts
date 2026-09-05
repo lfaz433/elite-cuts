@@ -3,9 +3,7 @@ import { DecodedIdToken, getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import type { VercelRequest } from '@vercel/node';
 
-const projectId = (
-  process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID
-)?.trim();
+const projectId = process.env.FIREBASE_PROJECT_ID?.trim();
 
 if (!projectId) {
   throw new Error('FIREBASE_PROJECT_ID is required for Firebase Admin.');

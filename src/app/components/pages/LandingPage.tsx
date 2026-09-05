@@ -3,10 +3,11 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Scissors, Star, Calendar, Clock, MapPin, Phone, Instagram, Facebook, Award, TrendingUp, ChevronLeft, ChevronRight, Menu, X, ShoppingBag } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useBusiness } from '../context/BusinessContext';
-import { useNavigate } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
 import LoginModal from '../modals/LoginModal';
 import BookingModal from '../modals/BookingModal';
 import MapComponent from '../ui/MapComponent';
+import { captureInvitationReturn } from '../../lib/authReturn';
 
 const STAT_ICONS: Record<string, any> = {
   experience: Award,
@@ -28,14 +29,19 @@ const getOptimizedImage = (url: any, width: number = 800) => {
 };
 
 export default function LandingPage() {
+  const route = useLocation();
   const [loginOpen, setLoginOpen] = useState(false);
-  const [bookingOpen, setBookingOpen] = useState(false);
+  const [bookingOpen, setBookingOpen] = useState(() => route.pathname === '/book');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showStickyBtn, setShowStickyBtn] = useState(false);
   const heroRef = useRef<HTMLElement>(null);
   const navigate = useNavigate();
   const { user } = useAuth();
   const { services, barbers, gallery, businessInfo, products, loading } = useBusiness();
+  const closeBooking = () => {
+    setBookingOpen(false);
+    if (route.pathname === '/book') navigate('/', { replace: true });
+  };
 
   // Dynamic branding from admin
   const heroImage = businessInfo.heroImage || 'https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=1920&h=1080&fit=crop';
@@ -54,6 +60,7 @@ export default function LandingPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('login') === 'true') {
+      captureInvitationReturn(window.location.search, window.sessionStorage);
       setLoginOpen(true);
       window.history.replaceState({}, '', window.location.pathname);
     }
@@ -474,7 +481,7 @@ export default function LandingPage() {
 
       <Suspense fallback={null}>
         {loginOpen && <LoginModal onClose={() => setLoginOpen(false)} />}
-        {bookingOpen && <BookingModal onClose={() => setBookingOpen(false)} />}
+        {bookingOpen && <BookingModal onClose={closeBooking} />}
       </Suspense>
     </div>
   );

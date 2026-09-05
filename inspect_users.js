@@ -1,14 +1,15 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, getDocs } from 'firebase/firestore';
+import { requireStagingRead, STAGING_PROJECT_ID } from './scripts/lib/staging-write-guard.mjs';
+
+requireStagingRead(process.argv.slice(2), 'User inspection');
+const firebaseApiKey = process.env.STAGING_FIREBASE_API_KEY;
+if (!firebaseApiKey) throw new Error('STAGING_FIREBASE_API_KEY is required.');
 
 const firebaseConfig = {
-  apiKey: "AIzaSyB455BHQ7ZIAcO0jwXYbYuzlcvXKt2Qpx4",
-  authDomain: "elite-cuts-app.firebaseapp.com",
-  projectId: "elite-cuts-app",
-  storageBucket: "elite-cuts-app.firebasestorage.app",
-  messagingSenderId: "499181564992",
-  appId: "1:499181564992:web:afc888388b72144ccc9ba5",
-  measurementId: "G-QDWD7EKPM7"
+  apiKey: firebaseApiKey,
+  authDomain: `${STAGING_PROJECT_ID}.firebaseapp.com`,
+  projectId: STAGING_PROJECT_ID,
 };
 
 const app = initializeApp(firebaseConfig);

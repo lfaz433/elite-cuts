@@ -65,8 +65,8 @@ test('simultaneous requests cannot commit overlapping bookings for one barber an
     type: 'avec-rdv',
   };
   const results = await Promise.allSettled([
-    createBooking(tenantId, null, request, db),
-    createBooking(tenantId, null, request, db),
+    createBooking(tenantId, 'client-a', request, db),
+    createBooking(tenantId, 'client-b', request, db),
   ]);
 
   expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);

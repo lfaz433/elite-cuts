@@ -127,6 +127,7 @@ test('a Principal Admin can create a location with a server-owned membership', a
     countryCode: 'FR',
   }, adminDb);
   const membership = await adminDb.collection('memberships').doc(created.membershipId).get();
+  const tenantBridge = await adminDb.collection('tenants').doc(created.locationId).get();
 
   expect(membership.data()).toMatchObject({
     userId: 'principal-admin',
@@ -134,6 +135,11 @@ test('a Principal Admin can create a location with a server-owned membership', a
     locationId: created.locationId,
     role: 'principal_admin',
     status: 'active',
+  });
+  expect(tenantBridge.data()).toMatchObject({
+    brandId: bootstrap.brandId,
+    ownerUid: 'principal-admin',
+    name: 'Grenoble',
   });
 });
 

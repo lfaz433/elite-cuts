@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router';
+import { captureInvitationReturn } from '../../lib/authReturn';
 import LoginModal from '../modals/LoginModal';
 import {
   Scissors, BarChart3, Calendar, Users, Bell, Shield, 
@@ -363,6 +364,7 @@ export default function HomePage() {
 
     const params = new URLSearchParams(window.location.search);
     if (params.get('login') === 'true') {
+      captureInvitationReturn(window.location.search, window.sessionStorage);
       setLoginOpen(true);
       window.history.replaceState({}, '', window.location.pathname);
     }

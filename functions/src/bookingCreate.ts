@@ -1,4 +1,5 @@
 import * as admin from 'firebase-admin';
+import { BookingPaymentInput, parseBookingPaymentInput } from './bookingPayment';
 
 export interface BookingCreateInput {
   clientName: string;
@@ -11,6 +12,10 @@ export interface BookingCreateInput {
   type: 'avec-rdv' | 'sans-rdv';
   notes?: string;
 }
+
+export type StaffBookingCreateAction =
+  | { status: 'approved' }
+  | { status: 'completed'; payment: BookingPaymentInput };
 
 type StoredRecord = Record<string, any>;
 const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
@@ -71,6 +76,25 @@ export function parseBookingCreateInput(value: unknown): BookingCreateInput {
   };
 }
 
+function parseStaffBookingCreateAction(value: unknown): StaffBookingCreateAction | null {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Staff booking action is invalid');
+  }
+  const input = value as Record<string, unknown>;
+  if (input.status === 'approved' && Object.keys(input).length === 1) {
+    return { status: 'approved' };
+  }
+  if (
+    input.status === 'completed'
+    && Object.keys(input).length === 2
+    && Object.prototype.hasOwnProperty.call(input, 'payment')
+  ) {
+    return { status: 'completed', payment: parseBookingPaymentInput(input.payment) };
+  }
+  throw new Error('Staff booking action is invalid');
+}
+
 function minutes(value: unknown, field: string): number {
   if (typeof value !== 'string') throw new Error(`${field} is invalid`);
   const normalized = value.replace('+1', '');
@@ -96,6 +120,14 @@ function servicePriceMinor(value: unknown): number {
     throw new Error('Service price is invalid');
   }
   return minor;
+}
+
+export function initialClientBookingStatus(
+  tenant: StoredRecord,
+  businessInfo: StoredRecord = {},
+): 'pending' | 'approved' {
+  const policy = businessInfo.bookingPolicy ?? tenant.bookingPolicy ?? tenant.settings?.bookingPolicy;
+  return policy === 'automatic' ? 'approved' : 'pending';
 }
 
 function locationTimezone(tenant: StoredRecord, businessInfo: StoredRecord): string {
@@ -266,21 +298,33 @@ export async function createBooking(
   callerUid: string | null,
   value: unknown,
   firestore: admin.firestore.Firestore = admin.firestore(),
-): Promise<{ bookingId: string; status: 'pending' }> {
+  staffActionValue?: unknown,
+): Promise<{ bookingId: string; status: 'pending' | 'approved' | 'completed' }> {
+  if (!callerUid) throw new Error('Authentication is required');
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(tenantId)) throw new Error('tenantId is invalid');
   const input = parseBookingCreateInput(value);
-  let clientId = callerUid;
-  if (callerUid) {
+  const staffAction = parseStaffBookingCreateAction(staffActionValue);
+  if (input.type === 'sans-rdv' && staffAction?.status !== 'completed') {
+    throw new Error('Walk-in booking must be completed and paid atomically');
+  }
+  if (staffAction?.status === 'completed' && input.type !== 'sans-rdv') {
+    throw new Error('Only a walk-in can be completed during creation');
+  }
+  let staffMembershipRef: admin.firestore.DocumentReference | null = null;
+  if (staffAction) {
     const staffMembership = await firestore.collection('memberships')
       .where('userId', '==', callerUid)
       .where('locationId', '==', tenantId)
       .where('status', '==', 'active')
       .limit(1)
       .get();
-    if (!staffMembership.empty && staffMembership.docs[0].data().permissions?.manageBookings === true) {
-      clientId = null;
+    if (staffMembership.empty || staffMembership.docs[0].data().permissions?.manageBookings !== true) {
+      throw new Error('Staff booking permission is required');
     }
+    staffMembershipRef = staffMembership.docs[0].ref
+      ?? firestore.collection('memberships').doc(staffMembership.docs[0].id);
   }
+  const clientId = staffAction ? null : callerUid;
   const bookingRef = firestore.collection('bookings').doc();
   const tenantRef = firestore.collection('tenants').doc(tenantId);
   const serviceRef = firestore.collection('services').doc(input.serviceId);
@@ -291,12 +335,18 @@ export async function createBooking(
   const businessInfoRef = tenantRef.collection('businessInfo').doc('info');
   const slotLockRef = firestore.collection('booking_slot_locks')
     .doc(`${tenantId}__${input.barberId}__${input.date}`);
+  const auditRef = staffAction ? firestore.collection('audit_logs').doc() : null;
+  let createdStatus: 'pending' | 'approved' | 'completed' = staffAction?.status ?? 'pending';
 
   await firestore.runTransaction(async transaction => {
     const [tenant, service, barber, businessInfo] = await transaction.getAll(
       tenantRef, serviceRef, barberRef, businessInfoRef, slotLockRef,
     );
     if (!tenant.exists) throw new Error('Tenant not found');
+    const tenantData = tenant.data() ?? {};
+    const authorityBrandId = typeof tenantData.brandId === 'string' && tenantData.brandId
+      ? tenantData.brandId
+      : tenantId;
     if (!service.exists || service.data()?.tenantId !== tenantId) {
       throw new Error('Service does not belong to this tenant');
     }
@@ -304,16 +354,33 @@ export async function createBooking(
       throw new Error('Barber does not belong to this tenant');
     }
     if (!businessInfo.exists) throw new Error('Location hours are not configured');
+    const staffMembershipSnapshot = staffMembershipRef
+      ? (await transaction.getAll(staffMembershipRef))[0]
+      : null;
+    const staffMembership = staffMembershipSnapshot?.data();
+    if (staffAction && (
+      !staffMembershipSnapshot?.exists
+      || staffMembership?.userId !== callerUid
+      || staffMembership?.brandId !== authorityBrandId
+      || staffMembership?.locationId !== tenantId
+      || staffMembership?.status !== 'active'
+      || staffMembership?.permissions?.manageBookings !== true
+    )) {
+      throw new Error('Staff booking authorization changed');
+    }
 
     const slot = validateBookingSlot(
       input,
-      tenant.data() ?? {},
+      tenantData,
       service.data() ?? {},
       barber.data() ?? {},
       businessInfo.data() ?? {},
       new Date(),
-      clientId === null && callerUid !== null,
+      staffAction !== null,
     );
+    if (staffAction?.status === 'completed' && staffAction.payment.amountMinor !== slot.expectedAmountMinor) {
+      throw new Error('Payment amount does not match booking amount');
+    }
     const overlapQuery = firestore.collection('bookings')
       .where('tenantId', '==', tenantId)
       .where('barberId', '==', input.barberId)
@@ -327,22 +394,55 @@ export async function createBooking(
       date: input.date,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     }, { merge: true });
+    const createdAt = admin.firestore.FieldValue.serverTimestamp();
+    const status = staffAction?.status ?? initialClientBookingStatus(
+      tenantData,
+      businessInfo.data() ?? {},
+    );
+    createdStatus = status;
     transaction.create(bookingRef, {
       ...input,
+      brandId: authorityBrandId,
       tenantId,
       locationId: tenantId,
       clientId,
-      status: 'pending',
-      paymentStatus: 'unpaid',
-      pricePaid: 0,
-      tip: 0,
+      status,
+      paymentStatus: staffAction?.status === 'completed' ? 'paid' : 'unpaid',
+      pricePaid: staffAction?.status === 'completed' ? staffAction.payment.amountMinor / 100 : 0,
+      tip: staffAction?.status === 'completed' ? staffAction.payment.tipMinor / 100 : 0,
       expectedAmountMinor: slot.expectedAmountMinor,
       durationMinutes: slot.durationMinutes,
       unreadAdmin: true,
       unreadBarber: true,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      ...(staffAction?.status === 'completed' ? {
+        completedAt: createdAt,
+        pricePaidMinor: staffAction.payment.amountMinor,
+        tipMinor: staffAction.payment.tipMinor,
+        paymentMethod: staffAction.payment.method,
+        paymentRecordedAt: createdAt,
+        paymentRecordedBy: callerUid,
+      } : {}),
+      ...(staffAction ? { statusUpdatedAt: createdAt, statusUpdatedBy: callerUid } : {}),
+      createdAt,
     });
+    if (auditRef && staffAction) {
+      transaction.create(auditRef, {
+        action: staffAction.status === 'completed'
+          ? 'WALK_IN_BOOKING_COMPLETED_AND_PAID'
+          : 'STAFF_BOOKING_CREATED_APPROVED',
+        actorUid: callerUid,
+        brandId: authorityBrandId,
+        tenantId,
+        locationId: tenantId,
+        bookingId: bookingRef.id,
+        after: {
+          status,
+          paymentStatus: staffAction.status === 'completed' ? 'paid' : 'unpaid',
+        },
+        createdAt,
+      });
+    }
   });
 
-  return { bookingId: bookingRef.id, status: 'pending' };
+  return { bookingId: bookingRef.id, status: createdStatus };
 }
