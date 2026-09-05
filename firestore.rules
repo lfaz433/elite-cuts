@@ -177,6 +177,21 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
+    // Invitations are server-owned. The exact invited email account may read
+    // its record, while location invitation managers may audit invitations.
+    match /invitations/{invitationId} {
+      allow read: if request.auth != null && (
+        request.auth.token.get('email', '') == resource.data.email
+        || hasActiveBrandPrincipalMembership(resource.data.brandId)
+        || hasActiveLocationPermission(
+          resource.data.brandId,
+          resource.data.locationId,
+          'inviteWorkers'
+        )
+      );
+      allow create, update, delete: if false;
+    }
+
     // 2. Scoped Business Operations Collections
     match /bookings/{bookingId} {
       allow read: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId)

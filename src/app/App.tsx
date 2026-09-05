@@ -29,6 +29,7 @@ const Onboarding = lazy(() => import('./components/pages/Onboarding'));
 const Billing = lazy(() => import('./components/pages/Billing'));
 const DocsPage = lazy(() => import('./components/pages/DocsPage'));
 const BrandDashboard = lazy(() => import('./components/pages/BrandDashboard'));
+const AcceptInvitation = lazy(() => import('./components/pages/AcceptInvitation'));
 
 // --- Premium Loading Spinner ---
 function AppLoader() {
@@ -125,6 +126,7 @@ function AppRoutes() {
       <Route path="/login" element={<Navigate to="/?login=true" replace />} />
       <Route path="/onboarding" element={<AuthRequired><Onboarding /></AuthRequired>} />
       <Route path="/billing" element={<AuthRequired><Billing /></AuthRequired>} />
+      <Route path="/invitations/:invitationId" element={<AuthRequired><AcceptInvitation /></AuthRequired>} />
       <Route path="/superadmin/*" element={<SuperAdminGuard><SuperAdmin /></SuperAdminGuard>} />
       <Route path="/brand/*" element={<BrandRequired><BrandDashboard /></BrandRequired>} />
       <Route path="/client/*" element={<ProtectedRoute role="client"><ClientDashboard /></ProtectedRoute>} />

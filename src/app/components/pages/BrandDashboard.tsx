@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
-import { Building2, LayoutDashboard, LockKeyhole, LogOut, Plus, ShieldCheck } from 'lucide-react';
+import { Building2, LayoutDashboard, LockKeyhole, LogOut, Plus, ShieldCheck, UserPlus } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router';
 import { db } from '../../lib/firebase';
 import { DEFAULT_WORKER_PERMISSIONS, PERMISSION_KEYS } from '../../lib/marketplace/permissions';
@@ -9,6 +9,7 @@ import { isManagerEligibleMembership, isVerifiedMarketplacePrincipal, managerLoc
 import LocationForm from '../brand/LocationForm';
 import LocationList from '../brand/LocationList';
 import PermissionEditor from '../brand/PermissionEditor';
+import WorkerInviteDialog from '../brand/WorkerInviteDialog';
 import { useAuth } from '../context/AuthContext';
 import { useWorkspace } from '../context/WorkspaceContext';
 
@@ -41,6 +42,7 @@ export default function BrandDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showLocationForm, setShowLocationForm] = useState(false);
+  const [showWorkerInvite, setShowWorkerInvite] = useState(false);
 
   const isPrincipal = isVerifiedMarketplacePrincipal(user);
   const assignedLocationIds = useMemo(() => (
@@ -176,9 +178,18 @@ export default function BrandDashboard() {
             <div className="space-y-6">
               <section className="overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-[#171717] to-[#0d0d0d]">
                 <div className="border-b border-white/10 px-6 py-7 sm:px-8">
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-[#D4AF37]">{selectedLocation.city}</p>
-                  <h2 className="mt-2 text-3xl font-black">{selectedLocation.name}</h2>
-                  <p className="mt-2 text-sm text-white/45">{selectedLocation.address || `${selectedLocation.city}, ${selectedLocation.countryCode}`}</p>
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-[#D4AF37]">{selectedLocation.city}</p>
+                      <h2 className="mt-2 text-3xl font-black">{selectedLocation.name}</h2>
+                      <p className="mt-2 text-sm text-white/45">{selectedLocation.address || `${selectedLocation.city}, ${selectedLocation.countryCode}`}</p>
+                    </div>
+                    {permissionValue.inviteWorkers && (
+                      <button type="button" onClick={() => setShowWorkerInvite(true)} className="inline-flex items-center gap-2 rounded-xl bg-[#D4AF37] px-4 py-2.5 text-sm font-black text-black">
+                        <UserPlus className="h-4 w-4" /> Inviter
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <nav className="flex gap-2 p-3" aria-label="Navigation du salon">
                   <button type="button" onClick={() => navigate(`/brand/locations/${selectedLocation.id}`)} className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold ${!permissionsView ? 'bg-[#D4AF37] text-black' : 'text-white/55 hover:bg-white/5'}`}>
@@ -218,6 +229,13 @@ export default function BrandDashboard() {
           ) : null}
         </main>
       </div>
+      {selectedLocation && (
+        <WorkerInviteDialog
+          locationId={selectedLocation.id}
+          open={showWorkerInvite}
+          onOpenChange={setShowWorkerInvite}
+        />
+      )}
     </div>
   );
 }
