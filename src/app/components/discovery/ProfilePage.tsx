@@ -2,9 +2,22 @@ import { useEffect, useState } from 'react';
 import { ArrowLeft, MapPin, Scissors, UserRound } from 'lucide-react';
 import { Link, useParams } from 'react-router';
 import { getPublicProfile, type PublicProfile } from '../../lib/marketplace/discovery';
+import { BookingRequestForm } from '../booking/BookingRequestForm';
+import { useAuth } from '../context/AuthContext';
+import { doc, setDoc } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 
 export default function ProfilePage() {
   const { profileId = '' } = useParams();
+  const { user } = useAuth();
+  const [savingFavourite, setSavingFavourite] = useState(false);
+  const saveFavourite = async () => {
+    if (!user || !profile) return;
+    setSavingFavourite(true);
+    try {
+      await setDoc(doc(db, 'clientFavourites', user.uid, 'items', profile.id), { profileId: profile.id });
+    } finally { setSavingFavourite(false); }
+  };
   const [profile, setProfile] = useState<PublicProfile | null>();
 
   useEffect(() => {
@@ -45,7 +58,7 @@ export default function ProfilePage() {
             <p className="max-w-2xl text-lg leading-relaxed text-white/65">{profile.serviceSummary}</p>
             <p className="flex items-center gap-2 text-sm text-white/45"><MapPin className="h-4 w-4 text-[#D4AF37]" /> {profile.cityId.replace('fr-', '')}</p>
             {profile.portfolioUrls.length > 1 && <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">{profile.portfolioUrls.slice(1).map(url => <img key={url} src={url} alt="" className="aspect-square rounded-2xl object-cover" loading="lazy" />)}</div>}
-            <p className="text-sm text-white/40">La prise de rendez-vous sera proposée après connexion.</p>
+            {user ? <><button disabled={savingFavourite} onClick={() => void saveFavourite()} className="rounded-xl border border-[#D4AF37]/40 px-5 py-3 text-sm font-black text-[#D4AF37] disabled:opacity-50">{savingFavourite ? 'Enregistrement…' : 'Ajouter aux favoris'}</button><BookingRequestForm profile={profile} /></> : <Link to="/?login=true&returnTo=/discover" className="inline-flex rounded-xl bg-[#D4AF37] px-5 py-3 text-sm font-black text-black">Connectez-vous pour réserver</Link>}
           </div>
         </section>
       </div>

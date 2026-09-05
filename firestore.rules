@@ -357,6 +357,36 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Marketplace bookings have a server-owned lifecycle. Clients can read
+    // only their own requests; no browser path can create or transition one.
+    match /bookingRequests/{bookingId} {
+      allow read: if request.auth != null && (
+        resource.data.clientId == request.auth.uid
+        || (resource.data.ownerType == 'freelancer' && resource.data.ownerId == request.auth.uid)
+        || (resource.data.ownerType == 'salon'
+          && hasActiveBrandPrincipalMembership(resource.data.brandId))
+        || (resource.data.ownerType == 'salon'
+          && hasActiveLocationPermission(resource.data.brandId, resource.data.ownerId, 'manageBookings'))
+      );
+      allow create, update, delete: if false;
+    }
+
+    // Exact home addresses never enter a browser-readable collection. The
+    // authenticated callable releases one only to an accepting freelancer.
+    match /bookingRequestPrivate/{bookingId} {
+      allow read, write: if false;
+    }
+
+    match /clientFavourites/{userId}/items/{profileId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.data.keys().hasOnly(['profileId'])
+        && request.resource.data.profileId == profileId;
+      allow update: if false;
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+
     match /barbers/{barberId} {
       allow read: if resource.data.publicCredentialSafe == true;
       allow create: if hasNoCredentialFields(request.resource.data)

@@ -28,6 +28,11 @@ import {
   syncFreelancerPublicProfile,
   syncSalonPublicProfile,
 } from './publicProfiles';
+import {
+  cancelBookingFunction,
+  requestBookingFunction,
+  respondToBookingFunction,
+} from './bookings';
 
 if (admin.apps.length === 0) {
   admin.initializeApp();
@@ -48,6 +53,9 @@ export { syncSalonPublicProfile, syncFreelancerPublicProfile };
 export const listPublicCities = listPublicCitiesFunction;
 export const listPublicProfiles = listPublicProfilesFunction;
 export const getPublicProfile = getPublicProfileFunction;
+export const requestBooking = requestBookingFunction;
+export const respondToBooking = respondToBookingFunction;
+export const cancelBooking = cancelBookingFunction;
 
 function getStripe(): Stripe {
   const key = process.env.STRIPE_SECRET_KEY;
