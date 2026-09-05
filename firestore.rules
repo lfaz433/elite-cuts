@@ -197,8 +197,8 @@ service cloud.firestore {
 
     function isSuperAdmin() {
       return request.auth != null && (
-        request.auth.token.superadmin == true ||
-        request.auth.token.platformAdmin == true
+        request.auth.token.get('superadmin', false) == true ||
+        request.auth.token.get('platformAdmin', false) == true
       );
     }
 

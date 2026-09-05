@@ -30,13 +30,13 @@ Additional final-review hardening included marketplace worker-to-location tenant
 - `npm run build` at the repository root — Vite production build passed.
 - `git diff --check` — passed.
 
-The full Firestore-emulator command was attempted for `authz.rules`, booking concurrency/transition, bootstrap, base rules, invitation rules, and membership rules. It stopped before executing tests because `java -version` exits 1: **no Java runtime is installed on this host**. The new emulator assertions remain checked in and must run in Java-equipped CI/staging before release. An earlier direct Jest invocation that accidentally included two emulator-backed suites likewise timed out against the absent emulator; rerunning the correctly separated local suites produced the green results above.
+The full Firestore-emulator command was attempted for `authz.rules`, booking concurrency/transition, bootstrap, base rules, invitation rules, and membership rules. At that checkpoint the default `java` executable was unavailable, so the emulator assertions remained a release gate. This limitation was later superseded by the explicit Homebrew JDK 21 run documented in the final correction below.
 
 ## Rollout gates and external follow-up
 
 - No Firebase deploy, migration apply, staging write, production read, or external-account action occurred.
 - Before release, rotate/revoke the historical demo/super-admin credential that existed in repository history. Current scripts contain no committed password and do not print environment-supplied credentials, but repository cleanup cannot revoke an already exposed external credential.
-- Install/use Java in CI, run all seven emulator suites, then exercise the Principal/Admin/Worker invitation and Paris/Grenoble/Mulhouse location journeys in staging.
+- Repeat the Java 21 emulator suite in CI, then exercise the Principal/Admin/Worker invitation and Paris/Grenoble/Mulhouse location journeys in staging.
 - Run both migration CLIs in staging dry-run mode first, resolve every conflict/deferred record, apply with the exact staging confirmation, verify membership/claim parity and forced token refresh, and only then use the explicit production target/confirmation in a separately approved rollout.
 
 ## Corrective re-review: granular operational access
@@ -87,4 +87,21 @@ Corrective verification:
 - Functions TypeScript build and Vite production build — passed.
 - `node --check rules-tests/authz.rules.test.cjs` — passed.
 
-`npx firebase emulators:exec --only firestore "npx jest --config rules-tests/jest.config.cjs --runInBand rules-tests/authz.rules.test.cjs"` was attempted and stopped before test execution because `java -version` exits 1 and no Java runtime is installed. The behavioral assertions therefore remain a Java-equipped CI/staging release gate. No deployment or external account access occurred.
+`npx firebase emulators:exec --only firestore "npx jest --config rules-tests/jest.config.cjs --runInBand rules-tests/authz.rules.test.cjs"` was attempted and stopped before test execution because the default `java` executable was unavailable. The later explicit JDK 21 verification below supersedes that local limitation. No deployment or external account access occurred.
+
+## Final emulator correction: safe optional platform claims
+
+The complete emulator suite exposed one remaining rules failure: `isSuperAdmin()` read optional custom-token properties with direct member access. Tokens issued to ordinary users do not contain `superadmin` or `platformAdmin`, so Firestore produced an undefined-property CEL error while evaluating otherwise normal authorization branches. The helper now reads both claims with `request.auth.token.get(..., false)`, preserving exact super-admin behavior while making absent claims safely false.
+
+The credential-scrub test fixture now grants its purported normal manager the required granular `manageStaff` permission; the earlier `manageStaff: false` fixture conflated credential validation with authorization. A separate regression exercises a token with neither platform claim and verifies that denial does not contain an undefined-token evaluation error.
+
+Final verification:
+
+- RED: focused `authz.rules` reproduced **13/14 passed** with `Property superadmin is undefined`; the added missing-claim regression then failed as intended.
+- GREEN: focused `authz.rules` — **15/15 passed**.
+- Direct emulator process: `env JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH firebase emulators:start --only firestore --project demo-elite-cuts-rules` — Firestore started on `127.0.0.1:8080` with OpenJDK **21.0.12.1**.
+- Complete direct suite: `env FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 /Users/mac/Documents/ChatGPT/barberboard/elite-cuts/node_modules/.bin/jest --config rules-tests/jest.config.cjs --runInBand` — **24/24 suites and 210/210 tests passed**.
+- `node rules-tests/static-analysis.cjs` — **15/15 passed**.
+- `node --check rules-tests/authz.rules.test.cjs` — passed.
+- Functions TypeScript build and Vite production build — passed.
+- No deploy, migration, staging write, production access, or external-account action occurred.

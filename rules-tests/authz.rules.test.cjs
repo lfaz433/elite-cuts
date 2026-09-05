@@ -149,9 +149,10 @@ test('public barber documents are readable only when credential fields are absen
   await assertFails(getDoc(doc(anonymous, 'barbers', 'legacy-password-barber')));
 });
 
-test('tenant members cannot write credential fields into public barber documents', async () => {
+test('a normal manager without platform claims can write only credential-safe public barber documents', async () => {
   await seedMembership('location-a__manager-a', 'manager-a', {
     brandId: 'location-a', locationId: 'location-a', role: 'principal_admin',
+    permissions: { manageStaff: true, manageBookings: true },
   });
   const manager = asUser('manager-a');
 
@@ -168,6 +169,16 @@ test('tenant members cannot write credential fields into public barber documents
   await assertFails(updateDoc(doc(manager, 'barbers', 'safe-barber'), {
     temporaryPassword: 'plaintext',
   }));
+});
+
+test('missing platform claims do not cause an undefined-token evaluation error', async () => {
+  const ordinaryUser = asUser('ordinary-user');
+
+  const denial = await assertFails(setDoc(doc(ordinaryUser, 'barbers', 'unauthorized-barber'), {
+    tenantId: 'location-a', name: 'Unauthorized Barber', publicCredentialSafe: true,
+  }));
+
+  expect(denial.message).not.toMatch(/Property (superadmin|platformAdmin) is undefined/);
 });
 
 test('public barber timestamp fields cannot hide nested credential maps', async () => {
