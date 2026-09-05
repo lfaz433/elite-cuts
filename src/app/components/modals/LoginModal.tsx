@@ -12,8 +12,8 @@ import { auth } from '../../lib/firebase';
 import { postLoginDestination } from '../../lib/authReturn';
 
 
-export default function LoginModal({ onClose }: { onClose: () => void }) {
-  const [isLogin, setIsLogin] = useState(true);
+export default function LoginModal({ onClose, initialSignUp = false, signupLabel = 'Inscription (Client)' }: { onClose: () => void; initialSignUp?: boolean; signupLabel?: string }) {
+  const [isLogin, setIsLogin] = useState(!initialSignUp);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
@@ -110,7 +110,7 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
           {isLogin ? 'Connexion' : 'Inscription'}
         </h2>
         <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 14, marginBottom: 24 }}>
-          {isLogin ? 'Accédez à votre espace' : 'Rejoignez le salon Barberboard'}
+          {isLogin ? 'Accédez à votre espace' : initialSignUp ? 'Créez votre espace indépendant' : 'Rejoignez Barberboard'}
         </p>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -128,7 +128,7 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
               onClick={() => setIsLogin(false)}
               style={{ flex: 1, padding: '8px', borderRadius: 10, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: !isLogin ? '#D4AF37' : 'transparent', color: !isLogin ? 'black' : 'rgba(255,255,255,0.5)', transition: 'all 0.2s' }}
             >
-              Inscription (Client)
+              {signupLabel}
             </button>
           </div>
 

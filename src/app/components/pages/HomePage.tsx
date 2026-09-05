@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { useNavigate } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
 import { captureInvitationReturn } from '../../lib/authReturn';
 import LoginModal from '../modals/LoginModal';
 import {
@@ -26,7 +26,7 @@ const CONTENT = {
     join: {
       title: 'Choisissez votre parcours.', subtitle: 'Un seul compte par personne. Sélectionnez la manière dont vous rejoignez la plateforme.', close: 'Fermer',
       brandTitle: 'Créer une marque ou un salon', brandText: 'Créez votre premier salon, puis ajoutez vos emplacements et votre équipe.', start: 'Commencer',
-      freelancerTitle: 'Devenir barbier indépendant', freelancerText: 'Votre portfolio, vos services à domicile et vos demandes de salon.', soon: 'Bientôt disponible',
+      freelancerTitle: 'Devenir barbier indépendant', freelancerText: 'Votre portfolio, vos services à domicile et vos demandes de salon.', soon: 'Commencer',
       invitationTitle: 'J’ai une invitation de salon', invitationText: 'Connectez-vous avec l’adresse e-mail utilisée par votre invitation.', login: 'Se connecter'
     },
     stats: {
@@ -119,7 +119,7 @@ const CONTENT = {
     join: {
       title: 'Choose your path.', subtitle: 'One account per person. Select how you are joining the platform.', close: 'Close',
       brandTitle: 'Create a salon brand', brandText: 'Create your first salon, then add locations and your team.', start: 'Get started',
-      freelancerTitle: 'Become a freelance barber', freelancerText: 'Your portfolio, home services, and salon opportunities.', soon: 'Coming soon',
+      freelancerTitle: 'Become a freelance barber', freelancerText: 'Your portfolio, home services, and salon opportunities.', soon: 'Get started',
       invitationTitle: 'I have a salon invitation', invitationText: 'Sign in with the email address used for your invitation.', login: 'Sign in'
     },
     stats: {
@@ -220,7 +220,7 @@ const CONTENT = {
     join: {
       title: 'اختر مسارك.', subtitle: 'حساب واحد لكل شخص. اختر الطريقة التي تنضم بها إلى المنصة.', close: 'إغلاق',
       brandTitle: 'أنشئ علامة تجارية أو صالوناً', brandText: 'أنشئ صالونك الأول ثم أضف المواقع وفريقك.', start: 'ابدأ الآن',
-      freelancerTitle: 'كن حلاقاً مستقلاً', freelancerText: 'ملف أعمالك وخدماتك المنزلية وفرص العمل في الصالونات.', soon: 'قريباً',
+      freelancerTitle: 'كن حلاقاً مستقلاً', freelancerText: 'ملف أعمالك وخدماتك المنزلية وفرص العمل في الصالونات.', soon: 'ابدأ الآن',
       invitationTitle: 'لدي دعوة من صالون', invitationText: 'سجّل الدخول بالبريد الإلكتروني المستخدم في دعوتك.', login: 'تسجيل الدخول'
     },
     stats: {
@@ -321,9 +321,11 @@ export default function HomePage() {
   const [annualBilling, setAnnualBilling] = useState(false);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
+  const [freelancerSignup, setFreelancerSignup] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
   const [journeyNotice, setJourneyNotice] = useState<string | null>(null);
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [langDropdownOpen, setLangDropdownOpen] = useState(false);
   const desktopDropdownRef = useRef<HTMLDivElement>(null);
@@ -362,9 +364,10 @@ export default function HomePage() {
     const savedLang = localStorage.getItem('elite_lang') as Lang;
     if (savedLang && (savedLang === 'fr' || savedLang === 'en' || savedLang === 'ar')) setLang(savedLang);
 
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(location.search);
     if (params.get('login') === 'true') {
-      captureInvitationReturn(window.location.search, window.sessionStorage);
+      captureInvitationReturn(location.search, window.sessionStorage);
+      setFreelancerSignup(params.get('signup') === 'freelancer');
       setLoginOpen(true);
       window.history.replaceState({}, '', window.location.pathname);
     }
@@ -372,7 +375,7 @@ export default function HomePage() {
     const handleScroll = () => setIsScrolled(window.scrollY > 50);
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
+  }, [location.search]);
 
   useEffect(() => {
     if (lang === 'ar') {
@@ -592,7 +595,7 @@ export default function HomePage() {
         )}
       </AnimatePresence>
 
-      {loginOpen && <LoginModal onClose={() => setLoginOpen(false)} />}
+      {loginOpen && <LoginModal onClose={() => { setLoginOpen(false); setFreelancerSignup(false); }} initialSignUp={freelancerSignup} signupLabel={freelancerSignup ? 'Inscription indépendant' : 'Inscription (Client)'} />}
 
       <AnimatePresence>
         {joinOpen && (

@@ -21,7 +21,7 @@ export function getRoleJourney(role, language = 'en') {
     case 'invitation':
       return { kind: 'login' };
     case 'freelancer':
-      return { kind: 'navigate', path: '/freelancer' };
+      return { kind: 'navigate', path: '/?login=true&returnTo=%2Ffreelancer&signup=freelancer' };
     case 'client':
       return { kind: 'coming-soon', label: labels.client };
     default:

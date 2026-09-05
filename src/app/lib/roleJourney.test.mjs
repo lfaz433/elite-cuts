@@ -15,11 +15,14 @@ test('sends invited salon staff to sign in before accepting their invitation', (
   });
 });
 
-test('opens the live freelancer workspace and keeps only unfinished journeys unavailable', () => {
+test('starts freelancer account creation and returns to the live workspace', () => {
   assert.deepEqual(getRoleJourney('freelancer'), {
     kind: 'navigate',
-    path: '/freelancer',
+    path: '/?login=true&returnTo=%2Ffreelancer&signup=freelancer',
   });
+});
+
+test('keeps only unfinished journeys unavailable', () => {
   assert.deepEqual(getRoleJourney('client'), {
     kind: 'coming-soon',
     label: 'Nearby barber discovery is launching soon.',
