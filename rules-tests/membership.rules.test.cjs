@@ -15,6 +15,7 @@ let adminApp;
 let adminDb;
 let bootstrapBrandOwner;
 let createSalonLocation;
+let locationMembershipId;
 
 beforeAll(async () => {
   testEnv = await initializeTestEnvironment({
@@ -26,7 +27,7 @@ beforeAll(async () => {
     ? admin.app()
     : admin.initializeApp({ projectId: PROJECT_ID });
   adminDb = admin.firestore(adminApp);
-  ({ bootstrapBrandOwner, createSalonLocation } = require('../functions/lib/memberships.js'));
+  ({ bootstrapBrandOwner, createSalonLocation, locationMembershipId } = require('../functions/lib/memberships.js'));
 });
 
 afterAll(async () => {
@@ -143,7 +144,11 @@ test('a Salon Admin cannot create a location', async () => {
     city: 'Paris',
     countryCode: 'FR',
   }, adminDb);
-  await adminDb.collection('memberships').doc('brand-france__paris__salon-admin').set({
+  await adminDb.collection('memberships').doc(locationMembershipId(
+    bootstrap.brandId,
+    bootstrap.locationId,
+    'salon-admin',
+  )).set({
     userId: 'salon-admin',
     brandId: bootstrap.brandId,
     locationId: bootstrap.locationId,

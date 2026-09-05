@@ -82,6 +82,11 @@ const tests = [
       return rules.includes('request.auth.uid == resource.data.clientId');
     },
   },
+  {
+    id: 'SA-11',
+    description: 'Marketplace: membership permission calls use valid CEL argument syntax',
+    check: () => !/hasActiveLocationPermission\(\s*resource\.data\.brandId,\s*resource\.data\.locationId,\s*'manageStaff',\s*\)/s.test(rules),
+  },
 ];
 
 console.log('\n══════════════════════════════════════════════════');

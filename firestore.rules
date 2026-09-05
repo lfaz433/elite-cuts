@@ -286,7 +286,7 @@ service cloud.firestore {
           && hasActiveLocationPermission(
             resource.data.brandId,
             resource.data.locationId,
-            'manageStaff',
+            'manageStaff'
           )
         )
       );
