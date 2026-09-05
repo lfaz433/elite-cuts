@@ -5,7 +5,7 @@ import { useLocation, useNavigate } from 'react-router';
 import { db } from '../../lib/firebase';
 import { DEFAULT_WORKER_PERMISSIONS, PERMISSION_KEYS } from '../../lib/marketplace/permissions';
 import type { PermissionKey, SalonLocation } from '../../lib/marketplace/types';
-import { isManagerEligibleMembership, managerLocationForRoute, managerLocationIds } from '../../lib/marketplace/access';
+import { isManagerEligibleMembership, isVerifiedMarketplacePrincipal, managerLocationForRoute, managerLocationIds } from '../../lib/marketplace/access';
 import LocationForm from '../brand/LocationForm';
 import LocationList from '../brand/LocationList';
 import PermissionEditor from '../brand/PermissionEditor';
@@ -42,11 +42,7 @@ export default function BrandDashboard() {
   const [error, setError] = useState('');
   const [showLocationForm, setShowLocationForm] = useState(false);
 
-  const isPrincipal = user?.memberships.some(membership => (
-    membership.brandId === brandId
-    && membership.role === 'principal_admin'
-    && !membership.locationId
-  )) ?? false;
+  const isPrincipal = isVerifiedMarketplacePrincipal(user);
   const assignedLocationIds = useMemo(() => (
     user && brandId ? managerLocationIds(user.memberships, brandId) : []
   ), [brandId, user?.memberships]);

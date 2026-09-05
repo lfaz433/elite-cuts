@@ -29,6 +29,7 @@ export interface User extends SessionUser {
   tenantId: string;
   marketplaceRole?: MembershipRole;
   brandId?: string;
+  marketplaceMembershipId?: string;
 }
 
 interface AuthContextType {
@@ -100,6 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       tenantId: activeMembership?.locationId ?? scopedClaimTenantId ?? tenantId,
       marketplaceRole: marketplaceManager?.role as MembershipRole | undefined,
       brandId: marketplaceManager?.brandId,
+      marketplaceMembershipId: marketplaceManager?.id,
     });
   }, [tenantId]);
 

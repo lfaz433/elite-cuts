@@ -162,3 +162,46 @@ Paris.
 Authenticated Paris/Grenoble/Mulhouse staging switching still requires a
 user-supplied Principal Admin credential. No external account was created and
 nothing was deployed during this review fix.
+
+## Review fix round 2/5
+
+### Finding and root cause
+
+Auth round 1 correctly resolved a marketplace-verified manager but retained
+only its role and brand ID. `WorkspaceContext` and `BrandDashboard` then
+recomputed Principal authority from the entire raw membership array. A valid
+Salon Admin plus a stale/legacy raw `principal_admin` record sharing the active
+brand could therefore unlock brand-wide location queries, unrestricted
+selection, and the add-location action.
+
+### RED evidence
+
+Added a behavioral regression with a verified Salon Admin membership and a
+separate stale Principal membership for the same brand, then ran:
+
+```sh
+node --import tsx --test src/app/lib/marketplace/access.test.ts
+```
+
+The run exited 1 because `isVerifiedMarketplacePrincipal` was not exported.
+The test specifically requires the user to retain brand-dashboard access via
+the verified Salon Admin while Principal authority remains false despite the
+raw stale record.
+
+### Fix and GREEN evidence
+
+- Auth now carries the exact `marketplaceMembershipId` returned by successful
+  marketplace document verification.
+- Brand access and Principal authority both require that exact resolved
+  membership ID, its verified brand, active manager eligibility, and—for
+  Principal authority—a brand-level `principal_admin` record with no location.
+- `WorkspaceContext` and `BrandDashboard` consume the shared verified-Principal
+  predicate instead of scanning raw memberships.
+
+The focused test then passed 3/3. All relevant Task 2 access/component tests,
+existing role/tenant/session tests, the production build, and whitespace checks
+were rerun before committing; final counts and SHA are in the handoff.
+
+No external account was created, no deployment occurred, and authenticated
+staging city switching still requires a user-supplied Principal Admin
+credential.

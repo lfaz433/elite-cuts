@@ -7,6 +7,7 @@ import {
   managerLocationIds,
   managerLocationForRoute,
   resolveMarketplaceManager,
+  isVerifiedMarketplacePrincipal,
 } from './access';
 
 function membership(overrides: Partial<MembershipSummary>): MembershipSummary {
@@ -43,6 +44,30 @@ test('keeps a legacy tenant principal on the legacy admin route', async () => {
   assert.equal(hasBrandDashboardAccess(user), false);
 });
 
+test('does not elevate a verified Salon Admin through a stale raw Principal membership', () => {
+  const salonAdmin = membership({
+    id: 'verified-salon-admin',
+    locationId: 'paris',
+    role: 'salon_admin',
+    permissions: { manageStaff: true },
+  });
+  const stalePrincipal = membership({
+    id: 'legacy-principal',
+    locationId: undefined,
+    role: 'principal_admin',
+    permissions: { manageStaff: true },
+  });
+  const user = {
+    role: 'admin',
+    brandId: 'brand-a',
+    marketplaceMembershipId: salonAdmin.id,
+    memberships: [salonAdmin, stalePrincipal],
+  };
+
+  assert.equal(hasBrandDashboardAccess(user), true);
+  assert.equal(isVerifiedMarketplacePrincipal(user), false);
+});
+
 test('excludes worker-only locations from a manager dashboard and deep-link scope', async () => {
   const salonAdmin = membership({
     id: 'paris-admin',
@@ -64,7 +89,12 @@ test('excludes worker-only locations from a manager dashboard and deep-link scop
   });
   const memberships = [salonAdmin, worker, delegatedManager];
   const manager = await resolveMarketplaceManager(memberships, async () => true);
-  const user = { role: 'barber', brandId: manager?.brandId, memberships };
+  const user = {
+    role: 'barber',
+    brandId: manager?.brandId,
+    marketplaceMembershipId: manager?.id,
+    memberships,
+  };
 
   assert.equal(brandDashboardHomePath(user), '/brand');
   assert.equal(hasBrandDashboardAccess(user), true);

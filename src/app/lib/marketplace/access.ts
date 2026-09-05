@@ -58,13 +58,29 @@ export async function resolveMarketplaceManager(
 interface BrandRouteUser {
   role: string;
   brandId?: string;
+  marketplaceMembershipId?: string;
   memberships: MembershipSummary[];
 }
 
 export function hasBrandDashboardAccess(user: BrandRouteUser | null | undefined): boolean {
-  if (!user?.brandId) return false;
+  if (!user?.brandId || !user.marketplaceMembershipId) return false;
   return user.memberships.some(membership => (
-    membership.brandId === user.brandId && isManagerEligibleMembership(membership)
+    membership.id === user.marketplaceMembershipId
+    && membership.brandId === user.brandId
+    && isManagerEligibleMembership(membership)
+  ));
+}
+
+export function isVerifiedMarketplacePrincipal(
+  user: BrandRouteUser | null | undefined,
+): boolean {
+  if (!user?.brandId || !user.marketplaceMembershipId) return false;
+  return user.memberships.some(membership => (
+    membership.id === user.marketplaceMembershipId
+    && membership.brandId === user.brandId
+    && membership.role === 'principal_admin'
+    && !membership.locationId
+    && isManagerEligibleMembership(membership)
   ));
 }
 
