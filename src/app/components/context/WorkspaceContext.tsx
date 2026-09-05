@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useAuth } from './AuthContext';
+import { managerLocationIds } from '../../lib/marketplace/access';
 
 interface WorkspaceContextValue {
   brandId: string | null;
@@ -16,9 +17,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const brandId = user?.brandId ?? null;
   const locationId = selection?.brandId === brandId ? selection.locationId : null;
   const locationIds = useMemo(() => (
-    user?.memberships
-      .filter(membership => membership.brandId === brandId && membership.locationId)
-      .map(membership => membership.locationId as string) ?? []
+    user && brandId ? managerLocationIds(user.memberships, brandId) : []
   ), [brandId, user?.memberships]);
   const isPrincipal = user?.memberships.some(membership => (
     membership.brandId === brandId

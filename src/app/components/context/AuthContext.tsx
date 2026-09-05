@@ -6,7 +6,7 @@ import {
   signOut,
   updateProfile,
 } from 'firebase/auth';
-import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { auth, db } from '../../lib/firebase';
 import {
   loadSessionUser,
@@ -15,6 +15,7 @@ import {
 } from '../../lib/session';
 import { legacyRoleForLocation, membershipForLocation } from '../../lib/sessionAccess';
 import type { MembershipRole } from '../../lib/marketplace/types';
+import { resolveMarketplaceManager } from '../../lib/marketplace/access';
 import { useTenant } from './TenantContext';
 
 type LegacyRole = 'client' | 'admin' | 'barber' | 'superadmin';
@@ -64,12 +65,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       firebaseUser.getIdTokenResult(),
     ]);
     const activeMembership = membershipForLocation(session.memberships, tenantId);
-    const brandPrincipal = session.memberships.find(membership => (
-      membership.role === 'principal_admin' && !membership.locationId
-    ));
-    const marketplaceManager = brandPrincipal ?? session.memberships.find(membership => (
-      membership.role === 'principal_admin' || membership.role === 'salon_admin'
-    ));
+    const marketplaceManager = await resolveMarketplaceManager(session.memberships, async membership => {
+      try {
+        if (membership.locationId) {
+          const location = await getDoc(doc(db, 'salonLocations', membership.locationId));
+          return location.exists() && location.data().brandId === membership.brandId;
+        }
+        const brand = await getDoc(doc(db, 'brands', membership.brandId));
+        return brand.exists();
+      } catch (error) {
+        console.warn('Marketplace membership verification failed:', error);
+        return false;
+      }
+    });
     const isPlatformAdmin = token.claims.superadmin === true || token.claims.platformAdmin === true;
     const claimedTenantId = typeof token.claims.tenantId === 'string'
       ? token.claims.tenantId

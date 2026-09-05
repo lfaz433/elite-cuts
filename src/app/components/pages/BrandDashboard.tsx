@@ -5,6 +5,7 @@ import { useLocation, useNavigate } from 'react-router';
 import { db } from '../../lib/firebase';
 import { DEFAULT_WORKER_PERMISSIONS, PERMISSION_KEYS } from '../../lib/marketplace/permissions';
 import type { PermissionKey, SalonLocation } from '../../lib/marketplace/types';
+import { isManagerEligibleMembership, managerLocationForRoute, managerLocationIds } from '../../lib/marketplace/access';
 import LocationForm from '../brand/LocationForm';
 import LocationList from '../brand/LocationList';
 import PermissionEditor from '../brand/PermissionEditor';
@@ -47,9 +48,7 @@ export default function BrandDashboard() {
     && !membership.locationId
   )) ?? false;
   const assignedLocationIds = useMemo(() => (
-    user?.memberships
-      .filter(membership => membership.brandId === brandId && membership.locationId)
-      .map(membership => membership.locationId as string) ?? []
+    user && brandId ? managerLocationIds(user.memberships, brandId) : []
   ), [brandId, user?.memberships]);
 
   const loadLocations = useCallback(async () => {
@@ -97,19 +96,23 @@ export default function BrandDashboard() {
   useEffect(() => {
     if (locations.length === 0) return;
     const routeLocationId = route.pathname.match(/^\/brand\/locations\/([^/]+)/)?.[1];
-    const requested = locations.find(location => location.id === routeLocationId);
-    if (requested) {
-      selectLocation(requested.id);
-      return;
+    const accessibleLocationId = managerLocationForRoute(
+      routeLocationId,
+      locations.map(location => location.id),
+      locationId,
+    );
+    if (!accessibleLocationId) return;
+    selectLocation(accessibleLocationId);
+    if (routeLocationId !== accessibleLocationId) {
+      navigate(`/brand/locations/${accessibleLocationId}`, { replace: true });
     }
-    const fallback = locations.find(location => location.id === locationId) ?? locations[0];
-    selectLocation(fallback.id);
-    navigate(`/brand/locations/${fallback.id}`, { replace: true });
   }, [locationId, locations, navigate, route.pathname, selectLocation]);
 
   const selectedLocation = locations.find(location => location.id === locationId) ?? null;
   const selectedMembership = user?.memberships.find(membership => (
-    membership.brandId === brandId && membership.locationId === selectedLocation?.id
+    membership.brandId === brandId
+    && membership.locationId === selectedLocation?.id
+    && isManagerEligibleMembership(membership)
   ));
   const permissionValue = {
     ...DEFAULT_WORKER_PERMISSIONS,

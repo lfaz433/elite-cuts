@@ -14,6 +14,7 @@ import SuperAdminGuard from './components/SuperAdminGuard';
 import ErrorBoundary from './components/ErrorBoundary';
 import { Scissors } from 'lucide-react';
 import { lazy } from 'react';
+import { brandDashboardHomePath, hasBrandDashboardAccess } from './lib/marketplace/access';
 
 const MAIN_DOMAIN = import.meta.env.VITE_MAIN_DOMAIN?.trim().toLowerCase() || '';
 
@@ -75,7 +76,7 @@ function BrandRequired({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
   if (isLoading) return <AppLoader />;
   if (!user) return <Navigate to="/?login=true" replace />;
-  if (user.marketplaceRole !== 'principal_admin' && user.marketplaceRole !== 'salon_admin') {
+  if (!hasBrandDashboardAccess(user)) {
     return <Navigate to="/" replace />;
   }
   return <>{children}</>;
@@ -88,11 +89,7 @@ function HomeRouter() {
   if (isLoading) return <AppLoader />;
   
   if (user) {
-    if (user.role === 'superadmin') return <Navigate to="/superadmin" replace />;
-    if (user.marketplaceRole === 'principal_admin' || user.marketplaceRole === 'salon_admin') {
-      return <Navigate to="/brand" replace />;
-    }
-    return <Navigate to={`/${user.role}`} replace />;
+    return <Navigate to={brandDashboardHomePath(user)} replace />;
   }
 
   const hostname = window.location.hostname;
