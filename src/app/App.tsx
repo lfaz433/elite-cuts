@@ -34,6 +34,7 @@ const AcceptInvitation = lazy(() => import('./components/pages/AcceptInvitation'
 const DiscoverPage = lazy(() => import('./components/pages/DiscoverPage'));
 const ProfilePage = lazy(() => import('./components/discovery/ProfilePage'));
 const FreelancerDashboard = lazy(() => import('./components/pages/FreelancerDashboard'));
+const FreelancerPreviewPage = lazy(() => import('./components/pages/FreelancerPreviewPage'));
 
 // --- Premium Loading Spinner ---
 function AppLoader() {
@@ -133,7 +134,8 @@ function AppRoutes() {
         <Route path="register" element={<Register />} />
         <Route path="docs" element={<DocsPage />} />
         <Route path="discover" element={<DiscoverPage />} />
-        <Route path="discover/:profileId" element={<ProfilePage />} />
+      <Route path="discover/:profileId" element={<ProfilePage />} />
+      <Route path="freelancer-preview" element={<FreelancerPreviewPage />} />
         <Route path="book" element={<AuthRequired><LandingPage /></AuthRequired>} />
       </Route>
       <Route path="/boutique" element={<BoutiquePage />} />
@@ -162,19 +164,31 @@ function AppRoutes() {
   );
 }
 
+function AppContent() {
+  const { pathname } = useLocation();
+  const routes = (
+    <div className="min-h-screen bg-black text-white">
+      <Suspense fallback={<AppLoader />}>
+        <AppRoutes />
+      </Suspense>
+    </div>
+  );
+
+  // The public freelancer preview is intentionally self-contained: it must be
+  // explorable without a tenant, an account, or Firestore listener activity.
+  if (pathname === '/freelancer-preview') return routes;
+
+  return <BusinessProvider>{routes}</BusinessProvider>;
+}
+
 export default function App() {
   return (
     <ErrorBoundary>
       <BrowserRouter>
         <AuthProvider>
-          <WorkspaceProvider>
-            <NotificationProvider>
-              <BusinessProvider>
-                <div className="min-h-screen bg-black text-white">
-                  <Suspense fallback={<AppLoader />}>
-                    <AppRoutes />
-                  </Suspense>
-                </div>
+            <WorkspaceProvider>
+              <NotificationProvider>
+                <AppContent />
                 <Toaster
                   position="top-center"
                   richColors
@@ -192,7 +206,6 @@ export default function App() {
                     },
                   }}
                 />
-              </BusinessProvider>
             </NotificationProvider>
           </WorkspaceProvider>
         </AuthProvider>
