@@ -1,6 +1,25 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import test from 'node:test';
-import { parseFreelancerProfile, parsePortfolioItem } from './freelancerRecords';
+import ts from '../../../../functions/node_modules/typescript/lib/typescript.js';
+
+function loadModule(relativePath) {
+  const filename = resolve(import.meta.dirname, relativePath);
+  const output = ts.transpileModule(readFileSync(filename, 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+    fileName: filename,
+  }).outputText;
+  const loaded = { exports: {} };
+  new Function('require', 'module', 'exports', output)(
+    request => loadModule(`${request.slice(2)}.ts`).exports,
+    loaded,
+    loaded.exports,
+  );
+  return loaded;
+}
+
+const { parseFreelancerProfile, parsePortfolioItem } = loadModule('freelancerRecords.ts').exports;
 
 test('parses only a complete owned freelancer profile', () => {
   assert.deepEqual(parseFreelancerProfile('freelancer-a', {
@@ -15,6 +34,7 @@ test('parses only a complete owned freelancer profile', () => {
     servicePricesMinor: { cut: 2500 },
     radiusKm: 10, travelFeeMinor: 500, deposit: { mode: 'none', value: 0 },
     cancellationWindowHours: 24, availability: ['2099-09-07T10:00'],
+    identity: { socialLinks: {}, publicSlug: '' },
   });
   assert.equal(parseFreelancerProfile('freelancer-b', { uid: 'freelancer-a' }), null);
   assert.equal(parseFreelancerProfile('freelancer-a', {

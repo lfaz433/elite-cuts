@@ -5,7 +5,8 @@ export type PermissionKey =
   | 'removeWorkers'
   | 'manageServices'
   | 'manageInventory'
-  | 'manageJobs';
+  | 'manageJobs'
+  | 'manageLocationBranding';
 
 export type MembershipRole = 'principal_admin' | 'salon_admin' | 'worker';
 

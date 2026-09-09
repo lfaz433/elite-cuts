@@ -1,4 +1,5 @@
 import type { CityId } from './discovery';
+import { normalizePublicSlug, sanitizeSocialLinks, type FreelancerIdentity } from './identity';
 
 export type DepositPreference = {
   mode: 'none' | 'fixed' | 'percentage';
@@ -20,6 +21,7 @@ export interface FreelancerProfile {
   deposit: DepositPreference;
   cancellationWindowHours: number;
   availability: string[];
+  identity: FreelancerIdentity;
 }
 
 export type FreelancerProfileInput = Omit<FreelancerProfile, 'uid'>;
@@ -58,9 +60,40 @@ function servicePrices(value: unknown, serviceIds: string[]): value is Record<st
     && serviceIds.every(serviceId => Number.isInteger(prices[serviceId]) && (prices[serviceId] as number) >= 0);
 }
 
+function profileImageUrl(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  try {
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function identity(value: unknown): FreelancerIdentity | null {
+  if (value === undefined) return { socialLinks: {}, publicSlug: '' };
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (Object.keys(record).some(key => !['profileImageUrl', 'socialLinks', 'publicSlug'].includes(key))) {
+    return null;
+  }
+  if (record.profileImageUrl !== undefined && !profileImageUrl(record.profileImageUrl)) return null;
+  if (typeof record.publicSlug !== 'string') return null;
+  try {
+    if (normalizePublicSlug(record.publicSlug) !== record.publicSlug) return null;
+    return {
+      ...(record.profileImageUrl ? { profileImageUrl: record.profileImageUrl } : {}),
+      socialLinks: sanitizeSocialLinks(record.socialLinks),
+      publicSlug: record.publicSlug,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function parseFreelancerProfile(uid: string, value: unknown): FreelancerProfile | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const profile = value as Record<string, unknown>;
+  const publicIdentity = identity(profile.identity);
   if (
     profile.uid !== uid
     || typeof profile.displayName !== 'string'
@@ -76,6 +109,7 @@ export function parseFreelancerProfile(uid: string, value: unknown): FreelancerP
     || !deposit(profile.deposit)
     || typeof profile.cancellationWindowHours !== 'number'
     || !strings(profile.availability)
+    || !publicIdentity
   ) return null;
   return {
     uid,
@@ -92,6 +126,7 @@ export function parseFreelancerProfile(uid: string, value: unknown): FreelancerP
     deposit: profile.deposit,
     cancellationWindowHours: profile.cancellationWindowHours,
     availability: profile.availability,
+    identity: publicIdentity,
   };
 }
 
@@ -134,5 +169,6 @@ export function emptyFreelancerProfile(displayName = ''): FreelancerProfileInput
     deposit: { mode: 'none', value: 0 },
     cancellationWindowHours: 24,
     availability: [],
+    identity: { socialLinks: {}, publicSlug: '' },
   };
 }

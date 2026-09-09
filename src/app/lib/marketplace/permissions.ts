@@ -8,6 +8,7 @@ export const PERMISSION_KEYS: readonly PermissionKey[] = [
   'manageServices',
   'manageInventory',
   'manageJobs',
+  'manageLocationBranding',
 ];
 
 export const DEFAULT_PRINCIPAL_ADMIN_PERMISSIONS: Record<PermissionKey, boolean> = {
@@ -18,11 +19,12 @@ export const DEFAULT_PRINCIPAL_ADMIN_PERMISSIONS: Record<PermissionKey, boolean>
   manageServices: true,
   manageInventory: true,
   manageJobs: true,
+  manageLocationBranding: true,
 };
 
 export const DEFAULT_SALON_ADMIN_PERMISSIONS = {
   manageBookings: true, manageStaff: true, inviteWorkers: false, removeWorkers: false,
-  manageServices: true, manageInventory: false, manageJobs: true,
+  manageServices: true, manageInventory: false, manageJobs: true, manageLocationBranding: false,
 } as const;
 
 export const DEFAULT_WORKER_PERMISSIONS: Record<PermissionKey, boolean> = {
@@ -33,4 +35,5 @@ export const DEFAULT_WORKER_PERMISSIONS: Record<PermissionKey, boolean> = {
   manageServices: false,
   manageInventory: false,
   manageJobs: false,
+  manageLocationBranding: false,
 };

@@ -5,6 +5,13 @@ type Firestore = admin.firestore.Firestore;
 type RecordValue = Record<string, unknown>;
 type CityId = 'fr-paris' | 'fr-grenoble' | 'fr-mulhouse';
 type DepositMode = 'none' | 'fixed' | 'percentage';
+type SocialPlatform = 'instagram' | 'tiktok' | 'facebook' | 'website' | 'whatsapp';
+export type SocialLinks = Partial<Record<SocialPlatform, string>>;
+export interface FreelancerIdentity {
+  profileImageUrl?: string;
+  socialLinks: SocialLinks;
+  publicSlug: string;
+}
 
 export interface FreelancerProfileInput {
   displayName: string;
@@ -20,13 +27,14 @@ export interface FreelancerProfileInput {
   deposit: { mode: DepositMode; value: number };
   cancellationWindowHours: number;
   availability: string[];
+  identity: FreelancerIdentity;
 }
 
 const PROFILE_KEYS = new Set([
   'displayName', 'bio', 'cityId', 'languages', 'serviceSummary', 'serviceIds',
   'servicePricesMinor',
   'visible', 'radiusKm', 'travelFeeMinor', 'deposit', 'cancellationWindowHours',
-  'availability',
+  'availability', 'identity',
 ]);
 const PORTFOLIO_KEYS = new Set(['imageUrl', 'caption', 'visible']);
 const CITY_COORDINATES: Record<CityId, { latitude: number; longitude: number; countryCode: 'FR' }> = {
@@ -136,6 +144,75 @@ function depositPreference(value: unknown): FreelancerProfileInput['deposit'] {
   return { mode: input.mode, value: amount };
 }
 
+const SOCIAL_LINK_KEYS = new Set<SocialPlatform>([
+  'instagram', 'tiktok', 'facebook', 'website', 'whatsapp',
+]);
+const SOCIAL_HOSTS: Partial<Record<SocialPlatform, Set<string>>> = {
+  instagram: new Set(['instagram.com', 'www.instagram.com']),
+  tiktok: new Set(['tiktok.com', 'www.tiktok.com']),
+  facebook: new Set(['facebook.com', 'www.facebook.com', 'm.facebook.com']),
+};
+
+export function normalizePublicSlug(value: string): string {
+  const slug = value.trim().toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  if (!/^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/.test(slug)) {
+    throw new functions.https.HttpsError('invalid-argument', 'publicSlug is invalid');
+  }
+  return slug;
+}
+
+function socialUrl(value: unknown, field: string, hosts?: Set<string>): string {
+  const url = text(value, field, 2048);
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:' || !parsed.hostname || (hosts && !hosts.has(parsed.hostname))) {
+      throw new Error('invalid');
+    }
+    return parsed.toString();
+  } catch {
+    throw new functions.https.HttpsError('invalid-argument', `${field} is invalid`);
+  }
+}
+
+export function sanitizeSocialLinks(value: unknown): SocialLinks {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new functions.https.HttpsError('invalid-argument', 'socialLinks is invalid');
+  }
+  const socialLinks = value as RecordValue;
+  if (Object.keys(socialLinks).some(key => !SOCIAL_LINK_KEYS.has(key as SocialPlatform))) {
+    throw new functions.https.HttpsError('invalid-argument', 'socialLinks is invalid');
+  }
+  return Object.fromEntries(Object.entries(socialLinks).map(([key, link]) => {
+    if (key === 'whatsapp') {
+      if (typeof link !== 'string' || !/^\+[1-9]\d{7,14}$/.test(link)) {
+        throw new functions.https.HttpsError('invalid-argument', 'socialLinks.whatsapp is invalid');
+      }
+      return [key, link];
+    }
+    return [key, socialUrl(link, `socialLinks.${key}`, SOCIAL_HOSTS[key as SocialPlatform])];
+  })) as SocialLinks;
+}
+
+function freelancerIdentity(value: unknown): FreelancerIdentity {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new functions.https.HttpsError('invalid-argument', 'identity is invalid');
+  }
+  const identity = value as RecordValue;
+  if (Object.keys(identity).some(key => !['profileImageUrl', 'socialLinks', 'publicSlug'].includes(key))) {
+    throw new functions.https.HttpsError('invalid-argument', 'identity is invalid');
+  }
+  if (typeof identity.publicSlug !== 'string') {
+    throw new functions.https.HttpsError('invalid-argument', 'publicSlug is invalid');
+  }
+  return {
+    ...(identity.profileImageUrl === undefined
+      ? {}
+      : { profileImageUrl: socialUrl(identity.profileImageUrl, 'profileImageUrl') }),
+    socialLinks: sanitizeSocialLinks(identity.socialLinks),
+    publicSlug: normalizePublicSlug(identity.publicSlug),
+  };
+}
+
 export function parseFreelancerProfileInput(value: unknown): FreelancerProfileInput {
   const input = inputRecord(value, PROFILE_KEYS, 'Freelancer profile is required');
   if (typeof input.cityId !== 'string' || !(input.cityId in CITY_COORDINATES)) {
@@ -164,6 +241,7 @@ export function parseFreelancerProfileInput(value: unknown): FreelancerProfileIn
       720,
     ),
     availability: availabilityList(input.availability),
+    identity: freelancerIdentity(input.identity),
   };
 }
 
