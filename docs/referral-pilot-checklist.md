@@ -10,8 +10,9 @@ completed step. Pilot only against `elite-cuts-staging`; do not use production.
   an active code for the inviter. Confirm the code is globally unique and its
   owner appears in the inviter's referral workspace.
 - [ ] Open `/r/<CODE>` in a clean browser profile. Confirm the welcome screen
-  displays the code, stores it only in local browser storage, expires it after
-  30 days, and does not create an account or write Firestore data.
+  displays the code, stores it only in local browser storage, treats the
+  capture as expired after 30 days and clears it on the next read, and does not
+  create an account or write Firestore data.
 - [ ] Attribution once — **deferred for browser pilot**. The landing route
   captures the code, but current client registration has no role-onboarding
   path that reads the capture and calls `attributeReferral` after Firebase Auth
@@ -57,14 +58,16 @@ Jest command passes: they are the assertions under test.
 
 ## Staging release gate
 
-Do not run a Functions deployment until the staging Firebase project has Blaze
-billing, credentials are authorized, and the browser attribution integration
-above is delivered. Once all local checks and the four-user pilot are complete,
-deploy only staging:
+Before a Functions deployment, confirm that the staging Firebase project has
+Blaze billing and that deployment credentials are authorized. Then deploy only
+staging:
 
 ```bash
 firebase deploy --only firestore:rules,functions --project staging
 ```
 
 Verify Firebase resolves `staging` to `elite-cuts-staging`. Never substitute
-the production alias or project ID.
+the production alias or project ID. After the staging deployment, run the
+four-user pilot above and make the release decision from its recorded evidence.
+The deferred browser registration-attribution step must be recorded as a
+release limitation; it is not a prerequisite to deploy to staging.

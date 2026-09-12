@@ -36,7 +36,7 @@ Result: 11 suites passed, 95 tests passed, 0 snapshots, exit code 0. Expected
 Firestore `PERMISSION_DENIED` outcomes are asserted by the referral
 direct-write-denial suite.
 
-## Staging release prerequisites — not performed
+## Staging deployment and pilot sequence — not performed
 
 The staging deploy command was deliberately not run:
 
@@ -44,15 +44,19 @@ The staging deploy command was deliberately not run:
 firebase deploy --only firestore:rules,functions --project staging
 ```
 
-It remains blocked until all of the following are true:
+The required sequence is:
 
 1. `elite-cuts-staging` has Blaze billing and authorized deployment
    credentials, because Cloud Functions deployment requires Blaze.
-2. Browser client registration implements role onboarding, reads the unexpired
-   local referral capture, and calls `attributeReferral` exactly once after
-   Firebase Auth account creation. This registration attribution is
-   intentionally deferred in the current MVP.
-3. A four-user staging pilot completes every checklist item with evidence.
+2. Deploy Firestore rules and Functions to staging only with the command above.
+3. Run the four-user staging pilot and record evidence for each checklist item.
+4. Make a release decision from the pilot evidence.
+
+Browser client registration still needs role onboarding that reads the
+unexpired local referral capture and calls `attributeReferral` exactly once
+after Firebase Auth account creation. This registration attribution is
+intentionally deferred in the current MVP. It is a release limitation to
+record during the pilot, not a prerequisite to staging deployment.
 
 No Firebase Console state, Firestore rule deployment, Functions deployment,
 or production target was changed during this task.

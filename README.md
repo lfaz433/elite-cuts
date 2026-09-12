@@ -11,5 +11,6 @@ deferred client-registration attribution are documented in
 [the referral pilot checklist](docs/referral-pilot-checklist.md).
 
 Do not deploy referral Functions until the staging project has Blaze billing
-and the checklist's staging prerequisites are satisfied. Deployments, when
-authorized, target `elite-cuts-staging` only.
+and authorized Firebase credentials. Deployments, when authorized, target
+`elite-cuts-staging` only; run the four-user pilot after that staging deploy
+and make the release decision from its evidence.
