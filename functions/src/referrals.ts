@@ -12,6 +12,32 @@ type ReferralCodeScope =
   | { type: 'freelancer' }
   | { type: 'brand'; brandId: string };
 
+export interface ReferralMarketingOverview {
+  contractVersion: 2;
+  programs: RecordValue[];
+  funnel: {
+    codes: number;
+    validatedVisits: number;
+    attributions: number;
+    attributedSignups: number;
+    rewards: number;
+    eligibleFirstBookings: number;
+    pending: number;
+    pendingRewards: number;
+    approved: number;
+    approvedRewards: number;
+    rejected: number;
+  };
+  approvedCreditTotals: Array<{ currency: string; amountMinor: number }>;
+  topReferrers: Array<{
+    inviterId: string; inviterOwnerType: OwnerType; referrals: number; rewards: number;
+    approvedCreditsMinor: number; currency: string;
+  }>;
+  pendingRewards: RecordValue[];
+  flaggedRewards: RecordValue[];
+  auditTrail: RecordValue[];
+}
+
 const CODE_PATTERN = /^[A-Z0-9][A-Z0-9-]{2,31}$/;
 const DOCUMENT_ID_PATTERN = /^[A-Za-z0-9_-]{1,256}$/;
 const COUNTRY_PATTERN = /^[A-Z]{2}$/;
@@ -24,6 +50,15 @@ const MAX_REFERRAL_AUDIT_RESULTS = 50;
 const DEFAULT_REFERRAL_AUDIT_RESULTS = 20;
 const MAX_VALIDATED_VISITS_PER_CODE = 10_000;
 const MAX_VALIDATED_VISITS_TOTAL = 1_000_000;
+
+export const referralVisitCallableOptions = {
+  enforceAppCheck: true,
+  consumeAppCheckToken: true,
+};
+
+export function canRecordReferralVisit(appCheck: { alreadyConsumed?: boolean } | undefined): boolean {
+  return appCheck?.alreadyConsumed !== true;
+}
 
 function error(code: functions.https.FunctionsErrorCode, message: string): never {
   throw new functions.https.HttpsError(code, message);
@@ -1107,7 +1142,9 @@ function safePendingRewardForOverview(id: string, reward: RecordValue): RecordVa
   };
 }
 
-function approvedCreditTotalsForOverview(snapshots: Array<{ data(): RecordValue }>): RecordValue[] {
+function approvedCreditTotalsForOverview(
+  snapshots: Array<{ data(): RecordValue }>,
+): Array<{ currency: string; amountMinor: number }> {
   const totals = new Map<string, number>();
   for (const snapshot of snapshots) {
     const ledger = snapshot.data();
@@ -1140,7 +1177,7 @@ export async function getReferralMarketingOverview(
   value: unknown,
   firestore: Firestore = admin.firestore(),
   verifiedPlatformAdmin = false,
-): Promise<RecordValue> {
+): Promise<ReferralMarketingOverview> {
   const uid = callerUid(caller);
   await requireSuperAdmin(uid, firestore, verifiedPlatformAdmin);
   const input = referralAuditQuery(value);
@@ -1242,6 +1279,7 @@ export async function getReferralMarketingOverview(
     : 0;
 
   return {
+    contractVersion: 2,
     programs,
     funnel: {
       codes: codesSnapshot.docs.length,
@@ -1321,9 +1359,12 @@ export const getPublicReferralCodeFunction = functions.https.onCall(data => (
   getPublicReferralCode(data)
 ));
 
-export const recordReferralVisitFunction = functions.https.onCall(data => (
-  recordReferralVisit(data)
-));
+export const recordReferralVisitFunction = functions.runWith(referralVisitCallableOptions).https.onCall((data, context) => {
+  if (!canRecordReferralVisit(context.app)) {
+    error('resource-exhausted', 'Referral visit telemetry token was already consumed');
+  }
+  return recordReferralVisit(data);
+});
 
 export const getReferralMarketingOverviewFunction = functions.https.onCall((data, context) => (
   getReferralMarketingOverview(requirePlatformAdminContext(context), data, admin.firestore(), true)

@@ -17,9 +17,14 @@ completed step. Pilot only against `elite-cuts-staging`; do not use production.
   Confirm the Super Admin overview increments validated visits without creating
   an attribution, reward, or credit. Repeat with a missing, paused, expired,
   or archived code and confirm it returns unavailable and records no visit.
-  Treat the metric as capped, non-unique validated calls rather than unique
-  visitors: replay can increase a code's count only to 10,000 and the staging
-  platform total only to 1,000,000; neither counter has financial effect.
+  Before this test, configure the staging web Firebase App Check provider and
+  its site keys, then verify callable enforcement with a fresh limited-use
+  token. A missing, invalid, or already-consumed token must not write a count.
+  Telemetry is best-effort: this failure must not block referral-code
+  validation or browsing. Treat the metric as capped, non-unique validated
+  calls rather than unique visitors: a fresh-token replay can increase a
+  code's count only to 10,000 and the staging platform total only to
+  1,000,000; neither counter has financial effect.
 - [ ] Attribution once — **deferred for browser pilot**. The landing route
   captures the code, but current client registration has no role-onboarding
   path that reads the capture and calls `attributeReferral` after Firebase Auth
@@ -35,7 +40,9 @@ completed step. Pilot only against `elite-cuts-staging`; do not use production.
   positive-paid completion and confirm it cannot create a second reward or
   invalidate approval of the earlier timestamped eligible reward. Confirm a
   positive-paid legacy booking lacking `completedAt` fails referral eligibility
-  safely rather than guessing its order.
+  safely rather than guessing its order. Confirm a tenant manager cannot
+  directly backdate or otherwise change `completedAt` or `isTest`; normal
+  server completion/payment workflows must remain able to record them.
 - [ ] Retry the same completed-booking event. Confirm the deterministic reward
   is returned or retained and no duplicate reward or credit ledger entry is
   created.

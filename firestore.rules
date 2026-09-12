@@ -410,7 +410,9 @@ service cloud.firestore {
           'pricePaidMinor',
           'tipMinor',
           'paymentRecordedAt',
-          'paymentRecordedBy'
+          'paymentRecordedBy',
+          'completedAt',
+          'isTest'
         ]);
       allow delete: if false;
     }

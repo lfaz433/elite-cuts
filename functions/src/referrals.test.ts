@@ -967,6 +967,12 @@ describe('referral domain', () => {
     await expect(recordReferralVisit({ code: 'friend' }, firestore, new Date('2026-09-12T12:00:00Z')))
       .resolves.toEqual({ code: 'FRIEND', status: 'active', recorded: false });
     expect(state.referralTelemetry['program-a__FRIEND'].validatedVisitCount).toBe(10_000);
+    state.referralTelemetry['program-a__FRIEND'].validatedVisitCount = 1;
+    state.referralTelemetry.overview.validatedVisitCount = 1_000_000;
+    await expect(recordReferralVisit({ code: 'friend' }, firestore, new Date('2026-09-12T12:00:00Z')))
+      .resolves.toEqual({ code: 'FRIEND', status: 'active', recorded: false });
+    expect(state.referralTelemetry.overview.validatedVisitCount).toBe(1_000_000);
+    expect(state.referralTelemetry['program-a__FRIEND'].validatedVisitCount).toBe(1);
   });
 
   test('allows only a super admin to flag and clear pending referral activity', async () => {
@@ -1054,6 +1060,7 @@ describe('referral domain', () => {
     });
 
     await expect(getReferralMarketingOverview('admin-a', { rewardId: 'pending', limit: 1 }, firestore)).resolves.toMatchObject({
+      contractVersion: 2,
       funnel: {
         validatedVisits: 2, attributedSignups: 1, eligibleFirstBookings: 1,
         pendingRewards: 1, approvedRewards: 0,
@@ -1065,5 +1072,20 @@ describe('referral domain', () => {
     });
     await expect(getReferralMarketingOverview('admin-a', { rewardId: 'pending', limit: 51 }, firestore))
       .rejects.toMatchObject({ code: 'invalid-argument' });
+  });
+
+  test('requires fresh Firebase App Check attestation for public telemetry reporting', () => {
+    const { referralVisitCallableOptions, canRecordReferralVisit } = loadModule();
+
+    expect(referralVisitCallableOptions).toEqual({ enforceAppCheck: true, consumeAppCheckToken: true });
+    expect(canRecordReferralVisit({ alreadyConsumed: false })).toBe(true);
+    expect(canRecordReferralVisit({ alreadyConsumed: true })).toBe(false);
+  });
+
+  test('rejects a consumed App Check token before the public telemetry handler writes', async () => {
+    const { recordReferralVisitFunction } = loadModule();
+
+    await expect(recordReferralVisitFunction.run({ code: 'FRIEND' }, { app: { alreadyConsumed: true } }))
+      .rejects.toMatchObject({ code: 'resource-exhausted' });
   });
 });

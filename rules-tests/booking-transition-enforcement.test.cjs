@@ -153,3 +153,18 @@ test('a tenant member cannot directly mark a booking paid or change amounts', as
     paymentMethod: 'cash',
   }));
 });
+
+test('a tenant manager cannot forge referral eligibility timestamps or test status', async () => {
+  await seedBooking();
+  const db = testEnv.authenticatedContext('manager-a', {
+    sub: 'manager-a',
+    tenantId: 'tenant-a',
+  }).firestore();
+
+  await assertFails(updateDoc(doc(db, 'bookings', 'booking-a'), {
+    completedAt: new Date('2000-01-01T00:00:00.000Z'),
+  }));
+  await assertFails(updateDoc(doc(db, 'bookings', 'booking-a'), {
+    isTest: true,
+  }));
+});

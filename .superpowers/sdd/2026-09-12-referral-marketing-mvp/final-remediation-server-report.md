@@ -206,3 +206,23 @@ npm --prefix functions run build
 ```
 
 Result: 1 suite passed, 52 tests passed; the Functions TypeScript build exited successfully.
+
+## Follow-up server remediation: App Check telemetry, trusted booking evidence, and overview contract v2
+
+`recordReferralVisit` remains a fixed-size, private aggregate only: it validates the live code and program inside a transaction, then increments at most the platform `overview` and one `{programId}__{code}` document. There are no anonymous event documents and no telemetry event scans. The public callable now enforces Firebase App Check and requests limited-use-token consumption. A missing or invalid App Check attestation is rejected before the handler; an already-consumed attestation is rejected before any telemetry write. The endpoint remains financially inert, with 10,000 per-code and 1,000,000 global caps. UI code must treat visit reporting as best effort: referral-code validation and browsing are independent of telemetry success.
+
+Before staging telemetry is enabled, configure the Firebase web App Check provider and its site keys, and verify callable enforcement with fresh limited-use tokens. The metrics remain non-unique validated calls rather than audience analytics; the caps bound storage and writes, not the number of requests a caller can attempt.
+
+The paid-first selection and approval checks retain the full millisecond timestamp from server-written `completedAt`; no seconds truncation occurs. Browser Firestore rules now prohibit tenant-manager changes to `completedAt` and `isTest`, while the Admin-SDK booking completion/payment workflows retain authority to write those fields. This prevents a browser manager from backdating an eligibility candidate or changing its test classification. The first positive-paid, non-test completion stays approvable after later paid bookings; any positive-paid legacy booking without trustworthy server completion evidence fails closed.
+
+`ReferralMarketingOverview` is now an exported server DTO with `contractVersion: 2`. Its documented fields are `programs`, full funnel totals (including App-Check-gated `validatedVisits`), currency-separated approved credits, `{ inviterId, inviterOwnerType }` top referrers, pending/flagged queues (including flag reasons), and the bounded referral-only audit trail with privileged actor/reason data. The v2 contract makes the typed identity and audit/filter guarantees explicit for the frontend consumer.
+
+Verification for this remediation:
+
+```bash
+npm --prefix functions exec jest -- src/referrals.test.ts --runInBand
+npm --prefix functions run build
+firebase emulators:exec --only firestore "PATH=/opt/homebrew/bin:$PATH /opt/homebrew/bin/node ./node_modules/jest/bin/jest.js --config='{\"testEnvironment\":\"node\",\"rootDir\":\".\",\"transform\":{}}' --runInBand --runTestsByPath rules-tests/referral.rules.test.cjs rules-tests/booking-transition-enforcement.test.cjs"
+```
+
+Result: 1 focused Functions suite passed (54 tests), the Functions TypeScript build passed, and 2 Firestore emulator suites passed (10 tests).
