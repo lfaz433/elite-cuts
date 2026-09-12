@@ -226,7 +226,7 @@ describe('referral domain', () => {
   test('permits a client to use an unrelated brand code with the same ID through reward approval', async () => {
     const { attributeReferral, processReferralBookingCompletion, reviewReferralReward } = loadModule();
     const { firestore, state } = firestoreState({
-      users: { X: { role: 'client' }, 'admin-a': { role: 'superadmin' } },
+      users: { X: { uid: 'X' }, 'admin-a': { role: 'superadmin' } },
       freelancerProfiles: {}, memberships: {}, brands: { X: { name: 'X' } },
       referralPrograms: { 'program-a': activeProgram },
       referralCodes: { BRANDX: { code: 'BRANDX', programId: 'program-a', ownerType: 'brand', ownerId: 'X', status: 'active' } },
@@ -265,7 +265,7 @@ describe('referral domain', () => {
   test('does not attribute a code from a paused program', async () => {
     const { attributeReferral } = loadModule();
     const { firestore, state } = firestoreState({
-      users: { 'new-client': { role: 'client' } }, freelancerProfiles: {}, memberships: {},
+      users: { 'new-client': { uid: 'new-client' } }, freelancerProfiles: {}, memberships: {},
       referralPrograms: { 'program-a': { ...activeProgram, status: 'paused' } },
       referralCodes: {
         FRIEND: { code: 'FRIEND', programId: 'program-a', ownerType: 'client', ownerId: 'inviter-a', status: 'active' },
@@ -275,6 +275,45 @@ describe('referral domain', () => {
 
     await expect(attributeReferral('new-client', { code: 'FRIEND' }, firestore, new Date('2026-09-12T12:00:00Z')))
       .rejects.toMatchObject({ code: 'failed-precondition' });
+    expect(state.referralAttributions).toEqual({});
+  });
+
+  test('attributes a referral for a canonical roleless client identity', async () => {
+    const { attributeReferral } = loadModule();
+    const { firestore, state } = firestoreState({
+      users: { 'new-client': { uid: 'new-client', email: 'client@example.test' } },
+      freelancerProfiles: {}, memberships: {},
+      referralPrograms: { 'program-a': activeProgram },
+      referralCodes: {
+        FRIEND: { code: 'FRIEND', programId: 'program-a', ownerType: 'client', ownerId: 'inviter-a', status: 'active' },
+      },
+      referralAttributions: {}, bookings: {},
+    });
+
+    await expect(attributeReferral('new-client', { code: 'FRIEND' }, firestore, new Date('2026-09-12T12:00:00Z')))
+      .resolves.toEqual({ attributed: true, programId: 'program-a' });
+    expect(state.referralAttributions['new-client']).toMatchObject({
+      inviterId: 'inviter-a', inviterOwnerType: 'client',
+    });
+  });
+
+  test('fails closed when a user document is not the caller canonical identity', async () => {
+    const { attributeReferral, createMyReferralCode } = loadModule();
+    const { firestore, state } = firestoreState({
+      users: { 'new-client': { uid: 'different-user' } }, freelancerProfiles: {}, memberships: {},
+      referralPrograms: { 'program-a': activeProgram },
+      referralProgramState: { active: { programId: 'program-a' } },
+      referralCodes: {
+        FRIEND: { code: 'FRIEND', programId: 'program-a', ownerType: 'client', ownerId: 'inviter-a', status: 'active' },
+      },
+      referralAttributions: {}, bookings: {},
+    });
+    const now = new Date('2026-09-12T12:00:00Z');
+
+    await expect(attributeReferral('new-client', { code: 'FRIEND' }, firestore, now))
+      .rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(createMyReferralCode('new-client', { scope: { type: 'client' } }, firestore, now, () => 'NOPE-A1'))
+      .rejects.toMatchObject({ code: 'permission-denied' });
     expect(state.referralAttributions).toEqual({});
   });
 
@@ -569,7 +608,7 @@ describe('referral domain', () => {
   test('creates and then reuses an authenticated client\'s generated active code', async () => {
     const { createMyReferralCode } = loadModule();
     const { firestore, state } = firestoreState({
-      users: { 'client-a': { role: 'client' } },
+      users: { 'client-a': { uid: 'client-a' } },
       referralProgramState: { active: { programId: 'program-a' } }, referralPrograms: { 'program-a': activeProgram },
       referralCodes: {}, memberships: {}, freelancerProfiles: {},
     });
@@ -589,7 +628,7 @@ describe('referral domain', () => {
   test('retries a generated referral code collision without accepting browser-selected code data', async () => {
     const { createMyReferralCode } = loadModule();
     const { firestore } = firestoreState({
-      users: { 'client-a': { role: 'client' } },
+      users: { 'client-a': { uid: 'client-a' } },
       referralProgramState: { active: { programId: 'program-a' } }, referralPrograms: { 'program-a': activeProgram },
       referralCodes: { COLLIDE: { code: 'COLLIDE', ownerId: 'other-a', ownerType: 'client', programId: 'program-a', status: 'active' } },
       memberships: {}, freelancerProfiles: {},
@@ -603,7 +642,11 @@ describe('referral domain', () => {
   test('requires an explicit, authorized referral-code scope', async () => {
     const { createMyReferralCode } = loadModule();
     const { firestore } = firestoreState({
-      users: { 'client-a': { role: 'client' }, 'freelancer-a': { role: 'client' }, 'freelancer-staff': { role: 'client' } },
+      users: {
+        'client-a': { uid: 'client-a' },
+        'freelancer-a': { uid: 'freelancer-a' },
+        'freelancer-staff': { uid: 'freelancer-staff' },
+      },
       freelancerProfiles: { 'freelancer-a': { uid: 'freelancer-a' }, 'freelancer-staff': { uid: 'freelancer-staff' } },
       memberships: { worker: { userId: 'freelancer-staff', brandId: 'brand-a', role: 'worker', status: 'active', permissions: {} } }, referralCodes: {},
       referralProgramState: { active: { programId: 'program-a' } }, referralPrograms: { 'program-a': activeProgram },
@@ -625,7 +668,7 @@ describe('referral domain', () => {
   test('creates and reuses only the exact authorized brand scope selected by a multi-brand admin', async () => {
     const { createMyReferralCode } = loadModule();
     const { firestore, state } = firestoreState({
-      users: { 'manager-a': { role: 'client' } }, freelancerProfiles: {},
+      users: { 'manager-a': { uid: 'manager-a' } }, freelancerProfiles: {},
       memberships: {
         'brand-a__principal__manager-a': { userId: 'manager-a', brandId: 'brand-a', role: 'principal_admin', status: 'active', permissions: {} },
         'brand-b__principal__manager-a': { userId: 'manager-a', brandId: 'brand-b', role: 'principal_admin', status: 'active', permissions: {} },
@@ -648,7 +691,7 @@ describe('referral domain', () => {
   test('creates a brand code only for an active authorized brand admin', async () => {
     const { createMyReferralCode } = loadModule();
     const { firestore } = firestoreState({
-      users: { 'manager-a': { role: 'client' } },
+      users: { 'manager-a': { uid: 'manager-a' } },
       memberships: { 'brand-a__location-a__manager-a': { userId: 'manager-a', brandId: 'brand-a', locationId: 'location-a', role: 'salon_admin', status: 'active', permissions: {} } },
       brands: { 'brand-a': { name: 'A' } }, freelancerProfiles: {},
       referralProgramState: { active: { programId: 'program-a' } }, referralPrograms: { 'program-a': activeProgram }, referralCodes: {},
@@ -661,7 +704,7 @@ describe('referral domain', () => {
   test('allows a legacy admin role to create a code for an authorized brand membership', async () => {
     const { createMyReferralCode } = loadModule();
     const { firestore } = firestoreState({
-      users: { 'admin-a': { role: 'admin' } },
+      users: { 'admin-a': { uid: 'admin-a', role: 'admin' } },
       memberships: { 'brand-a__principal__admin-a': { userId: 'admin-a', brandId: 'brand-a', role: 'principal_admin', status: 'active', permissions: {} } },
       brands: { 'brand-a': { name: 'A' } }, freelancerProfiles: {}, referralCodes: {},
       referralProgramState: { active: { programId: 'program-a' } }, referralPrograms: { 'program-a': activeProgram },
@@ -674,7 +717,7 @@ describe('referral domain', () => {
   test('rejects referral-code generation for an active staff member', async () => {
     const { createMyReferralCode } = loadModule();
     const { firestore } = firestoreState({
-      users: { 'worker-a': { role: 'client' } },
+      users: { 'worker-a': { uid: 'worker-a' } },
       memberships: { 'brand-a__location-a__worker-a': { userId: 'worker-a', brandId: 'brand-a', locationId: 'location-a', role: 'worker', status: 'active', permissions: {} } },
       freelancerProfiles: {}, referralProgramState: { active: { programId: 'program-a' } }, referralPrograms: { 'program-a': activeProgram }, referralCodes: {},
     });
@@ -688,12 +731,12 @@ describe('referral domain', () => {
     ['worker', { memberships: { membership: { userId: 'new-client', brandId: 'brand-a', role: 'worker', status: 'active', permissions: {} } } }],
     ['salon admin', { memberships: { membership: { userId: 'new-client', brandId: 'brand-a', role: 'salon_admin', status: 'active', permissions: {} } } }],
     ['brand principal', { memberships: { membership: { userId: 'new-client', brandId: 'brand-a', role: 'principal_admin', status: 'active', permissions: {} } } }],
-    ['super admin', { users: { 'new-client': { role: 'superadmin' } } }],
-    ['unknown explicit non-client role', { users: { 'new-client': { role: 'owner' } } }],
+    ['super admin', { users: { 'new-client': { uid: 'new-client', role: 'superadmin' } } }],
+    ['unknown explicit non-client role', { users: { 'new-client': { uid: 'new-client', role: 'owner' } } }],
   ])('rejects referral attribution for a %s account', async (_label, identity) => {
     const { attributeReferral } = loadModule();
     const { firestore } = firestoreState({
-      users: { 'new-client': { role: 'client' }, ...(identity.users ?? {}) },
+      users: { 'new-client': { uid: 'new-client' }, ...(identity.users ?? {}) },
       freelancerProfiles: {}, memberships: {}, ...identity,
       referralPrograms: { 'program-a': activeProgram },
       referralCodes: { FRIEND: { code: 'FRIEND', programId: 'program-a', ownerType: 'client', ownerId: 'inviter-a', status: 'active' } },
@@ -707,7 +750,7 @@ describe('referral domain', () => {
   test('rejects referral-code generation for a legacy admin role without a membership', async () => {
     const { createMyReferralCode } = loadModule();
     const { firestore } = firestoreState({
-      users: { 'admin-a': { role: 'admin' } }, memberships: {}, freelancerProfiles: {}, referralCodes: {},
+      users: { 'admin-a': { uid: 'admin-a', role: 'admin' } }, memberships: {}, freelancerProfiles: {}, referralCodes: {},
       referralProgramState: { active: { programId: 'program-a' } }, referralPrograms: { 'program-a': activeProgram },
     });
 

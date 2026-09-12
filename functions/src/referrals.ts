@@ -131,6 +131,24 @@ function activeMembershipsFor(uid: string, snapshots: Array<{ data(): RecordValu
   ));
 }
 
+function hasCanonicalUserIdentity(profile: RecordValue | undefined, uid: string): boolean {
+  return profile?.uid === uid;
+}
+
+function hasCompatibleLegacyRole(profile: RecordValue | undefined, allowedRoles: string[]): boolean {
+  return profile?.role === undefined || allowedRoles.includes(profile.role as string);
+}
+
+function isEligiblePersonalReferralIdentity(
+  profile: RecordValue | undefined,
+  uid: string,
+  allowedLegacyRoles: string[],
+): boolean {
+  return hasCanonicalUserIdentity(profile, uid)
+    && profile?.platformAdmin !== true
+    && hasCompatibleLegacyRole(profile, allowedLegacyRoles);
+}
+
 function referralCodeScope(value: unknown): ReferralCodeScope {
   const input = record(value, ['scope'], 'Referral code scope is invalid');
   const scope = record(input.scope, ['type', 'brandId'], 'Referral code scope is invalid');
@@ -355,23 +373,33 @@ export async function createMyReferralCode(
         error('failed-precondition', 'There is no active referral program');
       }
       const profile = userSnapshot.data() as RecordValue | undefined;
-      if (!userSnapshot.exists || profile?.platformAdmin === true || profile?.role === 'superadmin') {
+      if (
+        !userSnapshot.exists
+        || !hasCanonicalUserIdentity(profile, uid)
+        || profile?.platformAdmin === true
+        || profile?.role === 'superadmin'
+      ) {
         error('permission-denied', 'This account cannot create referral codes');
       }
       const activeMemberships = activeMembershipsFor(uid, membershipSnapshots.docs);
       let ownerType: OwnerType;
       let ownerId: string;
       if (selectedScope.type === 'client') {
-        if (profile?.role !== 'client' || freelancerSnapshot.exists || activeMemberships.length > 0) {
+        if (
+          !isEligiblePersonalReferralIdentity(profile, uid, ['client'])
+          || freelancerSnapshot.exists
+          || activeMemberships.length > 0
+        ) {
           error('permission-denied', 'Staff accounts cannot create referral codes');
         }
         ownerType = 'client';
         ownerId = uid;
       } else if (selectedScope.type === 'freelancer') {
         if (
-          !freelancerSnapshot.exists
+          !isEligiblePersonalReferralIdentity(profile, uid, ['client', 'freelancer'])
+          || !freelancerSnapshot.exists
+          || !hasCanonicalUserIdentity(freelancerSnapshot.data() as RecordValue | undefined, uid)
           || activeMemberships.length > 0
-          || (profile?.role !== 'client' && profile?.role !== 'freelancer')
         ) {
           error('permission-denied', 'This account cannot create freelancer referral codes');
         }
@@ -459,7 +487,7 @@ export async function attributeReferral(
     const profile = userSnapshot.data() as RecordValue | undefined;
     if (
       !userSnapshot.exists
-      || (typeof profile?.role === 'string' && profile.role !== 'client')
+      || !isEligiblePersonalReferralIdentity(profile, uid, ['client'])
       || freelancerSnapshot.exists
       || activeMembershipsFor(uid, membershipSnapshots.docs).length > 0
     ) error('permission-denied', 'Referral attribution is available only to client accounts');

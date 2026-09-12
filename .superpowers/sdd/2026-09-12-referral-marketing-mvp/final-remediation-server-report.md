@@ -141,3 +141,25 @@ npm --prefix functions run build
 ```
 
 Result: 1 suite passed, 44 tests passed; the Functions TypeScript build exited successfully.
+
+## Follow-up server remediation: canonical roleless identity compatibility
+
+Normal signup writes `users/{uid}` as an identity document (`uid`, email/display fields, and timestamps) and deliberately does not set a browser-controlled role. Referral personal-scope authority now follows that real schema instead of requiring `users.role`:
+
+- client code creation and attribution require an existing canonical user document with `users/{uid}.uid === authenticated uid`, no freelancer profile, and no active membership;
+- freelancer code creation requires that canonical user document plus the authoritative `freelancerProfiles/{uid}` record written by `saveFreelancerProfile`, whose stored `uid` must also match the authenticated UID;
+- any active membership prevents client attribution and both personal code scopes, so staff, salon admins, and brand principals cannot impersonate a client;
+- Super Admin/platform-admin identities remain denied; legacy role values are only compatibility hints. An absent role is valid for a canonical client, compatible `client`/`freelancer` values remain valid for their applicable personal scope, and explicit non-personal roles remain denied for personal scopes. A valid exact brand membership is still required for brand scope.
+
+Missing or mismatched `uid` identity data fails closed. Attribution still treats the mere presence of a freelancer profile as a professional signal and denies client attribution, even if that record is malformed.
+
+Focused regression coverage now constructs ordinary identity records without `role`, verifies a roleless canonical client can create/reuse a client code and attribute an unrelated code, verifies a roleless user with the real freelancer profile can use freelancer scope but not client scope, and verifies mismatched identity, freelancer, staff, salon-admin, principal, legacy-admin, Super Admin, and other non-client cases cannot attribute as a client.
+
+Verification for this compatibility remediation:
+
+```bash
+npm --prefix functions exec jest -- src/referrals.test.ts --runInBand
+npm --prefix functions run build
+```
+
+Result: 1 suite passed, 46 tests passed; the Functions TypeScript build exited successfully.
