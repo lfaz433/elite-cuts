@@ -23,6 +23,25 @@ export interface ReferralWorkspace {
     programId: string;
   };
   rewards: ReferralReward[];
+  brandWorkspaces?: ReferralBrandWorkspace[];
+}
+
+export interface ReferralBrandWorkspace {
+  brandId: string;
+  codes: ReferralCode[];
+  rewards: ReferralReward[];
+}
+
+export interface CreatedReferralCode {
+  code: string;
+  ownerType: 'client' | 'freelancer' | 'brand';
+  programId: string;
+  reused: boolean;
+}
+
+export interface PublicReferralCode {
+  code: string;
+  status: 'active';
 }
 
 export interface StoredReferralAttribution {
@@ -35,6 +54,8 @@ const getMyReferralWorkspaceCall = httpsCallable<Record<string, never>, unknown>
   functions,
   'getMyReferralWorkspace',
 );
+const createMyReferralCodeCall = httpsCallable<Record<string, never>, unknown>(functions, 'createMyReferralCode');
+const getPublicReferralCodeCall = httpsCallable<{ code: string }, unknown>(functions, 'getPublicReferralCode');
 
 export const REFERRAL_ATTRIBUTION_STORAGE_KEY = 'barberboard.referral-attribution';
 export const REFERRAL_ATTRIBUTION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -93,10 +114,22 @@ function parseReferralWorkspace(value: unknown): ReferralWorkspace | null {
     && typeof attributionRecord.programId === 'string'
     ? { code: attributionRecord.code, programId: attributionRecord.programId }
     : undefined;
+  const brandWorkspaces = Array.isArray(candidate.brandWorkspaces)
+    ? candidate.brandWorkspaces.map(value => {
+      const workspace = record(value);
+      if (!workspace || typeof workspace.brandId !== 'string' || !Array.isArray(workspace.codes) || !Array.isArray(workspace.rewards)) return null;
+      return {
+        brandId: workspace.brandId,
+        codes: workspace.codes.map(parseCode).filter((code): code is ReferralCode => code !== null),
+        rewards: workspace.rewards.map(parseReward).filter((reward): reward is ReferralReward => reward !== null),
+      };
+    }).filter((workspace): workspace is ReferralBrandWorkspace => workspace !== null)
+    : undefined;
   return {
     codes: candidate.codes.map(parseCode).filter((code): code is ReferralCode => code !== null),
     ...(attribution ? { attribution } : {}),
     rewards: candidate.rewards.map(parseReward).filter((reward): reward is ReferralReward => reward !== null),
+    ...(brandWorkspaces && brandWorkspaces.length > 0 ? { brandWorkspaces } : {}),
   };
 }
 
@@ -107,12 +140,51 @@ export async function getMyReferralWorkspace(): Promise<ReferralWorkspace> {
   return workspace;
 }
 
+export async function createMyReferralCode(): Promise<CreatedReferralCode> {
+  const result = await createMyReferralCodeCall({});
+  const candidate = record(result.data);
+  if (
+    !candidate
+    || typeof candidate.code !== 'string'
+    || (candidate.ownerType !== 'client' && candidate.ownerType !== 'freelancer' && candidate.ownerType !== 'brand')
+    || typeof candidate.programId !== 'string'
+    || typeof candidate.reused !== 'boolean'
+  ) throw new Error('The referral service returned an invalid code');
+  return {
+    code: candidate.code,
+    ownerType: candidate.ownerType,
+    programId: candidate.programId,
+    reused: candidate.reused,
+  };
+}
+
+export async function getPublicReferralCode(code: string): Promise<PublicReferralCode> {
+  const result = await getPublicReferralCodeCall({ code });
+  const candidate = record(result.data);
+  if (!candidate || typeof candidate.code !== 'string' || candidate.status !== 'active') {
+    throw new Error('The referral service returned an invalid public code');
+  }
+  return { code: candidate.code, status: 'active' };
+}
+
 export function referralLink(origin: string, code: string): string {
   return `${origin.replace(/\/+$/, '')}/r/${encodeURIComponent(code)}`;
 }
 
 export function isActiveReferralCode(status: string): boolean {
   return status === 'active';
+}
+
+export function isShareableReferralCode(code: ReferralCode, verified: PublicReferralCode | null): boolean {
+  return isActiveReferralCode(code.status) && verified?.status === 'active' && verified.code === code.code;
+}
+
+export function referralCodesForWorkspace(workspace: ReferralWorkspace): ReferralCode[] {
+  const byCode = new Map<string, ReferralCode>();
+  for (const code of [...workspace.codes, ...(workspace.brandWorkspaces ?? []).flatMap(brand => brand.codes)]) {
+    byCode.set(code.code, code);
+  }
+  return [...byCode.values()];
 }
 
 export function creditLabel({ amountMinor, currency }: Pick<ReferralReward, 'amountMinor' | 'currency'>): string {

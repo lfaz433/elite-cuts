@@ -10,10 +10,19 @@ const output = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   fileName: filename,
 }).outputText;
+const callableCalls = [];
+const callableResponses = new Map();
 const loaded = { exports: {} };
 new Function('require', 'module', 'exports', output)(
   request => {
-    if (request === 'firebase/functions') return { httpsCallable: () => () => undefined };
+    if (request === 'firebase/functions') return {
+      httpsCallable: (_functions, name) => async data => {
+        callableCalls.push([name, data]);
+        const response = callableResponses.get(name);
+        if (response instanceof Error) throw response;
+        return response;
+      },
+    };
     if (request === '../firebase') return { functions: {} };
     throw new Error(`Unexpected dependency: ${request}`);
   },
@@ -22,12 +31,16 @@ new Function('require', 'module', 'exports', output)(
 );
 const {
   captureReferralAttribution,
+  createMyReferralCode,
   creditLabel,
+  getPublicReferralCode,
   isActiveReferralCode,
+  isShareableReferralCode,
   readCapturedReferralAttribution,
   REFERRAL_ATTRIBUTION_STORAGE_KEY,
   REFERRAL_ATTRIBUTION_TTL_MS,
   referralLink,
+  referralCodesForWorkspace,
 } = loaded.exports;
 
 test('builds a share link from the supplied origin and referral code', () => {
@@ -77,4 +90,32 @@ test('marks only active referral codes as shareable', () => {
   assert.equal(isActiveReferralCode('active'), true);
   assert.equal(isActiveReferralCode('paused'), false);
   assert.equal(isActiveReferralCode('archived'), false);
+});
+
+test('creates or retrieves a code using only the authenticated callable scope', async () => {
+  callableCalls.length = 0;
+  callableResponses.set('createMyReferralCode', { data: {
+    code: 'EC-CLIENT', ownerType: 'client', programId: 'program-a', reused: false,
+  } });
+
+  await assert.doesNotReject(createMyReferralCode());
+  assert.deepEqual(callableCalls, [['createMyReferralCode', {}]]);
+});
+
+test('accepts a link for sharing only after public server validation', async () => {
+  callableCalls.length = 0;
+  callableResponses.set('getPublicReferralCode', { data: { code: 'EC-CLIENT', status: 'active' } });
+
+  const verified = await getPublicReferralCode('ec-client');
+  assert.equal(isShareableReferralCode({ code: 'EC-CLIENT', ownerType: 'client', programId: 'program-a', status: 'active' }, verified), true);
+  assert.equal(isShareableReferralCode({ code: 'EC-PAUSED', ownerType: 'client', programId: 'program-a', status: 'active' }, verified), false);
+  assert.deepEqual(callableCalls, [['getPublicReferralCode', { code: 'ec-client' }]]);
+});
+
+test('includes authorized brand codes in the sharing workspace', () => {
+  assert.deepEqual(referralCodesForWorkspace({
+    codes: [{ code: 'CLIENT-A', ownerType: 'client', programId: 'program-a', status: 'active' }],
+    rewards: [],
+    brandWorkspaces: [{ brandId: 'brand-a', codes: [{ code: 'BRAND-A', ownerType: 'brand', programId: 'program-a', status: 'active' }], rewards: [] }],
+  }).map(code => code.code), ['CLIENT-A', 'BRAND-A']);
 });
