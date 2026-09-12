@@ -15,6 +15,7 @@ import PermissionEditor from '../brand/PermissionEditor';
 import SalonBookingManager from '../brand/SalonBookingManager';
 import SalonHiringManager from '../brand/SalonHiringManager';
 import WorkerInviteDialog from '../brand/WorkerInviteDialog';
+import ReferralCard from '../referrals/ReferralCard';
 import { useAuth } from '../context/AuthContext';
 import { useWorkspace } from '../context/WorkspaceContext';
 
@@ -271,7 +272,8 @@ export default function BrandDashboard() {
           {error && <p role="alert" className="rounded-xl border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm text-red-200">{error}</p>}
         </aside>
 
-        <main className="min-w-0">
+        <main className="min-w-0 space-y-6">
+          <ReferralCard title="Faites connaître vos salons" description="Partagez un lien de parrainage Barberboard et consultez les crédits associés à votre compte." />
           {showLocationForm && brandId ? (
             <LocationForm brandId={brandId} onCreated={handleCreated} onCancel={() => setShowLocationForm(false)} />
           ) : selectedLocation ? (

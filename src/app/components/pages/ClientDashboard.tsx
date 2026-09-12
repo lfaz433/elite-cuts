@@ -18,6 +18,7 @@ import { UpcomingBookings } from '../client/UpcomingBookings';
 import { BookingHistory } from '../client/BookingHistory';
 import { Favourites, type Favourite } from '../client/Favourites';
 import { Promotions } from '../client/Promotions';
+import ReferralCard from '../referrals/ReferralCard';
 
 export default function ClientDashboard() {
   const { user, logout } = useAuth();
@@ -139,6 +140,7 @@ export default function ClientDashboard() {
     <main className="mx-auto max-w-5xl px-4 py-8">
       <h2 className="text-3xl font-black">Mon espace client</h2>
       <p className="mt-2 text-white/55">Suivez vos demandes et vos rendez-vous confirmés.</p>
+      <div className="mt-6"><ReferralCard title="Invitez vos proches" description="Partagez votre lien Barberboard et suivez vos crédits de parrainage." /></div>
       <div className="mt-8 flex gap-2 rounded-xl bg-white/5 p-1">{tabs.map(tab => <button key={tab.id} aria-label={tab.label} onClick={() => setActiveTab(tab.id)} className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-3 text-sm font-bold ${activeTab === tab.id ? 'bg-[#D4AF37] text-black' : 'text-white/60 hover:text-white'}`}><tab.icon className="h-4 w-4" /><span className="hidden sm:inline">{tab.label}</span></button>)}</div>
       <section className="mt-6">
         {activeTab === 'upcoming' && <>{bookingWarning}{loadingBookings && upcoming.length === 0 ? <p className="text-white/60">Chargement des réservations…</p> : <UpcomingBookings bookings={upcoming} onCancelled={cancelMarketplaceBooking} />}</>}
