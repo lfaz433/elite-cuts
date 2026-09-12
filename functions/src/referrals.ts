@@ -450,6 +450,131 @@ export async function getMyReferralWorkspace(
   return { codes: safeCodes, ...(safeAttribution ? { attribution: safeAttribution } : {}), rewards };
 }
 
+function safeProgramForOverview(id: string, program: RecordValue): RecordValue | null {
+  if (
+    (program.status !== 'draft' && program.status !== 'active' && program.status !== 'paused' && program.status !== 'archived')
+    || !Array.isArray(program.countryCodes) || !program.countryCodes.every(country => typeof country === 'string')
+    || typeof program.currency !== 'string' || !CURRENCY_PATTERN.test(program.currency)
+    || !Number.isSafeInteger(program.inviterCreditMinor) || (program.inviterCreditMinor as number) < 0
+    || !Number.isSafeInteger(program.invitedDiscountMinor) || (program.invitedDiscountMinor as number) < 0
+    || timestampMs(program.startsAt) === undefined || timestampMs(program.endsAt) === undefined
+  ) return null;
+  return {
+    id,
+    status: program.status,
+    countryCodes: program.countryCodes,
+    currency: program.currency,
+    inviterCreditMinor: program.inviterCreditMinor,
+    invitedDiscountMinor: program.invitedDiscountMinor,
+    startsAt: program.startsAt,
+    endsAt: program.endsAt,
+  };
+}
+
+function safePendingRewardForOverview(id: string, reward: RecordValue): RecordValue | null {
+  if (
+    reward.status !== 'pending' || typeof reward.programId !== 'string' || typeof reward.bookingId !== 'string'
+    || typeof reward.inviterId !== 'string' || typeof reward.invitedUserId !== 'string'
+    || !Number.isSafeInteger(reward.inviterCreditMinor) || (reward.inviterCreditMinor as number) < 0
+    || !Number.isSafeInteger(reward.invitedDiscountMinor) || (reward.invitedDiscountMinor as number) < 0
+    || typeof reward.currency !== 'string' || !CURRENCY_PATTERN.test(reward.currency)
+  ) return null;
+  return {
+    id,
+    programId: reward.programId,
+    bookingId: reward.bookingId,
+    inviterId: reward.inviterId,
+    invitedUserId: reward.invitedUserId,
+    inviterCreditMinor: reward.inviterCreditMinor,
+    invitedDiscountMinor: reward.invitedDiscountMinor,
+    currency: reward.currency,
+    status: 'pending',
+    ...(reward.createdAt === undefined ? {} : { createdAt: reward.createdAt }),
+  };
+}
+
+export async function getReferralMarketingOverview(
+  caller: string | null,
+  value: unknown,
+  firestore: Firestore = admin.firestore(),
+  verifiedPlatformAdmin = false,
+): Promise<RecordValue> {
+  const uid = callerUid(caller);
+  await requireSuperAdmin(uid, firestore, verifiedPlatformAdmin);
+  record(value, [], 'Referral marketing overview does not accept filters');
+  const [programsSnapshot, codesSnapshot, attributionsSnapshot, rewardsSnapshot] = await Promise.all([
+    firestore.collection('referralPrograms').get(),
+    firestore.collection('referralCodes').get(),
+    firestore.collection('referralAttributions').get(),
+    firestore.collection('referralRewards').get(),
+  ]);
+  const programs = programsSnapshot.docs.flatMap(program => {
+    const data = program.data() as RecordValue;
+    const safeProgram = safeProgramForOverview(program.id, data);
+    return safeProgram ? [safeProgram] : [];
+  }).sort((left, right) => String(left.id).localeCompare(String(right.id)));
+
+  const attributionsByInviter = new Map<string, number>();
+  for (const attributionSnapshot of attributionsSnapshot.docs) {
+    const attribution = attributionSnapshot.data() as RecordValue;
+    if (typeof attribution.inviterId !== 'string') continue;
+    attributionsByInviter.set(attribution.inviterId, (attributionsByInviter.get(attribution.inviterId) ?? 0) + 1);
+  }
+
+  let pending = 0;
+  let approved = 0;
+  let rejected = 0;
+  const pendingRewards: RecordValue[] = [];
+  const referrerTotals = new Map<string, { rewards: number; approvedCreditsMinor: number; currency: string }>();
+  for (const rewardSnapshot of rewardsSnapshot.docs) {
+    const reward = rewardSnapshot.data() as RecordValue;
+    if (reward.status === 'pending') pending += 1;
+    else if (reward.status === 'approved') approved += 1;
+    else if (reward.status === 'rejected') rejected += 1;
+    const pendingReward = safePendingRewardForOverview(rewardSnapshot.id, reward);
+    if (pendingReward) pendingRewards.push(pendingReward);
+    if (typeof reward.inviterId !== 'string' || typeof reward.currency !== 'string' || !CURRENCY_PATTERN.test(reward.currency)) continue;
+    const current = referrerTotals.get(reward.inviterId) ?? { rewards: 0, approvedCreditsMinor: 0, currency: reward.currency };
+    current.rewards += 1;
+    if (reward.status === 'approved' && Number.isSafeInteger(reward.inviterCreditMinor) && (reward.inviterCreditMinor as number) >= 0) {
+      current.approvedCreditsMinor += reward.inviterCreditMinor as number;
+    }
+    referrerTotals.set(reward.inviterId, current);
+  }
+  const topReferrers = new Map<string, { referrals: number; rewards: number; approvedCreditsMinor: number; currency: string }>();
+  for (const [inviterId, referrals] of attributionsByInviter) {
+    const total = referrerTotals.get(inviterId);
+    topReferrers.set(inviterId, {
+      referrals,
+      rewards: total?.rewards ?? 0,
+      approvedCreditsMinor: total?.approvedCreditsMinor ?? 0,
+      currency: total?.currency ?? 'EUR',
+    });
+  }
+  for (const [inviterId, total] of referrerTotals) {
+    if (topReferrers.has(inviterId)) continue;
+    topReferrers.set(inviterId, { referrals: 0, ...total });
+  }
+
+  return {
+    programs,
+    funnel: {
+      codes: codesSnapshot.docs.length,
+      attributions: attributionsSnapshot.docs.length,
+      rewards: rewardsSnapshot.docs.length,
+      pending,
+      approved,
+      rejected,
+    },
+    topReferrers: [...topReferrers.entries()].map(([inviterId, total]) => ({ inviterId, ...total }))
+      .sort((left, right) => right.referrals - left.referrals || right.rewards - left.rewards || left.inviterId.localeCompare(right.inviterId))
+      .slice(0, 10),
+    pendingRewards: pendingRewards.sort((left, right) => (
+      (timestampMs(right.createdAt) ?? 0) - (timestampMs(left.createdAt) ?? 0) || String(left.id).localeCompare(String(right.id))
+    )),
+  };
+}
+
 function requirePlatformAdminContext(context: functions.https.CallableContext): string {
   const uid = context.auth?.uid;
   if (!uid) error('unauthenticated', 'Authentication is required');
@@ -477,4 +602,8 @@ export const reviewReferralRewardFunction = functions.https.onCall((data, contex
 
 export const getMyReferralWorkspaceFunction = functions.https.onCall((data, context) => (
   getMyReferralWorkspace(context.auth?.uid ?? null, data)
+));
+
+export const getReferralMarketingOverviewFunction = functions.https.onCall((data, context) => (
+  getReferralMarketingOverview(requirePlatformAdminContext(context), data, admin.firestore(), true)
 ));

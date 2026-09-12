@@ -55,6 +55,7 @@ function firestoreState(initial, { retryFirstTransaction = false } = {}) {
       collection(collectionName) {
         return {
           doc(id) { return reference(collectionName, id); },
+          get() { return query(collectionName).get(); },
           where(field, operator, value) { return query(collectionName, [[field, operator, value]]); },
         };
       },
@@ -111,6 +112,41 @@ const activeProgram = {
 };
 
 describe('referral domain', () => {
+  test('returns aggregate referral marketing data only to a super admin', async () => {
+    const { getReferralMarketingOverview } = loadModule();
+    const { firestore } = firestoreState({
+      users: { 'admin-a': { role: 'superadmin' } },
+      referralPrograms: {
+        'program-a': activeProgram,
+      },
+      referralCodes: {
+        INVITER: { code: 'INVITER', programId: 'program-a', ownerId: 'inviter-a', ownerType: 'client', status: 'active' },
+      },
+      referralAttributions: {
+        'invited-a': { programId: 'program-a', code: 'INVITER', inviterId: 'inviter-a' },
+      },
+      referralRewards: {
+        'reward-a': {
+          programId: 'program-a', bookingId: 'booking-a', inviterId: 'inviter-a', invitedUserId: 'invited-a',
+          inviterCreditMinor: 500, invitedDiscountMinor: 300, currency: 'EUR', status: 'pending', createdAt: '2026-09-12T10:00:00.000Z',
+        },
+      },
+    });
+
+    await expect(getReferralMarketingOverview('admin-a', {}, firestore)).resolves.toEqual({
+      programs: [{
+        id: 'program-a', status: 'active', countryCodes: ['FR'], currency: 'EUR', inviterCreditMinor: 500,
+        invitedDiscountMinor: 300, startsAt: '2026-09-01T00:00:00.000Z', endsAt: '2026-10-01T00:00:00.000Z',
+      }],
+      funnel: { codes: 1, attributions: 1, rewards: 1, pending: 1, approved: 0, rejected: 0 },
+      topReferrers: [{ inviterId: 'inviter-a', referrals: 1, rewards: 1, approvedCreditsMinor: 0, currency: 'EUR' }],
+      pendingRewards: [{
+        id: 'reward-a', programId: 'program-a', bookingId: 'booking-a', inviterId: 'inviter-a', invitedUserId: 'invited-a',
+        inviterCreditMinor: 500, invitedDiscountMinor: 300, currency: 'EUR', status: 'pending', createdAt: '2026-09-12T10:00:00.000Z',
+      }],
+    });
+  });
+
   test('recognizes only a transition into completed as referral eligible', () => {
     const { isReferralEligibleCompletion } = loadModule('bookingStatus.ts');
 

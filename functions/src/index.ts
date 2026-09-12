@@ -55,6 +55,7 @@ import { listClientCampaignsFunction } from './campaigns';
 import {
   attributeReferralFunction,
   createReferralProgramFunction,
+  getReferralMarketingOverviewFunction,
   getMyReferralWorkspaceFunction,
   reserveReferralCodeFunction,
   reviewReferralRewardFunction,
@@ -100,6 +101,7 @@ export const createReferralProgram = createReferralProgramFunction;
 export const reserveReferralCode = reserveReferralCodeFunction;
 export const attributeReferral = attributeReferralFunction;
 export const reviewReferralReward = reviewReferralRewardFunction;
+export const getReferralMarketingOverview = getReferralMarketingOverviewFunction;
 export const getMyReferralWorkspace = getMyReferralWorkspaceFunction;
 export { syncFreelancerPortfolio };
 
