@@ -12,6 +12,7 @@ const DOCUMENT_ID_PATTERN = /^[A-Za-z0-9_-]{1,256}$/;
 const COUNTRY_PATTERN = /^[A-Z]{2}$/;
 const CURRENCY_PATTERN = /^[A-Z]{3}$/;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const ACTIVE_PROGRAM_STATE_ID = 'active';
 
 function error(code: functions.https.FunctionsErrorCode, message: string): never {
   throw new functions.https.HttpsError(code, message);
@@ -162,14 +163,20 @@ export async function createReferralProgram(
   const input = activeProgramInput(value, currentTime);
   const programs = firestore.collection('referralPrograms');
   const programRef = input.programId ? programs.doc(input.programId) : programs.doc();
+  const activeProgramStateRef = firestore.collection('referralProgramState').doc(ACTIVE_PROGRAM_STATE_ID);
   const auditRef = firestore.collection('auditEvents').doc();
   await firestore.runTransaction(async transaction => {
-    const [existing, activePrograms] = await Promise.all([
+    const [existing, activeProgramState, activePrograms] = await Promise.all([
       transaction.get(programRef),
+      transaction.get(activeProgramStateRef),
       transaction.get(firestore.collection('referralPrograms').where('status', '==', 'active')),
     ]);
-    if (input.status === 'active' && activePrograms.docs.some(program => program.id !== programRef.id)) {
-      error('failed-precondition', 'Only one referral program may be active');
+    const activeProgramId = activeProgramState.data()?.programId;
+    if (input.status === 'active') {
+      if (
+        (typeof activeProgramId === 'string' && activeProgramId !== programRef.id)
+        || activePrograms.docs.some(program => program.id !== programRef.id)
+      ) error('failed-precondition', 'Only one referral program may be active');
     }
     const now = admin.firestore.FieldValue.serverTimestamp();
     const program = {
@@ -186,6 +193,11 @@ export async function createReferralProgram(
     };
     if (existing.exists) transaction.update(programRef, program);
     else transaction.create(programRef, program);
+    if (input.status === 'active') {
+      transaction.set(activeProgramStateRef, { programId: programRef.id, updatedAt: now });
+    } else if (activeProgramId === programRef.id || existing.data()?.status === 'active') {
+      transaction.set(activeProgramStateRef, { programId: null, updatedAt: now });
+    }
     transaction.create(auditRef, {
       action: existing.exists ? 'REFERRAL_PROGRAM_UPDATED' : 'REFERRAL_PROGRAM_CREATED',
       actorUid: uid, programId: programRef.id, status: input.status, createdAt: now,
@@ -289,41 +301,40 @@ export async function processReferralBookingCompletion(
 ): Promise<{ created: boolean }> {
   if (!DOCUMENT_ID_PATTERN.test(bookingId)) error('invalid-argument', 'bookingId is invalid');
   const bookingRef = firestore.collection('bookings').doc(bookingId);
-  let created = false;
-  await firestore.runTransaction(async transaction => {
+  const created = await firestore.runTransaction(async transaction => {
     const bookingSnapshot = await transaction.get(bookingRef);
     const booking = bookingSnapshot.data() as RecordValue | undefined;
-    if (!bookingSnapshot.exists || !booking || booking.status !== 'completed' || booking.isTest === true) return;
-    if (typeof booking.clientId !== 'string' || !DOCUMENT_ID_PATTERN.test(booking.clientId)) return;
+    if (!bookingSnapshot.exists || !booking || booking.status !== 'completed' || booking.isTest === true) return false;
+    if (typeof booking.clientId !== 'string' || !DOCUMENT_ID_PATTERN.test(booking.clientId)) return false;
     const attributionRef = firestore.collection('referralAttributions').doc(booking.clientId);
     const [attributionSnapshot, completedBookings] = await Promise.all([
       transaction.get(attributionRef),
       transaction.get(firestore.collection('bookings').where('clientId', '==', booking.clientId)),
     ]);
     const attribution = attributionSnapshot.data() as RecordValue | undefined;
-    if (!attributionSnapshot.exists || !attribution || typeof attribution.programId !== 'string' || typeof attribution.code !== 'string') return;
-    if (timestampMs(attribution.expiresAt) === undefined || (timestampMs(attribution.expiresAt) as number) < currentTime.getTime()) return;
+    if (!attributionSnapshot.exists || !attribution || typeof attribution.programId !== 'string' || typeof attribution.code !== 'string') return false;
+    if (timestampMs(attribution.expiresAt) === undefined || (timestampMs(attribution.expiresAt) as number) < currentTime.getTime()) return false;
     const eligibleBookings = completedBookings.docs.filter(candidate => {
       const candidateValue = candidate.data() as RecordValue;
       return candidateValue.status === 'completed' && candidateValue.isTest !== true;
     });
-    if (eligibleBookings.length !== 1 || eligibleBookings[0].id !== bookingId) return;
+    if (eligibleBookings.length !== 1 || eligibleBookings[0].id !== bookingId) return false;
     const programRef = firestore.collection('referralPrograms').doc(attribution.programId);
     const codeRef = firestore.collection('referralCodes').doc(attribution.code);
     const rewardRef = firestore.collection('referralRewards').doc(`${attribution.programId}__${booking.clientId}`);
     const [programSnapshot, codeSnapshot, rewardSnapshot] = await Promise.all([
       transaction.get(programRef), transaction.get(codeRef), transaction.get(rewardRef),
     ]);
-    if (rewardSnapshot.exists) return;
+    if (rewardSnapshot.exists) return false;
     const program = programSnapshot.data() as RecordValue | undefined;
     const code = codeSnapshot.data() as RecordValue | undefined;
     const countryCode = typeof attribution.countryCode === 'string' ? attribution.countryCode : 'FR';
-    if (!validProgram(program, countryCode, currentTime)) return;
+    if (!validProgram(program, countryCode, currentTime)) return false;
     if (
       !codeSnapshot.exists || !code || code.status !== 'active' || code.programId !== attribution.programId
       || code.ownerId !== attribution.inviterId || typeof attribution.inviterId !== 'string'
       || attribution.inviterId === booking.clientId
-    ) return;
+    ) return false;
     const now = admin.firestore.FieldValue.serverTimestamp();
     transaction.create(rewardRef, {
       programId: attribution.programId,
@@ -338,7 +349,7 @@ export async function processReferralBookingCompletion(
       createdAt: now,
       updatedAt: now,
     });
-    created = true;
+    return true;
   });
   return { created };
 }

@@ -22,9 +22,12 @@ function snapshot(value, id = '') {
   return { exists: value !== undefined, id, data: () => value };
 }
 
-function firestoreState(initial) {
+function firestoreState(initial, { retryFirstTransaction = false } = {}) {
   const state = structuredClone(initial);
   let nextId = 0;
+  let retryUsed = false;
+  const versions = new Map();
+  const keyFor = ref => `${ref.collectionName}/${ref.id}`;
   const reference = (collectionName, id) => ({
     collectionName,
     id: id ?? `${collectionName}-${++nextId}`,
@@ -33,6 +36,7 @@ function firestoreState(initial) {
   const query = (collectionName, filters = []) => ({
     collectionName,
     isQuery: true,
+    filters,
     where(field, operator, value) {
       return query(collectionName, [...filters, [field, operator, value]]);
     },
@@ -55,23 +59,47 @@ function firestoreState(initial) {
         };
       },
       async runTransaction(callback) {
-        return callback({
-          get: ref => ref.get(),
-          getAll: async (...refs) => Promise.all(refs.map(ref => ref.get())),
-          create(ref, value) {
-            state[ref.collectionName] ??= {};
-            if (state[ref.collectionName][ref.id]) throw new Error('already exists');
-            state[ref.collectionName][ref.id] = value;
-          },
-          set(ref, value) {
-            state[ref.collectionName] ??= {};
-            state[ref.collectionName][ref.id] = value;
-          },
-          update(ref, value) {
-            state[ref.collectionName] ??= {};
-            state[ref.collectionName][ref.id] = { ...state[ref.collectionName][ref.id], ...value };
-          },
-        });
+        for (;;) {
+          const reads = new Map();
+          const writes = [];
+          const transactionState = structuredClone(state);
+          const read = async ref => {
+            if (ref.isQuery) {
+              const docs = Object.entries(transactionState[ref.collectionName] ?? {})
+                .filter(([, data]) => ref.filters.every(([field, operator, value]) => (
+                  operator === '==' && data[field] === value
+                )))
+                .map(([id, data]) => snapshot(data, id));
+              return { docs, empty: docs.length === 0 };
+            }
+            reads.set(keyFor(ref), versions.get(keyFor(ref)) ?? 0);
+            return snapshot(transactionState[ref.collectionName]?.[ref.id], ref.id);
+          };
+          const result = await callback({
+            get: read,
+            getAll: async (...refs) => Promise.all(refs.map(read)),
+            create(ref, value) { writes.push({ operation: 'create', ref, value }); },
+            set(ref, value) { writes.push({ operation: 'set', ref, value }); },
+            update(ref, value) { writes.push({ operation: 'update', ref, value }); },
+          });
+          if ([...reads].some(([key, version]) => (versions.get(key) ?? 0) !== version)) continue;
+          for (const write of writes) {
+            state[write.ref.collectionName] ??= {};
+            if (write.operation === 'create' && state[write.ref.collectionName][write.ref.id]) {
+              throw new Error('already exists');
+            }
+            state[write.ref.collectionName][write.ref.id] = write.operation === 'update'
+              ? { ...state[write.ref.collectionName][write.ref.id], ...write.value }
+              : write.value;
+            const key = keyFor(write.ref);
+            versions.set(key, (versions.get(key) ?? 0) + 1);
+          }
+          if (retryFirstTransaction && !retryUsed) {
+            retryUsed = true;
+            continue;
+          }
+          return result;
+        }
       },
     },
   };
@@ -83,6 +111,24 @@ const activeProgram = {
 };
 
 describe('referral domain', () => {
+  test('serializes concurrent program activations through one active program state document', async () => {
+    const { createReferralProgram } = loadModule();
+    const { firestore, state } = firestoreState({
+      users: { 'admin-a': { role: 'superadmin' } }, referralPrograms: {}, referralProgramState: {}, auditEvents: {},
+    });
+    const now = new Date('2026-09-12T12:00:00Z');
+
+    const attempts = await Promise.allSettled(['program-a', 'program-b'].map(programId => (
+      createReferralProgram('admin-a', { ...activeProgram, programId }, firestore, now)
+    )));
+
+    expect(attempts.filter(attempt => attempt.status === 'fulfilled')).toHaveLength(1);
+    expect(attempts.filter(attempt => attempt.status === 'rejected')[0].reason)
+      .toMatchObject({ code: 'failed-precondition' });
+    expect(Object.values(state.referralPrograms).filter(program => program.status === 'active')).toHaveLength(1);
+    expect(state.referralProgramState.active.programId).toMatch(/program-[ab]/);
+  });
+
   test('normalizes share codes into the globally comparable form', () => {
     const { normalizeReferralCode } = loadModule();
 
@@ -155,6 +201,24 @@ describe('referral domain', () => {
       bookingId: 'booking-1', status: 'pending', inviterId: 'inviter-a', invitedUserId: 'new-client',
       inviterCreditMinor: 500, invitedDiscountMinor: 300, currency: 'EUR',
     });
+
+    await expect(processReferralBookingCompletion('booking-1', firestore, new Date('2026-09-12T12:00:00Z')))
+      .resolves.toEqual({ created: false });
+  });
+
+  test('returns the retry result when another transaction creates the reward', async () => {
+    const { processReferralBookingCompletion } = loadModule();
+    const { firestore } = firestoreState({
+      bookings: { 'booking-1': { clientId: 'new-client', status: 'completed', isTest: false } },
+      referralPrograms: { 'program-a': activeProgram },
+      referralCodes: {
+        FRIEND: { code: 'FRIEND', programId: 'program-a', ownerType: 'client', ownerId: 'inviter-a', status: 'active' },
+      },
+      referralAttributions: {
+        'new-client': { code: 'FRIEND', programId: 'program-a', inviterId: 'inviter-a', expiresAt: '2026-09-20T00:00:00.000Z' },
+      },
+      referralRewards: {}, auditEvents: {},
+    }, { retryFirstTransaction: true });
 
     await expect(processReferralBookingCompletion('booking-1', firestore, new Date('2026-09-12T12:00:00Z')))
       .resolves.toEqual({ created: false });
