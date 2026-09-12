@@ -7,6 +7,10 @@ type RecordValue = Record<string, unknown>;
 type RewardStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
 type ProgramStatus = 'draft' | 'active' | 'paused' | 'archived';
 type OwnerType = 'client' | 'freelancer' | 'brand';
+type ReferralCodeScope =
+  | { type: 'client' }
+  | { type: 'freelancer' }
+  | { type: 'brand'; brandId: string };
 
 const CODE_PATTERN = /^[A-Z0-9][A-Z0-9-]{2,31}$/;
 const DOCUMENT_ID_PATTERN = /^[A-Za-z0-9_-]{1,256}$/;
@@ -125,6 +129,17 @@ function activeMembershipsFor(uid: string, snapshots: Array<{ data(): RecordValu
   return snapshots.map(snapshot => snapshot.data()).filter(membership => (
     membership.userId === uid && membership.status === 'active'
   ));
+}
+
+function referralCodeScope(value: unknown): ReferralCodeScope {
+  const input = record(value, ['scope'], 'Referral code scope is invalid');
+  const scope = record(input.scope, ['type', 'brandId'], 'Referral code scope is invalid');
+  if (scope.type === 'client' || scope.type === 'freelancer') {
+    if (scope.brandId !== undefined) error('invalid-argument', 'Referral code scope is invalid');
+    return { type: scope.type };
+  }
+  if (scope.type === 'brand') return { type: 'brand', brandId: documentId(scope.brandId, 'brandId') };
+  error('invalid-argument', 'Referral code scope is invalid');
 }
 
 function generatedReferralCode(): string {
@@ -317,7 +332,7 @@ export async function createMyReferralCode(
 ): Promise<{ code: string; ownerType: OwnerType; programId: string; reused: boolean }> {
   const uid = callerUid(caller);
   if (verifiedPlatformAdmin) error('permission-denied', 'Super Admin accounts cannot create referral codes');
-  record(value, [], 'Referral code is derived from the authenticated account');
+  const selectedScope = referralCodeScope(value);
   for (let attempt = 0; attempt < MAX_CODE_GENERATION_ATTEMPTS; attempt += 1) {
     const candidate = normalizeReferralCode(codeFactory());
     const result = await firestore.runTransaction(async transaction => {
@@ -340,31 +355,38 @@ export async function createMyReferralCode(
         error('failed-precondition', 'There is no active referral program');
       }
       const profile = userSnapshot.data() as RecordValue | undefined;
-      if (profile?.platformAdmin === true || profile?.role === 'superadmin') {
+      if (!userSnapshot.exists || profile?.platformAdmin === true || profile?.role === 'superadmin') {
         error('permission-denied', 'This account cannot create referral codes');
       }
       const activeMemberships = activeMembershipsFor(uid, membershipSnapshots.docs);
-      const requestedBrandIds = brandIdsFromMemberships(uid, membershipSnapshots.docs);
-      if (requestedBrandIds.length > MAX_BRAND_WORKSPACES) error('resource-exhausted', 'Too many brands to load safely');
       let ownerType: OwnerType;
       let ownerId: string;
-      if (requestedBrandIds.length > 0) {
-        const brandSnapshots = await Promise.all(requestedBrandIds.map(brandId => (
-          transaction.get(firestore.collection('brands').doc(brandId))
-        )));
-        const brandId = requestedBrandIds.find((_, index) => brandSnapshots[index].exists);
-        if (!brandId) error('permission-denied', 'No authorized brand referral workspace is available');
-        ownerType = 'brand';
-        ownerId = brandId;
-      } else {
-        if (activeMemberships.length > 0) {
+      if (selectedScope.type === 'client') {
+        if (profile?.role !== 'client' || freelancerSnapshot.exists || activeMemberships.length > 0) {
           error('permission-denied', 'Staff accounts cannot create referral codes');
         }
-        if (typeof profile?.role === 'string' && profile.role !== 'client' && profile.role !== 'freelancer') {
-          error('permission-denied', 'This account cannot create referral codes');
-        }
-        ownerType = freelancerSnapshot.exists ? 'freelancer' : 'client';
+        ownerType = 'client';
         ownerId = uid;
+      } else if (selectedScope.type === 'freelancer') {
+        if (
+          !freelancerSnapshot.exists
+          || activeMemberships.length > 0
+          || (profile?.role !== 'client' && profile?.role !== 'freelancer')
+        ) {
+          error('permission-denied', 'This account cannot create freelancer referral codes');
+        }
+        ownerType = 'freelancer';
+        ownerId = uid;
+      } else {
+        const hasBrandMembership = membershipSnapshots.docs.some(snapshot => {
+          const membership = snapshot.data() as RecordValue;
+          return isBrandAdminMembership(membership, uid) && membership.brandId === selectedScope.brandId;
+        });
+        if (!hasBrandMembership) error('permission-denied', 'Brand referral code scope is not authorized');
+        const brandSnapshot = await transaction.get(firestore.collection('brands').doc(selectedScope.brandId));
+        if (!brandSnapshot.exists) error('permission-denied', 'Brand referral code scope is not authorized');
+        ownerType = 'brand';
+        ownerId = selectedScope.brandId;
       }
       const existingCodes = await transaction.get(
         firestore.collection('referralCodes').where('ownerId', '==', ownerId).where('ownerType', '==', ownerType),
@@ -655,18 +677,19 @@ function safeCodeForWorkspace(code: RecordValue): RecordValue | null {
 function safeRewardsForOwner(
   snapshots: Array<{ id: string; data(): RecordValue }>,
   ownerId: string,
-  ownerTypes: OwnerType[],
-  includeInvitedRewards: boolean,
+  ownerTypeValue: OwnerType,
+  role: 'inviter' | 'invited',
 ): RecordValue[] {
   const byId = new Map<string, RecordValue>();
   for (const snapshot of snapshots) byId.set(snapshot.id, snapshot.data());
   return [...byId.entries()].flatMap(([id, reward]) => {
-    const inviter = reward.inviterOwnerId === ownerId && ownerTypes.includes(ownerType(reward.inviterOwnerType) as OwnerType);
-    const invited = includeInvitedRewards && reward.invitedOwnerId === ownerId && reward.invitedOwnerType === 'client';
-    const amountMinor = inviter ? reward.inviterCreditMinor : invited ? reward.invitedDiscountMinor : undefined;
+    const ownsReward = role === 'inviter'
+      ? reward.inviterOwnerId === ownerId && reward.inviterOwnerType === ownerTypeValue
+      : reward.invitedOwnerId === ownerId && reward.invitedOwnerType === ownerTypeValue;
+    const amountMinor = role === 'inviter' ? reward.inviterCreditMinor : reward.invitedDiscountMinor;
     return typeof amountMinor === 'number' && Number.isSafeInteger(amountMinor) && amountMinor >= 0
-      && typeof reward.currency === 'string' && CURRENCY_PATTERN.test(reward.currency) && typeof reward.status === 'string'
-      ? [{ id, role: inviter ? 'inviter' : 'invited', amountMinor, currency: reward.currency, status: reward.status }]
+      && ownsReward && typeof reward.currency === 'string' && CURRENCY_PATTERN.test(reward.currency) && typeof reward.status === 'string'
+      ? [{ id, ownerType: ownerTypeValue, role, amountMinor, currency: reward.currency, status: reward.status }]
       : [];
   }).sort((left, right) => String(left.id).localeCompare(String(right.id)));
 }
@@ -717,19 +740,27 @@ export async function getMyReferralWorkspace(
     firestore.collection('referralRewards').where('invitedOwnerId', '==', uid).where('invitedOwnerType', '==', 'client').get(),
     authorizedBrandIds(uid, firestore),
   ]);
-  const safeCodes = [...clientCodes.docs, ...freelancerCodes.docs].flatMap(code => {
+  const clientSafeCodes = clientCodes.docs.flatMap(code => {
+    const safeCode = safeCodeForWorkspace(code.data() as RecordValue);
+    return safeCode ? [safeCode] : [];
+  }).sort((left, right) => String(left.code).localeCompare(String(right.code)));
+  const freelancerSafeCodes = freelancerCodes.docs.flatMap(code => {
     const safeCode = safeCodeForWorkspace(code.data() as RecordValue);
     return safeCode ? [safeCode] : [];
   }).sort((left, right) => String(left.code).localeCompare(String(right.code)));
   const attribution = attributionSnapshot.data() as RecordValue | undefined;
   const safeAttribution = attribution && typeof attribution.code === 'string' && typeof attribution.programId === 'string'
     && attribution.expiresAt !== undefined
-    ? { code: attribution.code, programId: attribution.programId, expiresAt: attribution.expiresAt }
+    ? {
+      code: attribution.code,
+      programId: attribution.programId,
+      ...(ownerType(attribution.inviterOwnerType) ? { inviterOwnerType: attribution.inviterOwnerType } : {}),
+      expiresAt: attribution.expiresAt,
+    }
     : undefined;
-  const rewards = safeRewardsForOwner(
-    [...clientInviterRewards.docs, ...freelancerInviterRewards.docs, ...invitedRewards.docs] as Array<{ id: string; data(): RecordValue }>,
-    uid, ['client', 'freelancer'], true,
-  );
+  const clientInviter = safeRewardsForOwner(clientInviterRewards.docs as Array<{ id: string; data(): RecordValue }>, uid, 'client', 'inviter');
+  const clientInvitee = safeRewardsForOwner(invitedRewards.docs as Array<{ id: string; data(): RecordValue }>, uid, 'client', 'invited');
+  const freelancerInviter = safeRewardsForOwner(freelancerInviterRewards.docs as Array<{ id: string; data(): RecordValue }>, uid, 'freelancer', 'inviter');
   const brandWorkspaces = await Promise.all(brandIds.map(async brandId => {
     const [brandCodes, brandRewardSnapshots, brandLedgers] = await Promise.all([
       firestore.collection('referralCodes').where('ownerId', '==', brandId).where('ownerType', '==', 'brand').get(),
@@ -742,14 +773,23 @@ export async function getMyReferralWorkspace(
       return safeCode ? [safeCode] : [];
     }).sort((left, right) => String(left.code).localeCompare(String(right.code)));
     const brandRewards = safeRewardsForOwner(
-      brandRewardSnapshots.docs as Array<{ id: string; data(): RecordValue }>, brandId, ['brand'], false,
+      brandRewardSnapshots.docs as Array<{ id: string; data(): RecordValue }>, brandId, 'brand', 'inviter',
     );
-    return { brandId, codes, rewards: brandRewards, creditTotals: creditTotals(brandRewards, brandLedgers.docs) };
+    return { ownerType: 'brand', brandId, codes, rewards: brandRewards, creditTotals: creditTotals(brandRewards, brandLedgers.docs) };
   }));
   return {
-    codes: safeCodes,
-    ...(safeAttribution ? { attribution: safeAttribution } : {}),
-    rewards,
+    client: {
+      ownerType: 'client',
+      codes: clientSafeCodes,
+      ...(safeAttribution ? { attribution: safeAttribution } : {}),
+      inviterRewards: clientInviter,
+      inviteeRewards: clientInvitee,
+    },
+    freelancer: {
+      ownerType: 'freelancer',
+      codes: freelancerSafeCodes,
+      inviterRewards: freelancerInviter,
+    },
     ...(brandWorkspaces.length > 0 ? { brandWorkspaces } : {}),
   };
 }

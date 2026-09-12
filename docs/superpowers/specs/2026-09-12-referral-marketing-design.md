@@ -48,6 +48,30 @@ Stores the referral, booking, invited user, inviter, two reward legs, status (`p
 
 Append-only record of approved credits and redeemed discounts. Each record includes `ownerId` and `ownerType`, copied from the validated reward leg, so balances are derived in the correct client/freelancer/brand namespace. Clients never edit a balance document.
 
+## Referral callable scope contracts
+
+`createMyReferralCode` accepts only a selected, server-authorized scope; it never accepts a program ID, code, or owner ID from the browser:
+
+```ts
+{ scope: { type: 'client' } }
+{ scope: { type: 'freelancer' } }
+{ scope: { type: 'brand', brandId: '...' } }
+```
+
+Client scope requires an existing `users/{uid}` record with `role: 'client'`, no freelancer profile, and no active salon membership. Freelancer scope requires an existing freelancer profile, a base user role of `client` or `freelancer`, and no active salon membership. Brand scope requires an active `principal_admin` or `salon_admin` membership for the exact requested, existing brand. Legacy account roles are not accepted as personal client/freelancer scope; a legacy admin may use only a verified brand membership. Super Admin/platform-admin identities cannot create a referral code in any scope.
+
+`getMyReferralWorkspace` returns distinct server-owned sections rather than a flattened personal list:
+
+```ts
+{
+  client: { ownerType: 'client', codes, attribution?, inviterRewards, inviteeRewards },
+  freelancer: { ownerType: 'freelancer', codes, inviterRewards },
+  brandWorkspaces?: [{ ownerType: 'brand', brandId, codes, rewards, creditTotals }],
+}
+```
+
+Each reward row retains its `ownerType`. Client invitee attribution and reward credit appear only in the `client` section; freelancer inviter credit and every authorized brand workspace remain separate. This is a deliberate breaking staging contract so clients do not infer ownership from a flattened list.
+
 ## Super Admin marketing dashboard
 
 The dashboard contains:

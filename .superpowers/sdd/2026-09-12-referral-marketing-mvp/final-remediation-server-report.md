@@ -118,3 +118,26 @@ npm --prefix functions run build
 ```
 
 Result: 1 suite passed, 41 tests passed; the Functions TypeScript build exited successfully.
+
+## Final server contract refinement: explicit referral scopes
+
+`createMyReferralCode` no longer infers a persona from an empty request. Its only accepted browser payload is a `scope` object: `{ type: 'client' }`, `{ type: 'freelancer' }`, or `{ type: 'brand', brandId }`. Program ID, code, and owner ID remain server-derived. Client scope requires an explicit client user record and no freelancer/staff identity. Freelancer scope requires an authoritative freelancer profile plus a compatible base user role, and retains the existing exclusion for active salon staff. Brand scope authorizes the exact requested brand against an active principal/salon-admin membership and an existing brand record; it never picks an arbitrary membership. A legacy admin remains eligible only through such a verified brand scope. Super Admin restrictions are unchanged.
+
+`getMyReferralWorkspace` is now a deliberate breaking staging response contract:
+
+- `client` contains only client codes, client inviter rewards, and client invitee attribution/rewards;
+- `freelancer` contains only freelancer codes and inviter rewards;
+- `brandWorkspaces` contains independently authorized brand sections.
+
+Every reward row carries its `ownerType`, and every section states its identity type. This removes the prior flattened response that forced the UI to guess whether a reward belonged to client, freelancer, or brand scope.
+
+Focused tests cover required scope input, client/freelancer cross-scope denial, freelancer-staff denial, exact multi-brand creation/reuse, malformed/forged selection denial, and non-conflated client invitee/client inviter/freelancer inviter/brand data alongside the prior identifier-collision protections.
+
+Verification for this refinement:
+
+```bash
+npm --prefix functions exec jest -- src/referrals.test.ts --runInBand
+npm --prefix functions run build
+```
+
+Result: 1 suite passed, 44 tests passed; the Functions TypeScript build exited successfully.
