@@ -32,6 +32,7 @@ import {
   cancelBookingFunction,
   getBookingAddressFunction,
   listSalonBookingWorkspaceFunction,
+  processCompletedBookingReferralFunction,
   requestBookingFunction,
   respondToBookingFunction,
   saveSalonAvailabilityFunction,
@@ -84,6 +85,7 @@ export const cancelBooking = cancelBookingFunction;
 export const getBookingAddress = getBookingAddressFunction;
 export const listSalonBookingWorkspace = listSalonBookingWorkspaceFunction;
 export const saveSalonAvailability = saveSalonAvailabilityFunction;
+export const processCompletedBookingReferral = processCompletedBookingReferralFunction;
 export const saveFreelancerProfile = saveFreelancerProfileFunction;
 export const createFreelancerPortfolioItem = createFreelancerPortfolioItemFunction;
 export const deleteFreelancerPortfolioItem = deleteFreelancerPortfolioItemFunction;

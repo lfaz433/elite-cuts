@@ -331,6 +331,29 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Referral state and non-cash credit ledger entries are server-owned.
+    // Admin SDK writes from the authenticated callable and completion trigger
+    // bypass these browser rules.
+    match /referralPrograms/{programId} {
+      allow read, write: if false;
+    }
+
+    match /referralCodes/{code} {
+      allow read, write: if false;
+    }
+
+    match /referralAttributions/{userId} {
+      allow read, write: if false;
+    }
+
+    match /referralRewards/{rewardId} {
+      allow read, write: if false;
+    }
+
+    match /creditLedgers/{ledgerId} {
+      allow read, write: if false;
+    }
+
     // Invitations are server-owned. The exact invited email account may read
     // its record, while location invitation managers may audit invitations.
     match /invitations/{invitationId} {

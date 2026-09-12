@@ -40,6 +40,15 @@ export function normalizeBookingStatus(status: StoredBookingStatus): BookingStat
   }
 }
 
+export function isReferralEligibleCompletion(from: unknown, to: unknown): boolean {
+  if (!isStoredBookingStatus(from) || !isStoredBookingStatus(to)) return false;
+  const previous = normalizeBookingStatus(from);
+  const next = normalizeBookingStatus(to);
+  return previous !== 'completed'
+    && next === 'completed'
+    && transitions[previous].includes(next);
+}
+
 export function assertTransition(from: BookingStatus, to: BookingStatus): void {
   if (!transitions[from]?.includes(to)) {
     throw new Error(`Invalid booking transition: ${from} -> ${to}`);

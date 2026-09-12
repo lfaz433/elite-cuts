@@ -111,6 +111,17 @@ const activeProgram = {
 };
 
 describe('referral domain', () => {
+  test('recognizes only a transition into completed as referral eligible', () => {
+    const { isReferralEligibleCompletion } = loadModule('bookingStatus.ts');
+
+    expect(isReferralEligibleCompletion('confirmed', 'completed')).toBe(true);
+    expect(isReferralEligibleCompletion('approved', 'completed')).toBe(true);
+    expect(isReferralEligibleCompletion('completed', 'completed')).toBe(false);
+    expect(isReferralEligibleCompletion('pending', 'completed')).toBe(false);
+    expect(isReferralEligibleCompletion('confirmed', 'cancelled')).toBe(false);
+    expect(isReferralEligibleCompletion('invalid', 'completed')).toBe(false);
+  });
+
   test('serializes concurrent program activations through one active program state document', async () => {
     const { createReferralProgram } = loadModule();
     const { firestore, state } = firestoreState({

@@ -1,5 +1,7 @@
 import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions';
+import { isReferralEligibleCompletion } from './bookingStatus';
+import { processReferralBookingCompletion } from './referrals';
 
 export type MarketplaceBookingStatus =
   | 'pending_approval'
@@ -46,6 +48,16 @@ export interface Booking {
 
 type RecordValue = Record<string, unknown>;
 type Firestore = admin.firestore.Firestore;
+
+export const processCompletedBookingReferralFunction = functions.firestore
+  .document('bookings/{bookingId}')
+  .onUpdate(async (change, context) => {
+    const previousStatus = change.before.data()?.status;
+    const nextStatus = change.after.data()?.status;
+    if (!isReferralEligibleCompletion(previousStatus, nextStatus)) return null;
+
+    return processReferralBookingCompletion(context.params.bookingId);
+  });
 
 const allowedTransitions: Record<MarketplaceBookingStatus, readonly MarketplaceBookingStatus[]> = {
   pending_approval: ['confirmed', 'declined', 'cancelled'],
