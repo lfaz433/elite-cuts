@@ -20,6 +20,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const ACTIVE_PROGRAM_STATE_ID = 'active';
 const MAX_BRAND_WORKSPACES = 20;
 const MAX_CODE_GENERATION_ATTEMPTS = 8;
+const MAX_REFERRAL_AUDIT_RESULTS = 50;
+const DEFAULT_REFERRAL_AUDIT_RESULTS = 20;
 
 function error(code: functions.https.FunctionsErrorCode, message: string): never {
   throw new functions.https.HttpsError(code, message);
@@ -158,6 +160,38 @@ function referralCodeScope(value: unknown): ReferralCodeScope {
   }
   if (scope.type === 'brand') return { type: 'brand', brandId: documentId(scope.brandId, 'brandId') };
   error('invalid-argument', 'Referral code scope is invalid');
+}
+
+function referralCodeLookup(value: unknown): { code: string; countryCode: string } {
+  const input = record(value, ['code', 'countryCode'], 'Referral code lookup is invalid');
+  return {
+    code: normalizeReferralCode(input.code),
+    countryCode: input.countryCode === undefined ? 'FR' : isoCountry(input.countryCode, 'countryCode'),
+  };
+}
+
+function referralAuditQuery(value: unknown): { search?: string; limit: number } {
+  const input = record(value, ['search', 'limit'], 'Referral marketing overview filters are invalid');
+  let search: string | undefined;
+  if (input.search !== undefined) {
+    if (typeof input.search !== 'string') error('invalid-argument', 'search is invalid');
+    search = input.search.trim();
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(search)) error('invalid-argument', 'search is invalid');
+  }
+  const limit = input.limit === undefined ? DEFAULT_REFERRAL_AUDIT_RESULTS : input.limit;
+  if (!Number.isSafeInteger(limit) || (limit as number) < 1 || (limit as number) > MAX_REFERRAL_AUDIT_RESULTS) {
+    error('invalid-argument', 'limit is invalid');
+  }
+  return { ...(search ? { search } : {}), limit: limit as number };
+}
+
+function referralRewardFlagInput(value: unknown): { rewardId: string; flagged: boolean; reason: string } {
+  const input = record(value, ['rewardId', 'flagged', 'reason'], 'Referral reward flag is invalid');
+  if (typeof input.flagged !== 'boolean') error('invalid-argument', 'flagged is invalid');
+  if (typeof input.reason !== 'string' || input.reason.trim() === '' || input.reason.length > 500) {
+    error('invalid-argument', 'reason is invalid');
+  }
+  return { rewardId: documentId(input.rewardId, 'rewardId'), flagged: input.flagged, reason: input.reason.trim() };
 }
 
 function generatedReferralCode(): string {
@@ -533,10 +567,9 @@ export async function processReferralBookingCompletion(
     const attribution = attributionSnapshot.data() as RecordValue | undefined;
     if (!attributionSnapshot.exists || !attribution || typeof attribution.programId !== 'string' || typeof attribution.code !== 'string') return false;
     if (timestampMs(attribution.expiresAt) === undefined || (timestampMs(attribution.expiresAt) as number) < currentTime.getTime()) return false;
-    const eligibleBookings = completedBookings.docs.filter(candidate => {
-      const candidateValue = candidate.data() as RecordValue;
-      return candidateValue.status === 'completed' && candidateValue.isTest !== true;
-    });
+    const eligibleBookings = completedBookings.docs.filter(candidate => (
+      isPositivePaidBooking(candidate.data() as RecordValue)
+    ));
     if (eligibleBookings.length !== 1 || eligibleBookings[0].id !== bookingId) return false;
     const programRef = firestore.collection('referralPrograms').doc(attribution.programId);
     const codeRef = firestore.collection('referralCodes').doc(attribution.code);
@@ -642,10 +675,9 @@ export async function reviewReferralReward(
       const code = codeSnapshot.data() as RecordValue | undefined;
       const program = programSnapshot.data() as RecordValue | undefined;
       const inviterOwnerType = ownerType(code?.ownerType);
-      const completedBookings = clientBookings.docs.filter(candidate => {
-        const candidateValue = candidate.data() as RecordValue;
-        return candidateValue.status === 'completed' && candidateValue.isTest !== true;
-      });
+      const completedBookings = clientBookings.docs.filter(candidate => (
+        isPositivePaidBooking(candidate.data() as RecordValue)
+      ));
       if (
         !bookingSnapshot.exists || !isPositivePaidBooking(booking)
         || booking.clientId !== approval.invitedUserId
@@ -693,6 +725,44 @@ export async function reviewReferralReward(
     });
   });
   return { rewardId, status };
+}
+
+export async function setReferralRewardFlag(
+  caller: string | null,
+  value: unknown,
+  firestore: Firestore = admin.firestore(),
+  verifiedPlatformAdmin = false,
+): Promise<{ rewardId: string; flagged: boolean }> {
+  const uid = callerUid(caller);
+  await requireSuperAdmin(uid, firestore, verifiedPlatformAdmin);
+  const input = referralRewardFlagInput(value);
+  const rewardRef = firestore.collection('referralRewards').doc(input.rewardId);
+  const auditRef = firestore.collection('auditEvents').doc();
+  await firestore.runTransaction(async transaction => {
+    const rewardSnapshot = await transaction.get(rewardRef);
+    const reward = rewardSnapshot.data() as RecordValue | undefined;
+    if (!rewardSnapshot.exists || !reward) error('not-found', 'Referral reward not found');
+    if (reward.status !== 'pending') error('failed-precondition', 'Only pending referral rewards can be flagged');
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    transaction.update(rewardRef, {
+      fraudFlag: {
+        status: input.flagged ? 'flagged' : 'cleared',
+        reason: input.reason,
+        reviewedBy: uid,
+        reviewedAt: now,
+      },
+      updatedAt: now,
+    });
+    transaction.create(auditRef, {
+      action: input.flagged ? 'REFERRAL_REWARD_FLAGGED' : 'REFERRAL_REWARD_FLAG_CLEARED',
+      actorUid: uid,
+      rewardId: input.rewardId,
+      ...(typeof reward.programId === 'string' ? { programId: reward.programId } : {}),
+      reason: input.reason,
+      createdAt: now,
+    });
+  });
+  return { rewardId: input.rewardId, flagged: input.flagged };
 }
 
 function safeCodeForWorkspace(code: RecordValue): RecordValue | null {
@@ -822,14 +892,12 @@ export async function getMyReferralWorkspace(
   };
 }
 
-export async function getPublicReferralCode(
+async function validatedPublicReferralCode(
   value: unknown,
-  firestore: Firestore = admin.firestore(),
-  currentTime: Date = new Date(),
-): Promise<{ code: string; status: 'active' }> {
-  const input = record(value, ['code', 'countryCode'], 'Referral code lookup is invalid');
-  const code = normalizeReferralCode(input.code);
-  const countryCode = input.countryCode === undefined ? 'FR' : isoCountry(input.countryCode, 'countryCode');
+  firestore: Firestore,
+  currentTime: Date,
+): Promise<{ code: string; programId: string; countryCode: string }> {
+  const { code, countryCode } = referralCodeLookup(value);
   const codeSnapshot = await firestore.collection('referralCodes').doc(code).get();
   const referralCode = codeSnapshot.data() as RecordValue | undefined;
   if (
@@ -840,7 +908,31 @@ export async function getPublicReferralCode(
   ) error('not-found', 'Referral code is unavailable');
   const program = (await firestore.collection('referralPrograms').doc(referralCode.programId).get()).data() as RecordValue | undefined;
   if (!validProgram(program, countryCode, currentTime)) error('not-found', 'Referral code is unavailable');
-  return { code, status: 'active' };
+  return { code, programId: referralCode.programId, countryCode };
+}
+
+export async function getPublicReferralCode(
+  value: unknown,
+  firestore: Firestore = admin.firestore(),
+  currentTime: Date = new Date(),
+): Promise<{ code: string; status: 'active' }> {
+  const referralCode = await validatedPublicReferralCode(value, firestore, currentTime);
+  return { code: referralCode.code, status: 'active' };
+}
+
+export async function recordReferralVisit(
+  value: unknown,
+  firestore: Firestore = admin.firestore(),
+  currentTime: Date = new Date(),
+): Promise<{ code: string; status: 'active'; recorded: true }> {
+  const referralCode = await validatedPublicReferralCode(value, firestore, currentTime);
+  await firestore.collection('referralVisits').doc().create({
+    code: referralCode.code,
+    programId: referralCode.programId,
+    countryCode: referralCode.countryCode,
+    recordedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+  return { code: referralCode.code, status: 'active', recorded: true };
 }
 
 function safeProgramForOverview(id: string, program: RecordValue): RecordValue | null {
@@ -872,6 +964,12 @@ function safePendingRewardForOverview(id: string, reward: RecordValue): RecordVa
     || !Number.isSafeInteger(reward.invitedDiscountMinor) || (reward.invitedDiscountMinor as number) < 0
     || typeof reward.currency !== 'string' || !CURRENCY_PATTERN.test(reward.currency)
   ) return null;
+  const fraudFlag = reward.fraudFlag as RecordValue | undefined;
+  const safeFraudFlag = fraudFlag
+    && (fraudFlag.status === 'flagged' || fraudFlag.status === 'cleared')
+    && typeof fraudFlag.reason === 'string'
+    ? { status: fraudFlag.status, reason: fraudFlag.reason }
+    : undefined;
   return {
     id,
     programId: reward.programId,
@@ -882,8 +980,42 @@ function safePendingRewardForOverview(id: string, reward: RecordValue): RecordVa
     invitedDiscountMinor: reward.invitedDiscountMinor,
     currency: reward.currency,
     status: 'pending',
+    ...(safeFraudFlag ? { fraudFlag: safeFraudFlag } : {}),
     ...(reward.createdAt === undefined ? {} : { createdAt: reward.createdAt }),
   };
+}
+
+function approvedCreditTotalsForOverview(snapshots: Array<{ data(): RecordValue }>): RecordValue[] {
+  const totals = new Map<string, number>();
+  for (const snapshot of snapshots) {
+    const ledger = snapshot.data();
+    if (
+      ledger.status !== 'approved'
+      || (ledger.kind !== 'referral_inviter_credit' && ledger.kind !== 'referral_invited_discount')
+      || typeof ledger.currency !== 'string' || !CURRENCY_PATTERN.test(ledger.currency)
+      || !Number.isSafeInteger(ledger.amountMinor) || (ledger.amountMinor as number) < 0
+    ) continue;
+    totals.set(ledger.currency, (totals.get(ledger.currency) ?? 0) + (ledger.amountMinor as number));
+  }
+  return [...totals.entries()].map(([currency, amountMinor]) => ({ currency, amountMinor }))
+    .sort((left, right) => String(left.currency).localeCompare(String(right.currency)));
+}
+
+function safeReferralAuditForOverview(id: string, event: RecordValue): RecordValue | null {
+  if (typeof event.action !== 'string' || !event.action.startsWith('REFERRAL_')) return null;
+  const item: RecordValue = { id, action: event.action };
+  if (typeof event.rewardId === 'string' && DOCUMENT_ID_PATTERN.test(event.rewardId)) item.rewardId = event.rewardId;
+  if (typeof event.programId === 'string' && DOCUMENT_ID_PATTERN.test(event.programId)) item.programId = event.programId;
+  if (typeof event.code === 'string' && CODE_PATTERN.test(event.code)) item.code = event.code;
+  if (event.createdAt !== undefined) item.createdAt = event.createdAt;
+  return item;
+}
+
+function auditMatchesSearch(audit: RecordValue, search: string | undefined): boolean {
+  if (!search) return true;
+  const needle = search.toLowerCase();
+  return [audit.id, audit.action, audit.rewardId, audit.programId, audit.code]
+    .some(value => typeof value === 'string' && value.toLowerCase().includes(needle));
 }
 
 export async function getReferralMarketingOverview(
@@ -894,12 +1026,15 @@ export async function getReferralMarketingOverview(
 ): Promise<RecordValue> {
   const uid = callerUid(caller);
   await requireSuperAdmin(uid, firestore, verifiedPlatformAdmin);
-  record(value, [], 'Referral marketing overview does not accept filters');
-  const [programsSnapshot, codesSnapshot, attributionsSnapshot, rewardsSnapshot] = await Promise.all([
+  const input = referralAuditQuery(value);
+  const [programsSnapshot, codesSnapshot, visitsSnapshot, attributionsSnapshot, rewardsSnapshot, ledgersSnapshot, auditSnapshot] = await Promise.all([
     firestore.collection('referralPrograms').get(),
     firestore.collection('referralCodes').get(),
+    firestore.collection('referralVisits').get(),
     firestore.collection('referralAttributions').get(),
     firestore.collection('referralRewards').get(),
+    firestore.collection('creditLedgers').get(),
+    firestore.collection('auditEvents').orderBy('createdAt', 'desc').limit(MAX_REFERRAL_AUDIT_RESULTS).get(),
   ]);
   const programs = programsSnapshot.docs.flatMap(program => {
     const data = program.data() as RecordValue;
@@ -925,6 +1060,7 @@ export async function getReferralMarketingOverview(
   let approved = 0;
   let rejected = 0;
   const pendingRewards: RecordValue[] = [];
+  const flaggedRewards: RecordValue[] = [];
   const referrerTotals = new Map<string, {
     inviterId: string; inviterOwnerType: OwnerType; rewards: number; approvedCreditsMinor: number; currency: string;
   }>();
@@ -934,7 +1070,10 @@ export async function getReferralMarketingOverview(
     else if (reward.status === 'approved') approved += 1;
     else if (reward.status === 'rejected') rejected += 1;
     const pendingReward = safePendingRewardForOverview(rewardSnapshot.id, reward);
-    if (pendingReward) pendingRewards.push(pendingReward);
+    if (pendingReward) {
+      pendingRewards.push(pendingReward);
+      if ((pendingReward.fraudFlag as RecordValue | undefined)?.status === 'flagged') flaggedRewards.push(pendingReward);
+    }
     const inviterOwnerType = ownerType(reward.inviterOwnerType);
     if (
       typeof reward.inviterId !== 'string' || !inviterOwnerType
@@ -968,17 +1107,29 @@ export async function getReferralMarketingOverview(
     if (topReferrers.has(key)) continue;
     topReferrers.set(key, { referrals: 0, ...total });
   }
+  const auditTrail = auditSnapshot.docs
+    .flatMap(snapshot => {
+      const audit = safeReferralAuditForOverview(snapshot.id, snapshot.data() as RecordValue);
+      return audit && auditMatchesSearch(audit, input.search) ? [audit] : [];
+    })
+    .slice(0, input.limit);
 
   return {
     programs,
     funnel: {
       codes: codesSnapshot.docs.length,
+      validatedVisits: visitsSnapshot.docs.length,
       attributions: attributionsSnapshot.docs.length,
+      attributedSignups: attributionsSnapshot.docs.length,
       rewards: rewardsSnapshot.docs.length,
+      eligibleFirstBookings: rewardsSnapshot.docs.length,
       pending,
+      pendingRewards: pending,
       approved,
+      approvedRewards: approved,
       rejected,
     },
+    approvedCreditTotals: approvedCreditTotalsForOverview(ledgersSnapshot.docs as Array<{ data(): RecordValue }>),
     topReferrers: [...topReferrers.values()]
       .sort((left, right) => right.referrals - left.referrals || right.rewards - left.rewards
         || left.inviterOwnerType.localeCompare(right.inviterOwnerType) || left.inviterId.localeCompare(right.inviterId))
@@ -986,6 +1137,10 @@ export async function getReferralMarketingOverview(
     pendingRewards: pendingRewards.sort((left, right) => (
       (timestampMs(right.createdAt) ?? 0) - (timestampMs(left.createdAt) ?? 0) || String(left.id).localeCompare(String(right.id))
     )),
+    flaggedRewards: flaggedRewards.sort((left, right) => (
+      (timestampMs(right.createdAt) ?? 0) - (timestampMs(left.createdAt) ?? 0) || String(left.id).localeCompare(String(right.id))
+    )),
+    auditTrail,
   };
 }
 
@@ -1027,12 +1182,20 @@ export const reviewReferralRewardFunction = functions.https.onCall((data, contex
   reviewReferralReward(requirePlatformAdminContext(context), data, admin.firestore(), true)
 ));
 
+export const setReferralRewardFlagFunction = functions.https.onCall((data, context) => (
+  setReferralRewardFlag(requirePlatformAdminContext(context), data, admin.firestore(), true)
+));
+
 export const getMyReferralWorkspaceFunction = functions.https.onCall((data, context) => (
   getMyReferralWorkspace(context.auth?.uid ?? null, data)
 ));
 
 export const getPublicReferralCodeFunction = functions.https.onCall(data => (
   getPublicReferralCode(data)
+));
+
+export const recordReferralVisitFunction = functions.https.onCall(data => (
+  recordReferralVisit(data)
 ));
 
 export const getReferralMarketingOverviewFunction = functions.https.onCall((data, context) => (

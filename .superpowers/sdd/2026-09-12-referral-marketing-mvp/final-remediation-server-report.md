@@ -163,3 +163,27 @@ npm --prefix functions run build
 ```
 
 Result: 1 suite passed, 46 tests passed; the Functions TypeScript build exited successfully.
+
+## Follow-up server remediation: paid-first eligibility and observability
+
+The completed-booking and approval transactions now use the identical authoritative `isPositivePaidBooking` predicate when counting a client's prior eligible bookings. A completed free/zero-value, missing/unpaid, cancelled, declined, refunded, or test booking does not consume the first eligible slot. The first positive paid non-test completion can therefore create a reward after an earlier free completion, while a second positive paid completion still prevents reward creation/approval. Both checks remain inside their respective Firestore transactions.
+
+Added private server-written `referralVisits` telemetry and the unauthenticated `recordReferralVisit` callable. It validates the normalized code plus active/current program before writing only `{ code, programId, countryCode, recordedAt }`; unavailable codes write nothing. It returns no owner or visitor information and is entirely isolated from attribution, rewards, and credit ledgers. Visits count validated public calls, not unique people; public call repetition is possible until a platform-level anti-abuse control such as App Check/rate limiting is deployed.
+
+Super Admin-only observability now includes:
+
+- validated visits, attributed sign-ups, eligible first bookings, pending/approved rewards, and approved issued-credit totals separated by currency;
+- typed top referrers keyed by `{ inviterId, inviterOwnerType }`;
+- a pending flagged-reward queue; and
+- a bounded (maximum 50 recent entries) referral audit trail, searchable only by a validated 1–64-character identifier/action fragment and with a caller-requested limit of 1–50.
+
+`setReferralRewardFlag` supports Super Admin flag/clear actions for pending rewards only. Both require a non-empty reason, write a referral audit event, and leave reward status and ledgers unchanged. This MVP has no automatic approval; flagged items remain in the manual-review queue and approval remains an explicit audited Super Admin operation.
+
+Verification for this remediation:
+
+```bash
+npm --prefix functions exec jest -- src/referrals.test.ts --runInBand
+npm --prefix functions run build
+```
+
+Result: 1 suite passed, 50 tests passed; the Functions TypeScript build exited successfully.

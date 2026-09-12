@@ -48,6 +48,10 @@ Stores the referral, booking, invited user, inviter, two reward legs, status (`p
 
 Append-only record of approved credits and redeemed discounts. Each record includes `ownerId` and `ownerType`, copied from the validated reward leg, so balances are derived in the correct client/freelancer/brand namespace. Clients never edit a balance document.
 
+### `referralVisits/{visitId}`
+
+Private, server-written telemetry for a successfully validated public referral link. Each event contains only the normalized code, program ID, country code, and server timestamp; it contains no account, device, IP, address, or profile data and can never create a reward or credit. A public caller records a visit only through `recordReferralVisit`, which validates the code and active, currently available program first. These are raw validated-call events, not unique-person analytics: without an authenticated identity or a trusted anti-abuse signal, repeated calls can inflate traffic counts. Staging monitoring and platform-level rate limiting/App Check should be used before relying on the metric for acquisition decisions.
+
 ## Referral callable scope contracts
 
 `createMyReferralCode` accepts only a selected, server-authorized scope; it never accepts a program ID, code, or owner ID from the browser:
@@ -85,13 +89,17 @@ The dashboard contains:
 
 The initial dashboard uses the current premium dark-and-gold Elite Cuts design. It must show explicit empty states and never show invented financial totals as live data.
 
+`getReferralMarketingOverview` is Super Admin-only and reports server-derived totals for validated visits, attributed sign-ups, eligible first bookings, pending/approved rewards, and issued approved credits (separated by currency). Its top referrers retain the complete `{ inviterId, inviterOwnerType }` identity. The response also contains a pending fraud-flag queue and an audit trail limited to the most recent 50 referral audit events; callers may search that bounded window by normalized code, program ID, reward ID, or action and request 1–50 rows. It never merges client, freelancer, or brand namespaces sharing the same string ID.
+
+`setReferralRewardFlag` is Super Admin-only. It requires a non-empty reason and can flag or clear only a pending reward, records an audit event, and does not create, approve, reject, or alter a credit. Flagged rewards remain in the manual review queue; this MVP has no automatic approval path, and an existing explicit Super Admin review action is still required before any credit is issued.
+
 ## Eligibility and abuse prevention
 
 - Only a new client may be invited in this MVP.
 - The inviter cannot be the invited user.
 - A referral must be attributed before the invited user creates their account.
-- A reward is eligible after the invited user’s first booking reaches `completed`.
-- Cancelled, declined, refunded, free, and test bookings are ineligible.
+- A reward is eligible after the invited user’s first positive-paid, non-test booking reaches `completed`.
+- Cancelled, declined, refunded, missing/unpaid, free/zero-value, and test bookings are ineligible and do not consume the eligible first-booking slot.
 - Each invited client can earn one reward per program.
 - Server validation uses authenticated identity, booking ownership, booking status, program state, and atomic Firestore transactions.
 - The system records warning flags for duplicate identity, repeated device/browser signals when available, unusual referral volume, and rapid self-referral patterns. Flags require Super Admin review; they do not silently delete records.

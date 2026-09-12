@@ -59,7 +59,9 @@ import {
   getReferralMarketingOverviewFunction,
   getMyReferralWorkspaceFunction,
   getPublicReferralCodeFunction,
+  recordReferralVisitFunction,
   reviewReferralRewardFunction,
+  setReferralRewardFlagFunction,
 } from './referrals';
 
 if (admin.apps.length === 0) {
@@ -102,9 +104,11 @@ export const createReferralProgram = createReferralProgramFunction;
 export const createMyReferralCode = createMyReferralCodeFunction;
 export const attributeReferral = attributeReferralFunction;
 export const reviewReferralReward = reviewReferralRewardFunction;
+export const setReferralRewardFlag = setReferralRewardFlagFunction;
 export const getReferralMarketingOverview = getReferralMarketingOverviewFunction;
 export const getMyReferralWorkspace = getMyReferralWorkspaceFunction;
 export const getPublicReferralCode = getPublicReferralCodeFunction;
+export const recordReferralVisit = recordReferralVisitFunction;
 export { syncFreelancerPortfolio };
 
 function getStripe(): Stripe {

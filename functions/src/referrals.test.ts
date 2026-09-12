@@ -28,23 +28,48 @@ function firestoreState(initial, { retryFirstTransaction = false } = {}) {
   let retryUsed = false;
   const versions = new Map();
   const keyFor = ref => `${ref.collectionName}/${ref.id}`;
-  const reference = (collectionName, id) => ({
-    collectionName,
-    id: id ?? `${collectionName}-${++nextId}`,
-    get: async () => snapshot(state[collectionName]?.[id], id),
-  });
-  const query = (collectionName, filters = []) => ({
+  const reference = (collectionName, id) => {
+    const resolvedId = id ?? `${collectionName}-${++nextId}`;
+    return {
+      collectionName,
+      id: resolvedId,
+      get: async () => snapshot(state[collectionName]?.[resolvedId], resolvedId),
+      async create(value) {
+        state[collectionName] ??= {};
+        if (state[collectionName][resolvedId]) throw new Error('already exists');
+        state[collectionName][resolvedId] = value;
+      },
+    };
+  };
+  const query = (collectionName, filters = [], order = undefined, maximum = undefined) => ({
     collectionName,
     isQuery: true,
     filters,
+    order,
+    maximum,
     where(field, operator, value) {
-      return query(collectionName, [...filters, [field, operator, value]]);
+      return query(collectionName, [...filters, [field, operator, value]], order, maximum);
+    },
+    orderBy(field, direction = 'asc') {
+      return query(collectionName, filters, [field, direction], maximum);
+    },
+    limit(value) {
+      return query(collectionName, filters, order, value);
     },
     async get() {
-      const docs = Object.entries(state[collectionName] ?? {})
+      const entries = Object.entries(state[collectionName] ?? {})
         .filter(([, data]) => filters.every(([field, operator, value]) => (
           operator === '==' && data[field] === value
-        )))
+        )));
+      if (order) {
+        const [field, direction] = order;
+        entries.sort(([, left], [, right]) => {
+          const comparison = String(left[field] ?? '').localeCompare(String(right[field] ?? ''));
+          return direction === 'desc' ? -comparison : comparison;
+        });
+      }
+      const docs = entries
+        .slice(0, maximum)
         .map(([id, data]) => snapshot(data, id));
       return { docs, empty: docs.length === 0 };
     },
@@ -57,6 +82,7 @@ function firestoreState(initial, { retryFirstTransaction = false } = {}) {
           doc(id) { return reference(collectionName, id); },
           get() { return query(collectionName).get(); },
           where(field, operator, value) { return query(collectionName, [[field, operator, value]]); },
+          orderBy(field, direction) { return query(collectionName, [], [field, direction]); },
         };
       },
       async runTransaction(callback) {
@@ -67,10 +93,17 @@ function firestoreState(initial, { retryFirstTransaction = false } = {}) {
           const read = async ref => {
             if (ref.isQuery) {
               const docs = Object.entries(transactionState[ref.collectionName] ?? {})
-                .filter(([, data]) => ref.filters.every(([field, operator, value]) => (
-                  operator === '==' && data[field] === value
-                )))
-                .map(([id, data]) => snapshot(data, id));
+              .filter(([, data]) => ref.filters.every(([field, operator, value]) => (
+                operator === '==' && data[field] === value
+              )))
+              .sort(([, left], [, right]) => {
+                if (!ref.order) return 0;
+                const [field, direction] = ref.order;
+                const comparison = String(left[field] ?? '').localeCompare(String(right[field] ?? ''));
+                return direction === 'desc' ? -comparison : comparison;
+              })
+              .slice(0, ref.maximum)
+              .map(([id, data]) => snapshot(data, id));
               return { docs, empty: docs.length === 0 };
             }
             reads.set(keyFor(ref), versions.get(keyFor(ref)) ?? 0);
@@ -133,7 +166,7 @@ describe('referral domain', () => {
       },
     });
 
-    await expect(getReferralMarketingOverview('admin-a', {}, firestore)).resolves.toEqual({
+    await expect(getReferralMarketingOverview('admin-a', {}, firestore)).resolves.toMatchObject({
       programs: [{
         id: 'program-a', status: 'active', countryCodes: ['FR'], currency: 'EUR', inviterCreditMinor: 500,
         invitedDiscountMinor: 300, startsAt: '2026-09-01T00:00:00.000Z', endsAt: '2026-10-01T00:00:00.000Z',
@@ -211,7 +244,6 @@ describe('referral domain', () => {
   test('rejects self-attribution before creating an immutable attribution', async () => {
     const { attributeReferral } = loadModule();
     const { firestore, state } = firestoreState({
-      referralPrograms: { 'program-a': activeProgram },
       referralCodes: {
         OWN: { code: 'OWN', programId: 'program-a', ownerType: 'client', ownerId: 'new-client', status: 'active' },
       },
@@ -343,6 +375,27 @@ describe('referral domain', () => {
       .resolves.toEqual({ created: false });
   });
 
+  test('treats the first positive paid completion as eligible after a free completion', async () => {
+    const { processReferralBookingCompletion, reviewReferralReward } = loadModule();
+    const { firestore, state } = firestoreState({
+      users: { 'admin-a': { role: 'superadmin' } },
+      bookings: {
+        free: { clientId: 'new-client', status: 'completed', isTest: false, paymentStatus: 'paid', pricePaidMinor: 0 },
+        paid: { clientId: 'new-client', status: 'completed', isTest: false, paymentStatus: 'paid', pricePaidMinor: 2500 },
+      },
+      referralPrograms: { 'program-a': activeProgram },
+      referralCodes: { FRIEND: { code: 'FRIEND', programId: 'program-a', ownerId: 'inviter-a', ownerType: 'client', status: 'active' } },
+      referralAttributions: { 'new-client': { code: 'FRIEND', programId: 'program-a', inviterId: 'inviter-a', expiresAt: '2026-09-20T00:00:00.000Z' } },
+      referralRewards: {}, creditLedgers: {}, auditEvents: {},
+    });
+    const now = new Date('2026-09-12T12:00:00Z');
+
+    await expect(processReferralBookingCompletion('paid', firestore, now)).resolves.toEqual({ created: true });
+    await expect(reviewReferralReward('admin-a', { rewardId: 'program-a__new-client', decision: 'approve' }, firestore))
+      .resolves.toEqual({ rewardId: 'program-a__new-client', status: 'approved' });
+    expect(state.creditLedgers['program-a__new-client__inviter']).toMatchObject({ amountMinor: 500, status: 'approved' });
+  });
+
   test('returns the retry result when another transaction creates the reward', async () => {
     const { processReferralBookingCompletion } = loadModule();
     const { firestore } = firestoreState({
@@ -365,8 +418,8 @@ describe('referral domain', () => {
     const { processReferralBookingCompletion } = loadModule();
     const { firestore, state } = firestoreState({
       bookings: {
-        'booking-1': { clientId: 'new-client', status: 'completed', isTest: false },
-        'older-booking': { clientId: 'new-client', status: 'completed', isTest: false },
+        'booking-1': { clientId: 'new-client', status: 'completed', isTest: false, paymentStatus: 'paid', pricePaidMinor: 2500 },
+        'older-booking': { clientId: 'new-client', status: 'completed', isTest: false, paymentStatus: 'paid', pricePaidMinor: 1200 },
       },
       referralPrograms: { 'program-a': activeProgram },
       referralCodes: { FRIEND: { programId: 'program-a', ownerId: 'inviter-a', ownerType: 'client', status: 'active' } },
@@ -418,8 +471,8 @@ describe('referral domain', () => {
     const { firestore, state } = firestoreState({
       users: { 'admin-a': { role: 'superadmin' } },
       bookings: {
-        'booking-a': { clientId: 'new-client', status: 'completed', isTest: false },
-        'older-booking': { clientId: 'new-client', status: 'completed', isTest: false },
+        'booking-a': { clientId: 'new-client', status: 'completed', isTest: false, paymentStatus: 'paid', pricePaidMinor: 2500 },
+        'older-booking': { clientId: 'new-client', status: 'completed', isTest: false, paymentStatus: 'paid', pricePaidMinor: 1200 },
       },
       referralPrograms: { 'program-a': activeProgram },
       referralCodes: { FRIEND: { programId: 'program-a', ownerId: 'inviter-a', ownerType: 'client', status: 'active' } },
@@ -856,5 +909,103 @@ describe('referral domain', () => {
         creditTotals: [{ currency: 'EUR', approvedMinor: 700, pendingMinor: 0 }],
       }],
     });
+  });
+
+  test('records a validated public referral visit without changing rewards or credits', async () => {
+    const { recordReferralVisit } = loadModule();
+    const { firestore, state } = firestoreState({
+      referralCodes: {
+        FRIEND: { code: 'FRIEND', programId: 'program-a', ownerId: 'inviter-a', ownerType: 'client', status: 'active' },
+        PAUSED: { code: 'PAUSED', programId: 'paused-program', ownerId: 'inviter-a', ownerType: 'client', status: 'active' },
+      },
+      referralPrograms: {
+        'program-a': activeProgram,
+        'paused-program': { ...activeProgram, status: 'paused' },
+      },
+      referralVisits: {}, referralRewards: {}, creditLedgers: {},
+    });
+
+    await expect(recordReferralVisit({ code: 'missing' }, firestore, new Date('2026-09-12T12:00:00Z')))
+      .rejects.toMatchObject({ code: 'not-found' });
+    await expect(recordReferralVisit({ code: 'paused' }, firestore, new Date('2026-09-12T12:00:00Z')))
+      .rejects.toMatchObject({ code: 'not-found' });
+    expect(state.referralVisits).toEqual({});
+    await expect(recordReferralVisit({ code: 'friend' }, firestore, new Date('2026-09-12T12:00:00Z')))
+      .resolves.toEqual({ code: 'FRIEND', status: 'active', recorded: true });
+    expect(Object.values(state.referralVisits)).toEqual([expect.objectContaining({
+      code: 'FRIEND', programId: 'program-a', countryCode: 'FR',
+    })]);
+    expect(state.referralRewards).toEqual({});
+    expect(state.creditLedgers).toEqual({});
+  });
+
+  test('allows only a super admin to flag and clear pending referral activity', async () => {
+    const { setReferralRewardFlag } = loadModule();
+    const { firestore, state } = firestoreState({
+      users: { 'admin-a': { role: 'superadmin' }, 'client-a': { uid: 'client-a' } },
+      referralRewards: { pending: { programId: 'program-a', status: 'pending' } },
+      creditLedgers: {}, auditEvents: {},
+    });
+
+    await expect(setReferralRewardFlag('client-a', {
+      rewardId: 'pending', flagged: true, reason: 'Repeated referral activity',
+    }, firestore)).rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(setReferralRewardFlag('admin-a', {
+      rewardId: 'pending', flagged: true, reason: 'Repeated referral activity',
+    }, firestore)).resolves.toEqual({ rewardId: 'pending', flagged: true });
+    expect(state.referralRewards.pending).toMatchObject({
+      status: 'pending', fraudFlag: { status: 'flagged', reason: 'Repeated referral activity', reviewedBy: 'admin-a' },
+    });
+    expect(Object.values(state.auditEvents)).toEqual([expect.objectContaining({
+      action: 'REFERRAL_REWARD_FLAGGED', rewardId: 'pending', actorUid: 'admin-a',
+    })]);
+    expect(state.creditLedgers).toEqual({});
+    await expect(setReferralRewardFlag('admin-a', {
+      rewardId: 'pending', flagged: false, reason: 'Reviewed and cleared',
+    }, firestore)).resolves.toEqual({ rewardId: 'pending', flagged: false });
+    expect(state.referralRewards.pending.fraudFlag).toMatchObject({ status: 'cleared', reason: 'Reviewed and cleared' });
+  });
+
+  test('returns typed observability totals, flagged queue, and bounded referral audit search', async () => {
+    const { getReferralMarketingOverview } = loadModule();
+    const { firestore } = firestoreState({
+      users: { 'admin-a': { role: 'superadmin' } },
+      referralPrograms: { 'program-a': activeProgram },
+      referralCodes: { FRIEND: { code: 'FRIEND', programId: 'program-a', ownerId: 'X', ownerType: 'client', status: 'active' } },
+      referralVisits: {
+        first: { code: 'FRIEND', programId: 'program-a', countryCode: 'FR', recordedAt: '2026-09-12T10:00:00.000Z' },
+        second: { code: 'FRIEND', programId: 'program-a', countryCode: 'FR', recordedAt: '2026-09-12T11:00:00.000Z' },
+      },
+      referralAttributions: { invited: { code: 'FRIEND', programId: 'program-a', inviterId: 'X', inviterOwnerType: 'client' } },
+      referralRewards: {
+        pending: {
+          programId: 'program-a', bookingId: 'booking-a', code: 'FRIEND', inviterId: 'X', inviterOwnerType: 'client', invitedUserId: 'invited',
+          inviterCreditMinor: 500, invitedDiscountMinor: 300, currency: 'EUR', status: 'pending',
+          fraudFlag: { status: 'flagged', reason: 'Duplicate device signal', reviewedBy: 'admin-a' },
+        },
+      },
+      creditLedgers: {
+        inviter: { ownerId: 'X', ownerType: 'client', amountMinor: 500, currency: 'EUR', kind: 'referral_inviter_credit', status: 'approved' },
+        invited: { ownerId: 'invited', ownerType: 'client', amountMinor: 300, currency: 'EUR', kind: 'referral_invited_discount', status: 'approved' },
+      },
+      auditEvents: {
+        matching: { action: 'REFERRAL_REWARD_FLAGGED', rewardId: 'pending', programId: 'program-a', createdAt: '2026-09-12T11:00:00.000Z' },
+        other: { action: 'REFERRAL_REWARD_APPROVED', rewardId: 'other', programId: 'program-a', createdAt: '2026-09-12T12:00:00.000Z' },
+        unrelated: { action: 'BOOKING_CREATED', createdAt: '2026-09-12T13:00:00.000Z' },
+      },
+    });
+
+    await expect(getReferralMarketingOverview('admin-a', { search: 'pending', limit: 1 }, firestore)).resolves.toMatchObject({
+      funnel: {
+        validatedVisits: 2, attributedSignups: 1, eligibleFirstBookings: 1,
+        pendingRewards: 1, approvedRewards: 0,
+      },
+      approvedCreditTotals: [{ currency: 'EUR', amountMinor: 800 }],
+      topReferrers: [{ inviterId: 'X', inviterOwnerType: 'client', referrals: 1, rewards: 1 }],
+      flaggedRewards: [{ id: 'pending', fraudFlag: { status: 'flagged', reason: 'Duplicate device signal' } }],
+      auditTrail: [{ rewardId: 'pending', action: 'REFERRAL_REWARD_FLAGGED' }],
+    });
+    await expect(getReferralMarketingOverview('admin-a', { search: 'pending', limit: 51 }, firestore))
+      .rejects.toMatchObject({ code: 'invalid-argument' });
   });
 });
