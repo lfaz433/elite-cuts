@@ -1,5 +1,6 @@
 import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions';
+import { randomBytes } from 'node:crypto';
 
 type Firestore = admin.firestore.Firestore;
 type RecordValue = Record<string, unknown>;
@@ -13,6 +14,8 @@ const COUNTRY_PATTERN = /^[A-Z]{2}$/;
 const CURRENCY_PATTERN = /^[A-Z]{3}$/;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const ACTIVE_PROGRAM_STATE_ID = 'active';
+const MAX_BRAND_WORKSPACES = 20;
+const MAX_CODE_GENERATION_ATTEMPTS = 8;
 
 function error(code: functions.https.FunctionsErrorCode, message: string): never {
   throw new functions.https.HttpsError(code, message);
@@ -82,6 +85,32 @@ function validProgram(program: RecordValue | undefined, countryCode: string, now
     && (program.inviterCreditMinor as number) >= 0
     && Number.isSafeInteger(program.invitedDiscountMinor)
     && (program.invitedDiscountMinor as number) >= 0;
+}
+
+function isPositivePaidBooking(booking: RecordValue | undefined): booking is RecordValue {
+  return booking?.status === 'completed'
+    && booking.isTest !== true
+    && booking.paymentStatus === 'paid'
+    && Number.isSafeInteger(booking.pricePaidMinor)
+    && (booking.pricePaidMinor as number) > 0;
+}
+
+function isBrandAdminMembership(membership: RecordValue, uid: string): boolean {
+  return membership.userId === uid
+    && membership.status === 'active'
+    && typeof membership.brandId === 'string'
+    && DOCUMENT_ID_PATTERN.test(membership.brandId)
+    && (membership.role === 'principal_admin' || membership.role === 'salon_admin');
+}
+
+function activeMembershipsFor(uid: string, snapshots: Array<{ data(): RecordValue }>): RecordValue[] {
+  return snapshots.map(snapshot => snapshot.data()).filter(membership => (
+    membership.userId === uid && membership.status === 'active'
+  ));
+}
+
+function generatedReferralCode(): string {
+  return `EC-${randomBytes(6).toString('hex').toUpperCase()}`;
 }
 
 function callerUid(caller: string | null): string {
@@ -252,20 +281,126 @@ export async function reserveReferralCode(
   return { code };
 }
 
+function brandIdsFromMemberships(uid: string, memberships: Array<{ data(): RecordValue }>): string[] {
+  return [...new Set(memberships
+    .map(snapshot => snapshot.data())
+    .filter(membership => isBrandAdminMembership(membership, uid))
+    .map(membership => membership.brandId as string))]
+    .sort();
+}
+
+export async function createMyReferralCode(
+  caller: string | null,
+  value: unknown,
+  firestore: Firestore = admin.firestore(),
+  currentTime: Date = new Date(),
+  codeFactory: () => string = generatedReferralCode,
+  verifiedPlatformAdmin = false,
+): Promise<{ code: string; ownerType: OwnerType; programId: string; reused: boolean }> {
+  const uid = callerUid(caller);
+  if (verifiedPlatformAdmin) error('permission-denied', 'Super Admin accounts cannot create referral codes');
+  record(value, [], 'Referral code is derived from the authenticated account');
+  for (let attempt = 0; attempt < MAX_CODE_GENERATION_ATTEMPTS; attempt += 1) {
+    const candidate = normalizeReferralCode(codeFactory());
+    const result = await firestore.runTransaction(async transaction => {
+      const stateRef = firestore.collection('referralProgramState').doc(ACTIVE_PROGRAM_STATE_ID);
+      const userRef = firestore.collection('users').doc(uid);
+      const freelancerRef = firestore.collection('freelancerProfiles').doc(uid);
+      const membershipQuery = firestore.collection('memberships').where('userId', '==', uid);
+      const [stateSnapshot, userSnapshot, freelancerSnapshot, membershipSnapshots] = await Promise.all([
+        transaction.get(stateRef),
+        transaction.get(userRef),
+        transaction.get(freelancerRef),
+        transaction.get(membershipQuery),
+      ]);
+      const programId = stateSnapshot.data()?.programId;
+      if (typeof programId !== 'string' || !DOCUMENT_ID_PATTERN.test(programId)) {
+        error('failed-precondition', 'There is no active referral program');
+      }
+      const programSnapshot = await transaction.get(firestore.collection('referralPrograms').doc(programId));
+      if (!validProgram(programSnapshot.data() as RecordValue | undefined, 'FR', currentTime)) {
+        error('failed-precondition', 'There is no active referral program');
+      }
+      const profile = userSnapshot.data() as RecordValue | undefined;
+      if (
+        profile?.platformAdmin === true
+        || (typeof profile?.role === 'string' && profile.role !== 'client' && profile.role !== 'freelancer')
+      ) {
+        error('permission-denied', 'This account cannot create referral codes');
+      }
+      const activeMemberships = activeMembershipsFor(uid, membershipSnapshots.docs);
+      const requestedBrandIds = brandIdsFromMemberships(uid, membershipSnapshots.docs);
+      if (requestedBrandIds.length > MAX_BRAND_WORKSPACES) error('resource-exhausted', 'Too many brands to load safely');
+      let ownerType: OwnerType;
+      let ownerId: string;
+      if (requestedBrandIds.length > 0) {
+        const brandSnapshots = await Promise.all(requestedBrandIds.map(brandId => (
+          transaction.get(firestore.collection('brands').doc(brandId))
+        )));
+        const brandId = requestedBrandIds.find((_, index) => brandSnapshots[index].exists);
+        if (!brandId) error('permission-denied', 'No authorized brand referral workspace is available');
+        ownerType = 'brand';
+        ownerId = brandId;
+      } else {
+        if (activeMemberships.length > 0) {
+          error('permission-denied', 'Staff accounts cannot create referral codes');
+        }
+        ownerType = freelancerSnapshot.exists ? 'freelancer' : 'client';
+        ownerId = uid;
+      }
+      const existingCodes = await transaction.get(firestore.collection('referralCodes').where('ownerId', '==', ownerId));
+      const existing = existingCodes.docs
+        .map(snapshot => ({ id: snapshot.id, value: snapshot.data() as RecordValue }))
+        .filter(({ value: code }) => (
+          code.ownerType === ownerType && code.programId === programId && code.status === 'active'
+        ))
+        .sort((left, right) => left.id.localeCompare(right.id))[0];
+      if (existing && typeof existing.value.code === 'string' && CODE_PATTERN.test(existing.value.code)) {
+        return { code: existing.value.code, ownerType, programId, reused: true };
+      }
+      const codeRef = firestore.collection('referralCodes').doc(candidate);
+      if ((await transaction.get(codeRef)).exists) return null;
+      transaction.create(codeRef, {
+        code: candidate,
+        programId,
+        ownerType,
+        ownerId,
+        status: 'active',
+        createdBy: uid,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      return { code: candidate, ownerType, programId, reused: false };
+    });
+    if (result) return result;
+  }
+  error('resource-exhausted', 'Unable to reserve a unique referral code');
+}
+
 export async function attributeReferral(
   caller: string | null,
   value: unknown,
   firestore: Firestore = admin.firestore(),
   currentTime: Date = new Date(),
+  verifiedPlatformAdmin = false,
 ): Promise<{ attributed: true; programId: string }> {
   const uid = callerUid(caller);
+  if (verifiedPlatformAdmin) error('permission-denied', 'Referral attribution is available only to client accounts');
   const input = record(value, ['code', 'countryCode'], 'Referral attribution is invalid');
   const code = normalizeReferralCode(input.code);
   const countryCode = input.countryCode === undefined ? 'FR' : isoCountry(input.countryCode, 'countryCode');
   const attributionRef = firestore.collection('referralAttributions').doc(uid);
   const codeRef = firestore.collection('referralCodes').doc(code);
+  const userRef = firestore.collection('users').doc(uid);
+  const freelancerRef = firestore.collection('freelancerProfiles').doc(uid);
+  const memberships = firestore.collection('memberships').where('userId', '==', uid);
   await firestore.runTransaction(async transaction => {
-    const [existing, codeSnapshot] = await Promise.all([transaction.get(attributionRef), transaction.get(codeRef)]);
+    const [existing, codeSnapshot, userSnapshot, freelancerSnapshot, membershipSnapshots] = await Promise.all([
+      transaction.get(attributionRef),
+      transaction.get(codeRef),
+      transaction.get(userRef),
+      transaction.get(freelancerRef),
+      transaction.get(memberships),
+    ]);
     if (existing.exists) error('already-exists', 'Referral attribution is immutable');
     const referralCode = codeSnapshot.data() as RecordValue | undefined;
     if (!codeSnapshot.exists || !referralCode || referralCode.status !== 'active') {
@@ -273,6 +408,13 @@ export async function attributeReferral(
     }
     if (referralCode.ownerId === uid) error('permission-denied', 'You cannot use your own referral code');
     if (typeof referralCode.programId !== 'string') error('failed-precondition', 'Referral code is invalid');
+    const profile = userSnapshot.data() as RecordValue | undefined;
+    if (
+      !userSnapshot.exists
+      || (typeof profile?.role === 'string' && profile.role !== 'client')
+      || freelancerSnapshot.exists
+      || activeMembershipsFor(uid, membershipSnapshots.docs).length > 0
+    ) error('permission-denied', 'Referral attribution is available only to client accounts');
     const programRef = firestore.collection('referralPrograms').doc(referralCode.programId);
     const existingBookings = firestore.collection('bookings').where('clientId', '==', uid);
     const [programSnapshot, bookings] = await Promise.all([transaction.get(programRef), transaction.get(existingBookings)]);
@@ -304,7 +446,7 @@ export async function processReferralBookingCompletion(
   const created = await firestore.runTransaction(async transaction => {
     const bookingSnapshot = await transaction.get(bookingRef);
     const booking = bookingSnapshot.data() as RecordValue | undefined;
-    if (!bookingSnapshot.exists || !booking || booking.status !== 'completed' || booking.isTest === true) return false;
+    if (!bookingSnapshot.exists || !isPositivePaidBooking(booking)) return false;
     if (typeof booking.clientId !== 'string' || !DOCUMENT_ID_PATTERN.test(booking.clientId)) return false;
     const attributionRef = firestore.collection('referralAttributions').doc(booking.clientId);
     const [attributionSnapshot, completedBookings] = await Promise.all([
@@ -421,7 +563,7 @@ export async function reviewReferralReward(
         return candidateValue.status === 'completed' && candidateValue.isTest !== true;
       });
       if (
-        !bookingSnapshot.exists || !booking || booking.status !== 'completed' || booking.isTest === true
+        !bookingSnapshot.exists || !isPositivePaidBooking(booking)
         || booking.clientId !== approval.invitedUserId
         || completedBookings.length !== 1 || completedBookings[0].id !== approval.bookingId
         || !attributionSnapshot.exists || !attribution || attribution.programId !== approval.programId
@@ -456,6 +598,52 @@ export async function reviewReferralReward(
   return { rewardId, status };
 }
 
+function safeCodeForWorkspace(code: RecordValue): RecordValue | null {
+  return typeof code.code === 'string' && CODE_PATTERN.test(code.code)
+    && typeof code.ownerType === 'string' && typeof code.programId === 'string' && typeof code.status === 'string'
+    ? { code: code.code, ownerType: code.ownerType, programId: code.programId, status: code.status }
+    : null;
+}
+
+function safeRewardsForOwner(
+  snapshots: Array<{ id: string; data(): RecordValue }>,
+  ownerId: string,
+  includeInvitedRewards: boolean,
+): RecordValue[] {
+  const byId = new Map<string, RecordValue>();
+  for (const snapshot of snapshots) byId.set(snapshot.id, snapshot.data());
+  return [...byId.entries()].flatMap(([id, reward]) => {
+    const inviter = reward.inviterId === ownerId;
+    const invited = includeInvitedRewards && reward.invitedUserId === ownerId;
+    const amountMinor = inviter ? reward.inviterCreditMinor : invited ? reward.invitedDiscountMinor : undefined;
+    return typeof amountMinor === 'number' && Number.isSafeInteger(amountMinor) && amountMinor >= 0
+      && typeof reward.currency === 'string' && CURRENCY_PATTERN.test(reward.currency) && typeof reward.status === 'string'
+      ? [{ id, role: inviter ? 'inviter' : 'invited', amountMinor, currency: reward.currency, status: reward.status }]
+      : [];
+  }).sort((left, right) => String(left.id).localeCompare(String(right.id)));
+}
+
+function creditTotals(rewards: RecordValue[]): RecordValue[] {
+  const totals = new Map<string, { approvedMinor: number; pendingMinor: number }>();
+  for (const reward of rewards) {
+    if ((reward.status !== 'approved' && reward.status !== 'pending') || typeof reward.currency !== 'string') continue;
+    const total = totals.get(reward.currency) ?? { approvedMinor: 0, pendingMinor: 0 };
+    if (reward.status === 'approved') total.approvedMinor += reward.amountMinor as number;
+    else total.pendingMinor += reward.amountMinor as number;
+    totals.set(reward.currency, total);
+  }
+  return [...totals.entries()].map(([currency, total]) => ({ currency, ...total }))
+    .sort((left, right) => String(left.currency).localeCompare(String(right.currency)));
+}
+
+async function authorizedBrandIds(uid: string, firestore: Firestore): Promise<string[]> {
+  const memberships = await firestore.collection('memberships').where('userId', '==', uid).get();
+  const ids = brandIdsFromMemberships(uid, memberships.docs as Array<{ data(): RecordValue }>);
+  if (ids.length > MAX_BRAND_WORKSPACES) error('resource-exhausted', 'Too many brands to load safely');
+  const brands = await Promise.all(ids.map(brandId => firestore.collection('brands').doc(brandId).get()));
+  return ids.filter((_, index) => brands[index].exists);
+}
+
 export async function getMyReferralWorkspace(
   caller: string | null,
   value: unknown,
@@ -463,36 +651,67 @@ export async function getMyReferralWorkspace(
 ): Promise<RecordValue> {
   const uid = callerUid(caller);
   record(value, [], 'Referral workspace scope is derived from the authenticated account');
-  const [codes, attributionSnapshot, inviterRewards, invitedRewards] = await Promise.all([
+  const [codes, attributionSnapshot, inviterRewards, invitedRewards, brandIds] = await Promise.all([
     firestore.collection('referralCodes').where('ownerId', '==', uid).get(),
     firestore.collection('referralAttributions').doc(uid).get(),
     firestore.collection('referralRewards').where('inviterId', '==', uid).get(),
     firestore.collection('referralRewards').where('invitedUserId', '==', uid).get(),
+    authorizedBrandIds(uid, firestore),
   ]);
   const safeCodes = codes.docs.flatMap(code => {
-    const value = code.data() as RecordValue;
-    return typeof value.code === 'string' && typeof value.ownerType === 'string'
-      && typeof value.programId === 'string' && typeof value.status === 'string'
-      ? [{ code: value.code, ownerType: value.ownerType, programId: value.programId, status: value.status }]
-      : [];
-  }).sort((left, right) => left.code.localeCompare(right.code));
+    const safeCode = safeCodeForWorkspace(code.data() as RecordValue);
+    return safeCode ? [safeCode] : [];
+  }).sort((left, right) => String(left.code).localeCompare(String(right.code)));
   const attribution = attributionSnapshot.data() as RecordValue | undefined;
   const safeAttribution = attribution && typeof attribution.code === 'string' && typeof attribution.programId === 'string'
     && attribution.expiresAt !== undefined
     ? { code: attribution.code, programId: attribution.programId, expiresAt: attribution.expiresAt }
     : undefined;
-  const rewardById = new Map<string, RecordValue>();
-  for (const snapshot of inviterRewards.docs) rewardById.set(snapshot.id, snapshot.data() as RecordValue);
-  for (const snapshot of invitedRewards.docs) rewardById.set(snapshot.id, snapshot.data() as RecordValue);
-  const rewards = [...rewardById.entries()].flatMap(([id, reward]) => {
-    const inviter = reward.inviterId === uid;
-    const invited = reward.invitedUserId === uid;
-    const amountMinor = inviter ? reward.inviterCreditMinor : invited ? reward.invitedDiscountMinor : undefined;
-    return typeof amountMinor === 'number' && typeof reward.currency === 'string' && typeof reward.status === 'string'
-      ? [{ id, role: inviter ? 'inviter' : 'invited', amountMinor, currency: reward.currency, status: reward.status }]
-      : [];
-  }).sort((left, right) => left.id.localeCompare(right.id));
-  return { codes: safeCodes, ...(safeAttribution ? { attribution: safeAttribution } : {}), rewards };
+  const rewards = safeRewardsForOwner(
+    [...inviterRewards.docs, ...invitedRewards.docs] as Array<{ id: string; data(): RecordValue }>, uid, true,
+  );
+  const brandWorkspaces = await Promise.all(brandIds.map(async brandId => {
+    const [brandCodes, brandRewardSnapshots] = await Promise.all([
+      firestore.collection('referralCodes').where('ownerId', '==', brandId).get(),
+      firestore.collection('referralRewards').where('inviterId', '==', brandId).get(),
+    ]);
+    const codes = brandCodes.docs.flatMap(code => {
+      const value = code.data() as RecordValue;
+      const safeCode = value.ownerType === 'brand' ? safeCodeForWorkspace(value) : null;
+      return safeCode ? [safeCode] : [];
+    }).sort((left, right) => String(left.code).localeCompare(String(right.code)));
+    const brandRewards = safeRewardsForOwner(
+      brandRewardSnapshots.docs as Array<{ id: string; data(): RecordValue }>, brandId, false,
+    );
+    return { brandId, codes, rewards: brandRewards, creditTotals: creditTotals(brandRewards) };
+  }));
+  return {
+    codes: safeCodes,
+    ...(safeAttribution ? { attribution: safeAttribution } : {}),
+    rewards,
+    ...(brandWorkspaces.length > 0 ? { brandWorkspaces } : {}),
+  };
+}
+
+export async function getPublicReferralCode(
+  value: unknown,
+  firestore: Firestore = admin.firestore(),
+  currentTime: Date = new Date(),
+): Promise<{ code: string; status: 'active' }> {
+  const input = record(value, ['code', 'countryCode'], 'Referral code lookup is invalid');
+  const code = normalizeReferralCode(input.code);
+  const countryCode = input.countryCode === undefined ? 'FR' : isoCountry(input.countryCode, 'countryCode');
+  const codeSnapshot = await firestore.collection('referralCodes').doc(code).get();
+  const referralCode = codeSnapshot.data() as RecordValue | undefined;
+  if (
+    !codeSnapshot.exists || !referralCode || referralCode.status !== 'active'
+    || (referralCode.ownerType !== 'client' && referralCode.ownerType !== 'freelancer' && referralCode.ownerType !== 'brand')
+    || typeof referralCode.ownerId !== 'string' || !DOCUMENT_ID_PATTERN.test(referralCode.ownerId)
+    || typeof referralCode.programId !== 'string' || !DOCUMENT_ID_PATTERN.test(referralCode.programId)
+  ) error('not-found', 'Referral code is unavailable');
+  const program = (await firestore.collection('referralPrograms').doc(referralCode.programId).get()).data() as RecordValue | undefined;
+  if (!validProgram(program, countryCode, currentTime)) error('not-found', 'Referral code is unavailable');
+  return { code, status: 'active' };
 }
 
 function safeProgramForOverview(id: string, program: RecordValue): RecordValue | null {
@@ -633,12 +852,25 @@ export const createReferralProgramFunction = functions.https.onCall((data, conte
   createReferralProgram(requirePlatformAdminContext(context), data, admin.firestore(), new Date(), true)
 ));
 
-export const reserveReferralCodeFunction = functions.https.onCall((data, context) => (
-  reserveReferralCode(context.auth?.uid ?? null, data)
+export const createMyReferralCodeFunction = functions.https.onCall((data, context) => (
+  createMyReferralCode(
+    context.auth?.uid ?? null,
+    data,
+    admin.firestore(),
+    new Date(),
+    generatedReferralCode,
+    context.auth?.token.superadmin === true || context.auth?.token.platformAdmin === true,
+  )
 ));
 
 export const attributeReferralFunction = functions.https.onCall((data, context) => (
-  attributeReferral(context.auth?.uid ?? null, data)
+  attributeReferral(
+    context.auth?.uid ?? null,
+    data,
+    admin.firestore(),
+    new Date(),
+    context.auth?.token.superadmin === true || context.auth?.token.platformAdmin === true,
+  )
 ));
 
 export const reviewReferralRewardFunction = functions.https.onCall((data, context) => (
@@ -647,6 +879,10 @@ export const reviewReferralRewardFunction = functions.https.onCall((data, contex
 
 export const getMyReferralWorkspaceFunction = functions.https.onCall((data, context) => (
   getMyReferralWorkspace(context.auth?.uid ?? null, data)
+));
+
+export const getPublicReferralCodeFunction = functions.https.onCall(data => (
+  getPublicReferralCode(data)
 ));
 
 export const getReferralMarketingOverviewFunction = functions.https.onCall((data, context) => (

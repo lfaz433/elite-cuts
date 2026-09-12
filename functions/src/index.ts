@@ -54,10 +54,11 @@ import { createConfirmedDepositFunction } from './deposits';
 import { listClientCampaignsFunction } from './campaigns';
 import {
   attributeReferralFunction,
+  createMyReferralCodeFunction,
   createReferralProgramFunction,
   getReferralMarketingOverviewFunction,
   getMyReferralWorkspaceFunction,
-  reserveReferralCodeFunction,
+  getPublicReferralCodeFunction,
   reviewReferralRewardFunction,
 } from './referrals';
 
@@ -98,11 +99,12 @@ export const reviewJobApplication = reviewJobApplicationFunction;
 export const createConfirmedDeposit = createConfirmedDepositFunction;
 export const listClientCampaigns = listClientCampaignsFunction;
 export const createReferralProgram = createReferralProgramFunction;
-export const reserveReferralCode = reserveReferralCodeFunction;
+export const createMyReferralCode = createMyReferralCodeFunction;
 export const attributeReferral = attributeReferralFunction;
 export const reviewReferralReward = reviewReferralRewardFunction;
 export const getReferralMarketingOverview = getReferralMarketingOverviewFunction;
 export const getMyReferralWorkspace = getMyReferralWorkspaceFunction;
+export const getPublicReferralCode = getPublicReferralCodeFunction;
 export { syncFreelancerPortfolio };
 
 function getStripe(): Stripe {
