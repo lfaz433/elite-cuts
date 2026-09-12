@@ -51,6 +51,13 @@ import {
 } from './jobs';
 import { createConfirmedDepositFunction } from './deposits';
 import { listClientCampaignsFunction } from './campaigns';
+import {
+  attributeReferralFunction,
+  createReferralProgramFunction,
+  getMyReferralWorkspaceFunction,
+  reserveReferralCodeFunction,
+  reviewReferralRewardFunction,
+} from './referrals';
 
 if (admin.apps.length === 0) {
   admin.initializeApp();
@@ -87,6 +94,11 @@ export const applyToJob = applyToJobFunction;
 export const reviewJobApplication = reviewJobApplicationFunction;
 export const createConfirmedDeposit = createConfirmedDepositFunction;
 export const listClientCampaigns = listClientCampaignsFunction;
+export const createReferralProgram = createReferralProgramFunction;
+export const reserveReferralCode = reserveReferralCodeFunction;
+export const attributeReferral = attributeReferralFunction;
+export const reviewReferralReward = reviewReferralRewardFunction;
+export const getMyReferralWorkspace = getMyReferralWorkspaceFunction;
 export { syncFreelancerPortfolio };
 
 function getStripe(): Stripe {
