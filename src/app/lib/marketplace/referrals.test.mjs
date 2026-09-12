@@ -23,6 +23,8 @@ new Function('require', 'module', 'exports', output)(
 const {
   captureReferralAttribution,
   creditLabel,
+  isActiveReferralCode,
+  readCapturedReferralAttribution,
   REFERRAL_ATTRIBUTION_STORAGE_KEY,
   REFERRAL_ATTRIBUTION_TTL_MS,
   referralLink,
@@ -50,4 +52,29 @@ test('stores a normalized referral code with a 30-day expiry', () => {
     capturedAt: 1_000,
     expiresAt: 1_000 + REFERRAL_ATTRIBUTION_TTL_MS,
   })]]);
+});
+
+test('removes captured referral attribution after its expiry', () => {
+  const removed = [];
+  const storage = {
+    getItem: () => JSON.stringify({ code: 'PARIS-5', capturedAt: 1_000, expiresAt: 2_000 }),
+    removeItem: key => removed.push(key),
+  };
+
+  assert.equal(readCapturedReferralAttribution(storage, 2_000), null);
+  assert.deepEqual(removed, [REFERRAL_ATTRIBUTION_STORAGE_KEY]);
+});
+
+test('rejects a locally captured code that the callable would reject', () => {
+  const writes = [];
+  const storage = { setItem: (key, value) => writes.push([key, value]) };
+
+  assert.equal(captureReferralAttribution('-PARIS', storage, 1_000), null);
+  assert.deepEqual(writes, []);
+});
+
+test('marks only active referral codes as shareable', () => {
+  assert.equal(isActiveReferralCode('active'), true);
+  assert.equal(isActiveReferralCode('paused'), false);
+  assert.equal(isActiveReferralCode('archived'), false);
 });

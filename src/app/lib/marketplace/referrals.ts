@@ -25,7 +25,7 @@ export interface ReferralWorkspace {
   rewards: ReferralReward[];
 }
 
-interface StoredReferralAttribution {
+export interface StoredReferralAttribution {
   code: string;
   capturedAt: number;
   expiresAt: number;
@@ -38,6 +38,7 @@ const getMyReferralWorkspaceCall = httpsCallable<Record<string, never>, unknown>
 
 export const REFERRAL_ATTRIBUTION_STORAGE_KEY = 'barberboard.referral-attribution';
 export const REFERRAL_ATTRIBUTION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const REFERRAL_CODE_PATTERN = /^[A-Z0-9][A-Z0-9-]{2,31}$/;
 
 function record(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -110,6 +111,10 @@ export function referralLink(origin: string, code: string): string {
   return `${origin.replace(/\/+$/, '')}/r/${encodeURIComponent(code)}`;
 }
 
+export function isActiveReferralCode(status: string): boolean {
+  return status === 'active';
+}
+
 export function creditLabel({ amountMinor, currency }: Pick<ReferralReward, 'amountMinor' | 'currency'>): string {
   return new Intl.NumberFormat('fr-FR', {
     style: 'currency',
@@ -125,7 +130,7 @@ export function captureReferralAttribution(
   now = Date.now(),
 ): StoredReferralAttribution | null {
   const normalizedCode = code.trim().toUpperCase();
-  if (!/^[A-Z0-9-]{3,32}$/.test(normalizedCode)) return null;
+  if (!REFERRAL_CODE_PATTERN.test(normalizedCode)) return null;
   const attribution = {
     code: normalizedCode,
     capturedAt: now,
@@ -133,4 +138,45 @@ export function captureReferralAttribution(
   };
   storage.setItem(REFERRAL_ATTRIBUTION_STORAGE_KEY, JSON.stringify(attribution));
   return attribution;
+}
+
+export function readCapturedReferralAttribution(
+  storage: Pick<Storage, 'getItem' | 'removeItem'>,
+  now = Date.now(),
+): StoredReferralAttribution | null {
+  const clear = () => {
+    try {
+      storage.removeItem(REFERRAL_ATTRIBUTION_STORAGE_KEY);
+    } catch {
+      // A blocked storage area is equivalent to having no usable attribution.
+    }
+  };
+  let raw: string | null;
+  try {
+    raw = storage.getItem(REFERRAL_ATTRIBUTION_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+  if (!raw) return null;
+  try {
+    const candidate = record(JSON.parse(raw));
+    if (
+      !candidate
+      || typeof candidate.code !== 'string'
+      || !Number.isFinite(candidate.capturedAt)
+      || !Number.isFinite(candidate.expiresAt)
+    ) {
+      clear();
+      return null;
+    }
+    const code = candidate.code.trim().toUpperCase();
+    if (!REFERRAL_CODE_PATTERN.test(code) || code !== candidate.code || candidate.expiresAt <= now) {
+      clear();
+      return null;
+    }
+    return { code, capturedAt: candidate.capturedAt, expiresAt: candidate.expiresAt };
+  } catch {
+    clear();
+    return null;
+  }
 }

@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import {
   creditLabel,
   getMyReferralWorkspace,
+  isActiveReferralCode,
   referralLink,
   type ReferralWorkspace,
 } from '../../lib/marketplace/referrals';
@@ -97,12 +98,12 @@ export default function ReferralCard({ title, description }: ReferralCardProps) 
                 <p className="font-mono text-lg font-black tracking-wider text-[#D4AF37]">{code.code}</p>
                 <p className="mt-1 text-xs text-white/50">Statut : {codeStatus(code.status)}</p>
               </div>
-              <div className="flex gap-2">
+              {isActiveReferralCode(code.status) ? <div className="flex gap-2">
                 <button type="button" onClick={() => void copyLink(code.code)} className="inline-flex items-center gap-2 rounded-xl border border-white/15 px-3 py-2 text-sm font-bold text-white/75 hover:bg-white/5">
                   {copiedCode === code.code ? <Check className="h-4 w-4 text-emerald-300" /> : <Copy className="h-4 w-4" />} Copier
                 </button>
                 <button type="button" onClick={() => void shareLink(code.code)} className="inline-flex items-center gap-2 rounded-xl bg-[#D4AF37] px-3 py-2 text-sm font-black text-black"><Share2 className="h-4 w-4" /> Partager</button>
-              </div>
+              </div> : <p className="text-sm text-white/45">Ce code ne peut pas être partagé tant qu’il n’est pas actif.</p>}
             </div>
           ))}
           {workspace.codes.length === 0 && <p className="rounded-2xl border border-dashed border-white/15 p-4 text-sm text-white/50">Aucun code de parrainage actif n’est disponible pour ce compte.</p>}
