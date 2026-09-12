@@ -17,19 +17,40 @@ export interface ReferralReward {
 }
 
 export interface ReferralWorkspace {
+  client: ReferralClientWorkspace;
+  freelancer: ReferralFreelancerWorkspace;
+  brandWorkspaces?: ReferralBrandWorkspace[];
+}
+
+export interface ReferralClientWorkspace {
+  ownerType: 'client';
   codes: ReferralCode[];
   attribution?: {
     code: string;
     programId: string;
   };
-  rewards: ReferralReward[];
-  brandWorkspaces?: ReferralBrandWorkspace[];
+  inviterRewards: ReferralReward[];
+  inviteeRewards: ReferralReward[];
+}
+
+export interface ReferralFreelancerWorkspace {
+  ownerType: 'freelancer';
+  codes: ReferralCode[];
+  inviterRewards: ReferralReward[];
 }
 
 export interface ReferralBrandWorkspace {
+  ownerType: 'brand';
   brandId: string;
   codes: ReferralCode[];
   rewards: ReferralReward[];
+  creditTotals: ReferralCreditTotal[];
+}
+
+export interface ReferralCreditTotal {
+  currency: string;
+  approvedMinor: number;
+  pendingMinor: number;
 }
 
 export interface CreatedReferralCode {
@@ -46,9 +67,16 @@ export interface PublicReferralCode {
 
 export type ReferralSurface = 'client' | 'freelancer' | 'brand';
 
+export type ReferralCodeScope =
+  | { type: 'client' }
+  | { type: 'freelancer' }
+  | { type: 'brand'; brandId: string };
+
 export interface ReferralWorkspaceScope {
   codes: ReferralCode[];
   rewards: ReferralReward[];
+  attribution?: ReferralClientWorkspace['attribution'];
+  creditTotals?: ReferralCreditTotal[];
 }
 
 export interface StoredReferralAttribution {
@@ -68,7 +96,7 @@ const getMyReferralWorkspaceCall = httpsCallable<Record<string, never>, unknown>
   functions,
   'getMyReferralWorkspace',
 );
-const createMyReferralCodeCall = httpsCallable<Record<string, never>, unknown>(functions, 'createMyReferralCode');
+const createMyReferralCodeCall = httpsCallable<{ scope: ReferralCodeScope }, unknown>(functions, 'createMyReferralCode');
 const getPublicReferralCodeCall = httpsCallable<{ code: string }, unknown>(functions, 'getPublicReferralCode');
 
 export const REFERRAL_ATTRIBUTION_STORAGE_KEY = 'barberboard.referral-attribution';
@@ -81,18 +109,18 @@ function record(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function parseCode(value: unknown): ReferralCode | null {
+function parseCode(value: unknown, expectedOwnerType: ReferralSurface): ReferralCode | null {
   const candidate = record(value);
   if (
     !candidate
     || typeof candidate.code !== 'string'
-    || typeof candidate.ownerType !== 'string'
+    || candidate.ownerType !== expectedOwnerType
     || typeof candidate.programId !== 'string'
     || typeof candidate.status !== 'string'
   ) return null;
   return {
     code: candidate.code,
-    ownerType: candidate.ownerType,
+    ownerType: expectedOwnerType,
     programId: candidate.programId,
     status: candidate.status,
   };
@@ -119,30 +147,80 @@ function parseReward(value: unknown): ReferralReward | null {
   };
 }
 
+function parseCodes(value: unknown, expectedOwnerType: ReferralSurface): ReferralCode[] | null {
+  if (!Array.isArray(value)) return null;
+  return value.map(code => parseCode(code, expectedOwnerType)).filter((code): code is ReferralCode => code !== null);
+}
+
+function parseRewards(value: unknown, expectedRole: ReferralReward['role']): ReferralReward[] | null {
+  if (!Array.isArray(value)) return null;
+  return value.map(parseReward).filter((reward): reward is ReferralReward => reward !== null)
+    .filter(reward => reward.role === expectedRole);
+}
+
+function parseCreditTotals(value: unknown): ReferralCreditTotal[] | null {
+  if (!Array.isArray(value)) return null;
+  return value.flatMap(value => {
+    const total = record(value);
+    if (
+      !total
+      || typeof total.currency !== 'string'
+      || !Number.isSafeInteger(total.approvedMinor)
+      || !Number.isSafeInteger(total.pendingMinor)
+      || total.approvedMinor < 0
+      || total.pendingMinor < 0
+    ) return [];
+    return [{ currency: total.currency, approvedMinor: total.approvedMinor, pendingMinor: total.pendingMinor }];
+  });
+}
+
 function parseReferralWorkspace(value: unknown): ReferralWorkspace | null {
   const candidate = record(value);
-  if (!candidate || !Array.isArray(candidate.codes) || !Array.isArray(candidate.rewards)) return null;
-  const attributionRecord = record(candidate.attribution);
+  const client = record(candidate?.client);
+  const freelancer = record(candidate?.freelancer);
+  if (!candidate || !client || !freelancer || client.ownerType !== 'client' || freelancer.ownerType !== 'freelancer') return null;
+  const attributionRecord = record(client.attribution);
   const attribution = attributionRecord
     && typeof attributionRecord.code === 'string'
     && typeof attributionRecord.programId === 'string'
     ? { code: attributionRecord.code, programId: attributionRecord.programId }
     : undefined;
+  const clientCodes = parseCodes(client.codes, 'client');
+  const clientInviterRewards = parseRewards(client.inviterRewards, 'inviter');
+  const clientInviteeRewards = parseRewards(client.inviteeRewards, 'invited');
+  const freelancerCodes = parseCodes(freelancer.codes, 'freelancer');
+  const freelancerInviterRewards = parseRewards(freelancer.inviterRewards, 'inviter');
+  if (!clientCodes || !clientInviterRewards || !clientInviteeRewards || !freelancerCodes || !freelancerInviterRewards) return null;
   const brandWorkspaces = Array.isArray(candidate.brandWorkspaces)
     ? candidate.brandWorkspaces.map(value => {
       const workspace = record(value);
-      if (!workspace || typeof workspace.brandId !== 'string' || !Array.isArray(workspace.codes) || !Array.isArray(workspace.rewards)) return null;
+      if (!workspace || workspace.ownerType !== 'brand' || typeof workspace.brandId !== 'string') return null;
+      const codes = parseCodes(workspace.codes, 'brand');
+      const rewards = parseRewards(workspace.rewards, 'inviter');
+      const creditTotals = parseCreditTotals(workspace.creditTotals);
+      if (!codes || !rewards || !creditTotals) return null;
       return {
+        ownerType: 'brand' as const,
         brandId: workspace.brandId,
-        codes: workspace.codes.map(parseCode).filter((code): code is ReferralCode => code !== null),
-        rewards: workspace.rewards.map(parseReward).filter((reward): reward is ReferralReward => reward !== null),
+        codes,
+        rewards,
+        creditTotals,
       };
     }).filter((workspace): workspace is ReferralBrandWorkspace => workspace !== null)
     : undefined;
   return {
-    codes: candidate.codes.map(parseCode).filter((code): code is ReferralCode => code !== null),
-    ...(attribution ? { attribution } : {}),
-    rewards: candidate.rewards.map(parseReward).filter((reward): reward is ReferralReward => reward !== null),
+    client: {
+      ownerType: 'client',
+      codes: clientCodes,
+      ...(attribution ? { attribution } : {}),
+      inviterRewards: clientInviterRewards,
+      inviteeRewards: clientInviteeRewards,
+    },
+    freelancer: {
+      ownerType: 'freelancer',
+      codes: freelancerCodes,
+      inviterRewards: freelancerInviterRewards,
+    },
     ...(brandWorkspaces && brandWorkspaces.length > 0 ? { brandWorkspaces } : {}),
   };
 }
@@ -154,8 +232,8 @@ export async function getMyReferralWorkspace(): Promise<ReferralWorkspace> {
   return workspace;
 }
 
-export async function createMyReferralCode(): Promise<CreatedReferralCode> {
-  const result = await createMyReferralCodeCall({});
+export async function createMyReferralCode(scope: ReferralCodeScope): Promise<CreatedReferralCode> {
+  const result = await createMyReferralCodeCall({ scope });
   const candidate = record(result.data);
   if (
     !candidate
@@ -200,26 +278,27 @@ export function referralWorkspaceForScope(
 ): ReferralWorkspaceScope {
   if (surface === 'brand') {
     const brandWorkspace = workspace.brandWorkspaces?.find(brand => brand.brandId === brandId);
-    return brandWorkspace ? { codes: brandWorkspace.codes, rewards: brandWorkspace.rewards } : { codes: [], rewards: [] };
+    return brandWorkspace
+      ? { codes: brandWorkspace.codes, rewards: brandWorkspace.rewards, creditTotals: brandWorkspace.creditTotals }
+      : { codes: [], rewards: [] };
   }
-  const hasAnotherPersonalScope = workspace.codes.some(code => (
-    (code.ownerType === 'client' || code.ownerType === 'freelancer') && code.ownerType !== surface
-  ));
-  return {
-    codes: workspace.codes.filter(code => code.ownerType === surface),
-    rewards: hasAnotherPersonalScope ? [] : workspace.rewards,
-  };
+  if (surface === 'client') {
+    return {
+      codes: workspace.client.codes,
+      rewards: [...workspace.client.inviterRewards, ...workspace.client.inviteeRewards],
+      ...(workspace.client.attribution ? { attribution: workspace.client.attribution } : {}),
+    };
+  }
+  return { codes: workspace.freelancer.codes, rewards: workspace.freelancer.inviterRewards };
 }
 
-export function canCreateReferralCodeForScope(
-  workspace: ReferralWorkspace,
+export function referralCodeScopeForSurface(
   surface: ReferralSurface,
   brandId?: string | null,
-): boolean {
-  if (surface === 'brand') {
-    return workspace.brandWorkspaces?.length === 1 && workspace.brandWorkspaces[0].brandId === brandId;
-  }
-  return (workspace.brandWorkspaces?.length ?? 0) === 0;
+): ReferralCodeScope | null {
+  if (surface === 'client') return { type: 'client' };
+  if (surface === 'freelancer') return { type: 'freelancer' };
+  return brandId ? { type: 'brand', brandId } : null;
 }
 
 export function creditLabel({ amountMinor, currency }: Pick<ReferralReward, 'amountMinor' | 'currency'>): string {
@@ -249,12 +328,12 @@ export function captureReferralAttribution(
 
 export async function validateAndCaptureReferralCode(
   code: string,
-  storage: Pick<Storage, 'setItem'>,
+  storageProvider: () => Pick<Storage, 'setItem'>,
   validate: (value: string) => Promise<PublicReferralCode> = getPublicReferralCode,
 ): Promise<StoredReferralAttribution | null> {
   const verified = await validate(code);
   try {
-    return captureReferralAttribution(verified.code, storage);
+    return captureReferralAttribution(verified.code, storageProvider());
   } catch {
     throw new ReferralStorageUnavailableError();
   }

@@ -16,7 +16,7 @@ export default function ReferralLanding() {
   useEffect(() => {
     let current = true;
     setState({ status: 'loading' });
-    void validateAndCaptureReferralCode(code, window.localStorage).then(capture => {
+    void validateAndCaptureReferralCode(code, () => window.localStorage).then(capture => {
       if (!current) return;
       setState(capture ? { status: 'verified', code: capture.code } : { status: 'storage-unavailable' });
     }).catch(reason => {
