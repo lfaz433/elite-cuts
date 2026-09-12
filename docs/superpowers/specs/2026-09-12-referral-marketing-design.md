@@ -34,7 +34,7 @@ One platform program is active at a time. It includes `status` (`draft`, `active
 
 ### `referralCodes/{code}`
 
-Maps a normalized, case-insensitive code to its owner: `ownerType` (`client`, `freelancer`, `brand`), `ownerId`, `programId`, status, and creation time. Codes are globally unique and reserved transactionally.
+Maps a normalized, case-insensitive code to its owner: `ownerType` (`client`, `freelancer`, `brand`), `ownerId`, `programId`, status, and creation time. Codes are globally unique and reserved transactionally. Workspace reads scope a code by the `ownerId` and `ownerType` pair, never by an identifier alone.
 
 ### `referralAttributions/{invitedUserId}`
 
@@ -42,11 +42,11 @@ Stores the immutable selected code, inviter identity, program, recorded time, so
 
 ### `referralRewards/{rewardId}`
 
-Stores the referral, booking, invited user, inviter, two reward legs, status (`pending`, `approved`, `rejected`, `cancelled`), rejection reason, approval actor, and timestamps. A composite unique key prevents duplicate rewards for one program and invited user.
+Stores the referral, booking, invited user, inviter, two reward legs, status (`pending`, `approved`, `rejected`, `cancelled`), rejection reason, approval actor, and timestamps. Each leg has its durable namespace: `inviterOwnerId`/`inviterOwnerType` comes from the reserved referral code, while `invitedOwnerId`/`invitedOwnerType` identifies the invited client. A composite unique key prevents duplicate rewards for one program and invited user.
 
 ### `creditLedgers/{ledgerId}`
 
-Append-only record of approved credits and redeemed discounts. Balances are derived server-side; clients never edit a balance document.
+Append-only record of approved credits and redeemed discounts. Each record includes `ownerId` and `ownerType`, copied from the validated reward leg, so balances are derived in the correct client/freelancer/brand namespace. Clients never edit a balance document.
 
 ## Super Admin marketing dashboard
 

@@ -44,7 +44,7 @@ Added authenticated `createMyReferralCode` and exported it from `functions/src/i
 - checks existing active codes for that exact owner/persona/program and returns one unchanged;
 - creates a cryptographically random valid code in a transaction and retries a collision up to eight times.
 
-The old public `reserveReferralCode` callable has been removed from the Functions exports. The internal domain helper remains server-only.
+The old public `reserveReferralCode` callable has been removed from the Functions source exports. The deployed staging endpoint is not removed until a later successful staging Functions deployment; no deployment is part of this remediation. The internal domain helper remains server-only.
 
 ### Client-only attribution
 
@@ -71,3 +71,33 @@ TDD evidence:
 ## Follow-up boundary
 
 Firestore rules remain outside this server-only remediation. The planned referral policy work must continue to deny browser direct writes for every referral collection, including `referralProgramState`, and Task 3 can consume the newly exported `getPublicReferralCode` and `createMyReferralCode` callables.
+
+## Follow-up server remediation: namespace isolation and legacy brand admins
+
+### Legacy admin membership
+
+`createMyReferralCode` now evaluates active `principal_admin` and `salon_admin` memberships before rejecting ordinary legacy profile roles. A legacy `users.role === 'admin'` account can therefore create a brand code only after its active, existing-brand membership authorizes that brand. The same legacy role without an eligible membership remains denied. Super Admin/platform-admin identities remain denied even if they have a membership.
+
+### Durable namespaces
+
+New rewards persist both reward-leg namespaces in the creating transaction:
+
+- `inviterOwnerId` / `inviterOwnerType` come directly from the validated referral code;
+- `invitedOwnerId` / `invitedOwnerType` identify the invited client.
+
+Approval validates any already-present namespace against that same code, backfills an older pending reward only inside the approval transaction when the code unambiguously verifies it, and writes each ledger's `ownerId` plus `ownerType` atomically. Workspace reads use both components in Firestore queries for codes, rewards, and brand ledgers. Brand approved totals now derive from typed approved ledger entries; pending totals derive from typed pending rewards.
+
+Historical reward or ledger records without the new namespace are deliberately excluded from workspace projections. This avoids treating a client UID and a brand ID with the same string as the same owner. Existing pending rewards can still be reviewed if their stored code verifies the intended inviter; approval backfills their namespace before issuing credits.
+
+Focused regression coverage includes a legacy admin with and without brand authority, typed reward/ledger writes and approval backfill, and a deliberate `userId === brandId === 'X'` collision proving that neither workspace reads the other namespace's codes, rewards, or ledger totals.
+
+Verification for this follow-up:
+
+```bash
+npm --prefix functions exec jest -- src/referrals.test.ts --runInBand
+npm --prefix functions run build
+```
+
+Result: 1 suite passed, 39 tests passed; the Functions TypeScript build exited successfully.
+
+`npm --prefix functions run lint` was also attempted but cannot run in this repository because ESLint 8 finds no configuration file under `functions/` (it reports the search beginning at `functions/lib`). This remediation does not add or change lint configuration.
