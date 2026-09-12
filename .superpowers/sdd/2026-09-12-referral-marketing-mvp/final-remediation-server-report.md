@@ -266,3 +266,18 @@ firebase emulators:exec --only firestore "PATH=/opt/homebrew/bin:$PATH /opt/home
 ```
 
 Result: referral domain tests passed (59), booking lifecycle tests passed (22), Functions TypeScript build passed, and the two Firestore emulator rule suites passed (10).
+
+## Follow-up server remediation: mutually-exclusive audit-filter type
+
+The exported `ReferralAuditFilter` now uses the same `never`-property union as the documented v2 contract. A TypeScript caller can provide no filter or exactly one of `code`, `programId`, `rewardId`, or `action`, plus an optional limit; combining filters fails at compile time as well as at runtime. No callable input parser or runtime response changed.
+
+Added `functions/src/referrals.contract.test.ts` as a compile-time contract check. Its `@ts-expect-error` combined-filter case failed against the prior permissive union and is now consumed by the strict type, while the individual variants compile.
+
+Verification for this remediation:
+
+```bash
+npm --prefix functions run build
+npm --prefix functions exec jest -- src/referrals.test.ts --runInBand
+```
+
+Result: Functions TypeScript build passed (including the compile-only contract test); referral domain tests passed (59).

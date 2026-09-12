@@ -79,11 +79,11 @@ export interface ReferralTopReferrer {
 }
 
 export type ReferralAuditFilter =
-  | { limit?: number }
-  | { code: string; limit?: number }
-  | { programId: string; limit?: number }
-  | { rewardId: string; limit?: number }
-  | { action: string; limit?: number };
+  | { limit?: number; code?: never; programId?: never; rewardId?: never; action?: never }
+  | { code: string; limit?: number; programId?: never; rewardId?: never; action?: never }
+  | { programId: string; limit?: number; code?: never; rewardId?: never; action?: never }
+  | { rewardId: string; limit?: number; code?: never; programId?: never; action?: never }
+  | { action: string; limit?: number; code?: never; programId?: never; rewardId?: never };
 
 export interface ReferralMarketingOverview {
   contractVersion: 2;
