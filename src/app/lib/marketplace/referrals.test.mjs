@@ -44,6 +44,7 @@ const {
   referralLink,
   referralCodeScopeForSurface,
   referralWorkspaceForScope,
+  runWithReferralActionLock,
   validateAndCaptureReferralCode,
 } = loaded.exports;
 
@@ -126,23 +127,37 @@ test('accepts a link for sharing only after public server validation', async () 
   assert.deepEqual(callableCalls, [['getPublicReferralCode', { code: 'ec-client' }]]);
 });
 
+test('releases the referral action lock after failed validation so the user can retry', async () => {
+  const lock = { current: null };
+  await assert.rejects(
+    runWithReferralActionLock(lock, 'EC-CLIENT', async () => { throw new Error('unavailable'); }),
+    /unavailable/,
+  );
+  assert.equal(lock.current, null);
+
+  let retried = false;
+  assert.equal(await runWithReferralActionLock(lock, 'EC-CLIENT', async () => { retried = true; }), true);
+  assert.equal(retried, true);
+  assert.equal(lock.current, null);
+});
+
 test('parses and keeps type-preserving nested workspaces isolated by surface', async () => {
   callableResponses.set('getMyReferralWorkspace', { data: {
     client: {
       ownerType: 'client',
       codes: [{ code: 'CLIENT-A', ownerType: 'client', programId: 'program-a', status: 'active' }],
       attribution: { code: 'WELCOME-1', programId: 'program-a' },
-      inviterRewards: [{ id: 'client-inviter', role: 'inviter', amountMinor: 500, currency: 'EUR', status: 'approved' }],
-      inviteeRewards: [{ id: 'client-invitee', role: 'invited', amountMinor: 200, currency: 'EUR', status: 'pending' }],
+      inviterRewards: [{ id: 'client-inviter', ownerType: 'client', role: 'inviter', amountMinor: 500, currency: 'EUR', status: 'approved' }],
+      inviteeRewards: [{ id: 'client-invitee', ownerType: 'client', role: 'invited', amountMinor: 200, currency: 'EUR', status: 'pending' }],
     },
     freelancer: {
       ownerType: 'freelancer',
       codes: [{ code: 'FREELANCER-A', ownerType: 'freelancer', programId: 'program-a', status: 'active' }],
-      inviterRewards: [{ id: 'freelancer-inviter', role: 'inviter', amountMinor: 300, currency: 'EUR', status: 'approved' }],
+      inviterRewards: [{ id: 'freelancer-inviter', ownerType: 'freelancer', role: 'inviter', amountMinor: 300, currency: 'EUR', status: 'approved' }],
     },
     brandWorkspaces: [
-      { ownerType: 'brand', brandId: 'brand-a', codes: [{ code: 'BRAND-A', ownerType: 'brand', programId: 'program-a', status: 'active' }], rewards: [{ id: 'brand-a-reward', role: 'inviter', amountMinor: 300, currency: 'EUR', status: 'approved' }], creditTotals: [{ currency: 'EUR', approvedMinor: 300, pendingMinor: 0 }] },
-      { ownerType: 'brand', brandId: 'brand-b', codes: [{ code: 'BRAND-B', ownerType: 'brand', programId: 'program-a', status: 'active' }], rewards: [{ id: 'brand-b-reward', role: 'inviter', amountMinor: 700, currency: 'EUR', status: 'approved' }], creditTotals: [{ currency: 'EUR', approvedMinor: 500, pendingMinor: 200 }] },
+      { ownerType: 'brand', brandId: 'brand-a', codes: [{ code: 'BRAND-A', ownerType: 'brand', programId: 'program-a', status: 'active' }], rewards: [{ id: 'brand-a-reward', ownerType: 'brand', role: 'inviter', amountMinor: 300, currency: 'EUR', status: 'approved' }], creditTotals: [{ currency: 'EUR', approvedMinor: 300, pendingMinor: 0 }] },
+      { ownerType: 'brand', brandId: 'brand-b', codes: [{ code: 'BRAND-B', ownerType: 'brand', programId: 'program-a', status: 'active' }], rewards: [{ id: 'brand-b-reward', ownerType: 'brand', role: 'inviter', amountMinor: 700, currency: 'EUR', status: 'approved' }], creditTotals: [{ currency: 'EUR', approvedMinor: 500, pendingMinor: 200 }] },
     ],
   } });
   const workspace = await getMyReferralWorkspace();
@@ -155,6 +170,20 @@ test('parses and keeps type-preserving nested workspaces isolated by surface', a
   assert.equal(referralWorkspaceForScope(workspace, 'client').attribution?.code, 'WELCOME-1');
   assert.deepEqual(referralWorkspaceForScope(workspace, 'freelancer').rewards.map(reward => reward.id), ['freelancer-inviter']);
   assert.equal(referralWorkspaceForScope(workspace, 'freelancer').attribution, undefined);
+});
+
+test('does not place mismatched or untyped rewards into another referral surface', async () => {
+  callableResponses.set('getMyReferralWorkspace', { data: {
+    client: {
+      ownerType: 'client', codes: [], inviterRewards: [
+        { id: 'wrong-owner', ownerType: 'freelancer', role: 'inviter', amountMinor: 500, currency: 'EUR', status: 'approved' },
+        { id: 'legacy-untyped', role: 'inviter', amountMinor: 500, currency: 'EUR', status: 'approved' },
+      ], inviteeRewards: [],
+    },
+    freelancer: { ownerType: 'freelancer', codes: [], inviterRewards: [] },
+  } });
+  const workspace = await getMyReferralWorkspace();
+  assert.deepEqual(referralWorkspaceForScope(workspace, 'client').rewards, []);
 });
 
 test('validates a public code before evaluating a local storage getter', async () => {

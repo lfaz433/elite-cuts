@@ -10,6 +10,7 @@ export interface ReferralCode {
 
 export interface ReferralReward {
   id: string;
+  ownerType: ReferralSurface;
   role: 'inviter' | 'invited';
   amountMinor: number;
   currency: string;
@@ -126,12 +127,17 @@ function parseCode(value: unknown, expectedOwnerType: ReferralSurface): Referral
   };
 }
 
-function parseReward(value: unknown): ReferralReward | null {
+function parseReward(
+  value: unknown,
+  expectedOwnerType: ReferralSurface,
+  expectedRole: ReferralReward['role'],
+): ReferralReward | null {
   const candidate = record(value);
   if (
     !candidate
     || typeof candidate.id !== 'string'
-    || (candidate.role !== 'inviter' && candidate.role !== 'invited')
+    || candidate.ownerType !== expectedOwnerType
+    || candidate.role !== expectedRole
     || typeof candidate.amountMinor !== 'number'
     || !Number.isInteger(candidate.amountMinor)
     || candidate.amountMinor < 0
@@ -140,7 +146,8 @@ function parseReward(value: unknown): ReferralReward | null {
   ) return null;
   return {
     id: candidate.id,
-    role: candidate.role,
+    ownerType: expectedOwnerType,
+    role: expectedRole,
     amountMinor: candidate.amountMinor,
     currency: candidate.currency,
     status: candidate.status,
@@ -152,10 +159,14 @@ function parseCodes(value: unknown, expectedOwnerType: ReferralSurface): Referra
   return value.map(code => parseCode(code, expectedOwnerType)).filter((code): code is ReferralCode => code !== null);
 }
 
-function parseRewards(value: unknown, expectedRole: ReferralReward['role']): ReferralReward[] | null {
+function parseRewards(
+  value: unknown,
+  expectedOwnerType: ReferralSurface,
+  expectedRole: ReferralReward['role'],
+): ReferralReward[] | null {
   if (!Array.isArray(value)) return null;
-  return value.map(parseReward).filter((reward): reward is ReferralReward => reward !== null)
-    .filter(reward => reward.role === expectedRole);
+  return value.map(reward => parseReward(reward, expectedOwnerType, expectedRole))
+    .filter((reward): reward is ReferralReward => reward !== null);
 }
 
 function parseCreditTotals(value: unknown): ReferralCreditTotal[] | null {
@@ -186,17 +197,17 @@ function parseReferralWorkspace(value: unknown): ReferralWorkspace | null {
     ? { code: attributionRecord.code, programId: attributionRecord.programId }
     : undefined;
   const clientCodes = parseCodes(client.codes, 'client');
-  const clientInviterRewards = parseRewards(client.inviterRewards, 'inviter');
-  const clientInviteeRewards = parseRewards(client.inviteeRewards, 'invited');
+  const clientInviterRewards = parseRewards(client.inviterRewards, 'client', 'inviter');
+  const clientInviteeRewards = parseRewards(client.inviteeRewards, 'client', 'invited');
   const freelancerCodes = parseCodes(freelancer.codes, 'freelancer');
-  const freelancerInviterRewards = parseRewards(freelancer.inviterRewards, 'inviter');
+  const freelancerInviterRewards = parseRewards(freelancer.inviterRewards, 'freelancer', 'inviter');
   if (!clientCodes || !clientInviterRewards || !clientInviteeRewards || !freelancerCodes || !freelancerInviterRewards) return null;
   const brandWorkspaces = Array.isArray(candidate.brandWorkspaces)
     ? candidate.brandWorkspaces.map(value => {
       const workspace = record(value);
       if (!workspace || workspace.ownerType !== 'brand' || typeof workspace.brandId !== 'string') return null;
       const codes = parseCodes(workspace.codes, 'brand');
-      const rewards = parseRewards(workspace.rewards, 'inviter');
+      const rewards = parseRewards(workspace.rewards, 'brand', 'inviter');
       const creditTotals = parseCreditTotals(workspace.creditTotals);
       if (!codes || !rewards || !creditTotals) return null;
       return {
@@ -299,6 +310,25 @@ export function referralCodeScopeForSurface(
   if (surface === 'client') return { type: 'client' };
   if (surface === 'freelancer') return { type: 'freelancer' };
   return brandId ? { type: 'brand', brandId } : null;
+}
+
+export interface ReferralActionLock {
+  current: string | null;
+}
+
+export async function runWithReferralActionLock(
+  lock: ReferralActionLock,
+  code: string,
+  action: () => Promise<void>,
+): Promise<boolean> {
+  if (lock.current) return false;
+  lock.current = code;
+  try {
+    await action();
+    return true;
+  } finally {
+    lock.current = null;
+  }
 }
 
 export function creditLabel({ amountMinor, currency }: Pick<ReferralReward, 'amountMinor' | 'currency'>): string {

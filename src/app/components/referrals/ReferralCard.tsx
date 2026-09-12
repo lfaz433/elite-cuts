@@ -11,6 +11,7 @@ import {
   referralLink,
   referralCodeScopeForSurface,
   referralWorkspaceForScope,
+  runWithReferralActionLock,
   type ReferralSurface,
   type ReferralWorkspace,
   type ReferralWorkspaceScope,
@@ -94,6 +95,7 @@ export default function ReferralCard({ title, description, surface, brandId }: R
     mounted.current = true;
     setWorkspace(null);
     setVerifiedCodes({});
+    setError(false);
     void loadWorkspace();
     return () => {
       mounted.current = false;
@@ -123,47 +125,44 @@ export default function ReferralCard({ title, description, surface, brandId }: R
     }
   };
   const useVerifiedLink = async (code: string, action: 'copy' | 'share') => {
-    if (activeAction.current) return;
-    activeAction.current = code;
-    setVerifyingCode(code);
-    const referralCode = codes.find(item => item.code === code);
-    try {
-      const verified = await getPublicReferralCode(code);
-      if (!referralCode || !isShareableReferralCode(referralCode, verified)) {
-        if (mounted.current) {
-          setVerifiedCodes(current => ({ ...current, [code]: false }));
+    await runWithReferralActionLock(activeAction, code, async () => {
+      setVerifyingCode(code);
+      const referralCode = codes.find(item => item.code === code);
+      try {
+        try {
+          const verified = await getPublicReferralCode(code);
+          if (!referralCode || !isShareableReferralCode(referralCode, verified)) {
+            if (mounted.current) setVerifiedCodes(current => ({ ...current, [code]: false }));
+            toast.error('Ce lien de parrainage n’est plus disponible.');
+            return;
+          }
+        } catch {
+          if (mounted.current) setVerifiedCodes(current => ({ ...current, [code]: false }));
+          toast.error('Ce lien de parrainage n’est plus disponible.');
+          return;
         }
-        toast.error('Ce lien de parrainage n’est plus disponible.');
-        return;
+        try {
+          const link = referralLink(window.location.origin, code);
+          if (action === 'share' && navigator.share) {
+            await navigator.share({ title: 'Barberboard', text: 'Utilisez mon lien de parrainage Barberboard.', url: link });
+            return;
+          }
+          if (!navigator.clipboard) {
+            toast.error('Le presse-papiers n’est pas disponible sur cet appareil.');
+            return;
+          }
+          await navigator.clipboard.writeText(link);
+          if (mounted.current) setCopiedCode(code);
+          toast.success('Lien de parrainage copié.');
+        } catch (reason) {
+          if ((reason as DOMException).name !== 'AbortError') {
+            toast.error(action === 'share' ? 'Le partage est indisponible pour le moment.' : 'Impossible de copier le lien de parrainage.');
+          }
+        }
+      } finally {
+        if (mounted.current) setVerifyingCode(null);
       }
-    } catch {
-      if (mounted.current) {
-        setVerifiedCodes(current => ({ ...current, [code]: false }));
-      }
-      toast.error('Ce lien de parrainage n’est plus disponible.');
-      return;
-    }
-    try {
-      const link = referralLink(window.location.origin, code);
-      if (action === 'share' && navigator.share) {
-        await navigator.share({ title: 'Barberboard', text: 'Utilisez mon lien de parrainage Barberboard.', url: link });
-        return;
-      }
-      if (!navigator.clipboard) {
-        toast.error('Le presse-papiers n’est pas disponible sur cet appareil.');
-        return;
-      }
-      await navigator.clipboard.writeText(link);
-      if (mounted.current) setCopiedCode(code);
-      toast.success('Lien de parrainage copié.');
-    } catch (reason) {
-      if ((reason as DOMException).name !== 'AbortError') {
-        toast.error(action === 'share' ? 'Le partage est indisponible pour le moment.' : 'Impossible de copier le lien de parrainage.');
-      }
-    } finally {
-      activeAction.current = null;
-      if (mounted.current) setVerifyingCode(null);
-    }
+    });
   };
   const copyLink = async (code: string) => {
     await useVerifiedLink(code, 'copy');
