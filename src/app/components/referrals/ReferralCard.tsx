@@ -6,6 +6,7 @@ import {
   createMyReferralCode,
   getMyReferralWorkspace,
   getPublicReferralCode,
+  hasShareableReferralCode,
   isActiveReferralCode,
   isShareableReferralCode,
   referralLink,
@@ -198,7 +199,7 @@ export default function ReferralCard({ title, description, surface, brandId }: R
               </div> : <p className="text-sm text-white/45">{isActiveReferralCode(code.status) ? 'Le programme de ce code est indisponible pour le moment.' : 'Ce code ne peut pas être partagé tant qu’il n’est pas actif.'}</p>}
             </div>
           ))}
-          {(!codes.some(code => isActiveReferralCode(code.status))) && <div className="rounded-2xl border border-dashed border-white/15 p-4"><p className="text-sm text-white/50">{canCreate ? 'Créez votre lien de parrainage pour cet espace. Les règles d’éligibilité sont vérifiées côté serveur.' : surface === 'brand' && !brandId ? 'Sélectionnez une marque pour créer un lien de parrainage.' : 'Cet espace de marque n’est pas autorisé pour le parrainage.'}</p>{canCreate && <button type="button" disabled={creatingCode} onClick={() => void createCode()} className="mt-3 rounded-xl bg-[#D4AF37] px-4 py-2.5 text-sm font-black text-black disabled:opacity-50">{creatingCode ? 'Création du lien…' : 'Créer mon lien de parrainage'}</button>}</div>}
+          {!hasShareableReferralCode(codes, verifiedCodes) && <div className="rounded-2xl border border-dashed border-white/15 p-4"><p className="text-sm text-white/50">{canCreate ? 'Aucun lien actuellement partageable n’est disponible pour cet espace. Créez ou récupérez le lien du programme en cours.' : surface === 'brand' && !brandId ? 'Sélectionnez une marque pour créer un lien de parrainage.' : 'Cet espace de marque n’est pas autorisé pour le parrainage.'}</p>{canCreate && <button type="button" disabled={creatingCode} onClick={() => void createCode()} className="mt-3 rounded-xl bg-[#D4AF37] px-4 py-2.5 text-sm font-black text-black disabled:opacity-50">{creatingCode ? 'Création du lien…' : 'Créer mon lien de parrainage'}</button>}</div>}
         </div>
         {credits.length > 0 && <div className="mt-5 border-t border-white/10 pt-4"><p className="text-xs font-black uppercase tracking-[0.16em] text-white/45">Mes crédits</p><div className="mt-2 flex flex-wrap gap-2">{credits.map(credit => <span key={credit.currency} className="rounded-full border border-[#D4AF37]/25 bg-[#D4AF37]/10 px-3 py-1.5 text-sm font-bold text-[#f5dfa0]">{creditLabel(credit)}{credit.pending ? ' · inclut un montant en attente' : ''}</span>)}</div></div>}
         {surface === 'client' && activeScope.attribution && <p className="mt-5 text-sm text-white/55">Code invité enregistré : <span className="font-mono font-bold text-white">{activeScope.attribution.code}</span>. Il sera pris en compte si votre première réservation est terminée.</p>}

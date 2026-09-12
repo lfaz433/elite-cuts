@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Gift } from 'lucide-react';
 import { Link, useParams } from 'react-router';
-import { ReferralStorageUnavailableError, validateAndCaptureReferralCode } from '../../lib/marketplace/referrals';
+import { ReferralStorageUnavailableError, recordVerifiedReferralVisit, validateAndCaptureReferralCode } from '../../lib/marketplace/referrals';
 
 type ReferralState =
   | { status: 'loading' }
@@ -18,6 +18,7 @@ export default function ReferralLanding() {
     setState({ status: 'loading' });
     void validateAndCaptureReferralCode(code, () => window.localStorage).then(capture => {
       if (!current) return;
+      if (capture) void recordVerifiedReferralVisit(capture.code);
       setState(capture ? { status: 'verified', code: capture.code } : { status: 'storage-unavailable' });
     }).catch(reason => {
       if (!current) return;

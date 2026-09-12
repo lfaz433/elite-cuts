@@ -2,6 +2,7 @@ import { initializeApp } from 'firebase/app';
 import { getFirestore, enableMultiTabIndexedDbPersistence } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { getFunctions } from 'firebase/functions';
+import { initializeAppCheck, ReCaptchaV3Provider, type AppCheck } from 'firebase/app-check';
 
 // Updated at: 2026-05-15 17:23:00
 export const firebaseConfig = {
@@ -15,6 +16,25 @@ export const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
+
+const referralAppCheckSiteKey = import.meta.env.VITE_FIREBASE_APPCHECK_RECAPTCHA_SITE_KEY?.trim() || '';
+const hasValidStagingReferralAppCheckConfig = firebaseConfig.projectId === 'elite-cuts-staging'
+  && /^6[A-Za-z0-9_-]{20,}$/.test(referralAppCheckSiteKey);
+
+function initializeReferralAppCheck(): AppCheck | null {
+  if (!hasValidStagingReferralAppCheckConfig) return null;
+  try {
+    return initializeAppCheck(app, {
+      provider: new ReCaptchaV3Provider(referralAppCheckSiteKey),
+      isTokenAutoRefreshEnabled: true,
+    });
+  } catch {
+    return null;
+  }
+}
+
+export const referralAppCheck = initializeReferralAppCheck();
+export const referralAppCheckEnabled = referralAppCheck !== null;
 export const db = getFirestore(app);
 
 // Enable offline persistence

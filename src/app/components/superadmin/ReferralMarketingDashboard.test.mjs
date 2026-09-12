@@ -30,7 +30,16 @@ test('calculates referral funnel conversion rates from real counts', () => {
 });
 
 test('labels pending referral credits for manual review', () => {
-  const { rewardBadge } = loadDashboard();
+  const { telemetryText } = loadDashboard();
 
-  assert.equal(rewardBadge('pending'), 'À examiner');
+  assert.equal(telemetryText(0, false), 'Indisponible (App Check désactivé)');
+});
+
+test('parses only the exact v2 overview contract and preserves typed currency keys', () => {
+  const { parseReferralMarketingOverview, referrerKey } = loadDashboard();
+  const fixture = { contractVersion: 2, programs: [], funnel: { codes: 1, validatedVisits: 0, attributions: 1, attributedSignups: 1, rewards: 1, eligibleFirstBookings: 1, pending: 1, pendingRewards: 1, approved: 0, approvedRewards: 0, rejected: 0 }, approvedCreditTotals: [{ currency: 'EUR', amountMinor: 500 }], topReferrers: [{ inviterId: 'same-id', inviterOwnerType: 'brand', referrals: 1, rewards: 1, approvedCreditTotals: [{ currency: 'EUR', amountMinor: 500 }] }], pendingRewards: [], flaggedRewards: [], auditTrail: [] };
+  const overview = parseReferralMarketingOverview(fixture);
+  assert.equal(overview.contractVersion, 2);
+  assert.equal(referrerKey(overview.topReferrers[0]), 'brand:same-id');
+  assert.equal(parseReferralMarketingOverview({ ...fixture, contractVersion: 1 }), null);
 });

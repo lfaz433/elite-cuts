@@ -1,5 +1,5 @@
 import { httpsCallable } from 'firebase/functions';
-import { functions } from '../firebase';
+import { functions, referralAppCheckEnabled } from '../firebase';
 
 export interface ReferralCode {
   code: string;
@@ -99,6 +99,11 @@ const getMyReferralWorkspaceCall = httpsCallable<Record<string, never>, unknown>
 );
 const createMyReferralCodeCall = httpsCallable<{ scope: ReferralCodeScope }, unknown>(functions, 'createMyReferralCode');
 const getPublicReferralCodeCall = httpsCallable<{ code: string }, unknown>(functions, 'getPublicReferralCode');
+const recordReferralVisitCall = httpsCallable<{ code: string }, unknown>(
+  functions,
+  'recordReferralVisit',
+  { limitedUseAppCheckTokens: true },
+);
 
 export const REFERRAL_ATTRIBUTION_STORAGE_KEY = 'barberboard.referral-attribution';
 export const REFERRAL_ATTRIBUTION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -280,6 +285,23 @@ export function isActiveReferralCode(status: string): boolean {
 
 export function isShareableReferralCode(code: ReferralCode, verified: PublicReferralCode | null): boolean {
   return isActiveReferralCode(code.status) && verified?.status === 'active' && verified.code === code.code;
+}
+
+export function hasShareableReferralCode(codes: ReferralCode[], verifiedCodes: Record<string, boolean>): boolean {
+  return codes.some(code => verifiedCodes[code.code] === true);
+}
+
+export async function recordVerifiedReferralVisit(code: string): Promise<boolean> {
+  if (!referralAppCheckEnabled) return false;
+  try {
+    const result = await recordReferralVisitCall({ code });
+    const value = record(result.data);
+    return value?.code === code && value.status === 'active' && typeof value.recorded === 'boolean'
+      ? value.recorded
+      : false;
+  } catch {
+    return false;
+  }
 }
 
 export function referralWorkspaceForScope(

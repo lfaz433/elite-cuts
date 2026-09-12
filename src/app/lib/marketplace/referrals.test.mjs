@@ -35,6 +35,7 @@ const {
   creditLabel,
   getMyReferralWorkspace,
   getPublicReferralCode,
+  hasShareableReferralCode,
   isActiveReferralCode,
   isShareableReferralCode,
   readCapturedReferralAttribution,
@@ -95,6 +96,12 @@ test('marks only active referral codes as shareable', () => {
   assert.equal(isActiveReferralCode('active'), true);
   assert.equal(isActiveReferralCode('paused'), false);
   assert.equal(isActiveReferralCode('archived'), false);
+});
+
+test('allows scoped code creation after program rollover leaves no server-shareable code', () => {
+  const codes = [{ code: 'EC-OLD', ownerType: 'client', programId: 'program-old', status: 'active' }];
+  assert.equal(hasShareableReferralCode(codes, { 'EC-OLD': false }), false);
+  assert.equal(hasShareableReferralCode(codes, { 'EC-OLD': true }), true);
 });
 
 test('creates or retrieves codes using only the explicit authenticated scope', async () => {
