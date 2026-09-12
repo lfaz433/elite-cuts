@@ -12,6 +12,18 @@ type ReferralCodeScope =
   | { type: 'freelancer' }
   | { type: 'brand'; brandId: string };
 
+export interface ReferralCompletionEvidence {
+  version: 1;
+  eventId: string;
+  updateTimeMs: number;
+}
+
+export interface PublicReferralVisitResult {
+  code: string;
+  status: 'active';
+  recorded: boolean;
+}
+
 export interface ReferralMarketingOverview {
   contractVersion: 2;
   programs: RecordValue[];
@@ -50,14 +62,16 @@ const MAX_REFERRAL_AUDIT_RESULTS = 50;
 const DEFAULT_REFERRAL_AUDIT_RESULTS = 20;
 const MAX_VALIDATED_VISITS_PER_CODE = 10_000;
 const MAX_VALIDATED_VISITS_TOTAL = 1_000_000;
+const REFERRAL_ELIGIBILITY_EVIDENCE_VERSION = 1;
 
 export const referralVisitCallableOptions = {
   enforceAppCheck: true,
   consumeAppCheckToken: true,
+  maxInstances: 2,
 };
 
 export function canRecordReferralVisit(appCheck: { alreadyConsumed?: boolean } | undefined): boolean {
-  return appCheck?.alreadyConsumed !== true;
+  return appCheck !== undefined && appCheck.alreadyConsumed !== true;
 }
 
 function error(code: functions.https.FunctionsErrorCode, message: string): never {
@@ -158,6 +172,48 @@ function earliestPositivePaidCompletion(
   return eligible.sort((left, right) => (
     left.completedAtMs - right.completedAtMs || left.id.localeCompare(right.id)
   ))[0] ?? null;
+}
+
+function referralCompletionEvidence(value: unknown): ReferralCompletionEvidence | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const evidence = value as RecordValue;
+  if (
+    evidence.version !== REFERRAL_ELIGIBILITY_EVIDENCE_VERSION
+    || typeof evidence.eventId !== 'string' || evidence.eventId.length === 0 || evidence.eventId.length > 512
+    || !Number.isSafeInteger(evidence.updateTimeMs) || (evidence.updateTimeMs as number) < 0
+  ) return null;
+  return {
+    version: REFERRAL_ELIGIBILITY_EVIDENCE_VERSION,
+    eventId: evidence.eventId,
+    updateTimeMs: evidence.updateTimeMs as number,
+  };
+}
+
+function programEligibilityEvidence(program: RecordValue | undefined): {
+  version: number;
+  notBeforeAtMs: number;
+} | null {
+  const notBeforeAtMs = timestampMs(program?.eligibilityEvidenceNotBeforeAt);
+  const startsAtMs = timestampMs(program?.startsAt);
+  if (
+    program?.eligibilityEvidenceVersion !== REFERRAL_ELIGIBILITY_EVIDENCE_VERSION
+    || notBeforeAtMs === undefined || startsAtMs === undefined
+  ) return null;
+  return {
+    version: REFERRAL_ELIGIBILITY_EVIDENCE_VERSION,
+    notBeforeAtMs: Math.max(notBeforeAtMs, startsAtMs),
+  };
+}
+
+function isTrustedCompletionEvidence(
+  evidence: ReferralCompletionEvidence | null,
+  completedAtMs: number | undefined,
+  programEvidence: { version: number; notBeforeAtMs: number } | null,
+): evidence is ReferralCompletionEvidence {
+  return evidence !== null && completedAtMs !== undefined && programEvidence !== null
+    && completedAtMs >= programEvidence.notBeforeAtMs
+    && evidence.updateTimeMs >= completedAtMs
+    && evidence.updateTimeMs >= programEvidence.notBeforeAtMs;
 }
 
 function isBrandAdminMembership(membership: RecordValue, uid: string): boolean {
@@ -367,6 +423,8 @@ export async function createReferralProgram(
       ) error('failed-precondition', 'Only one referral program may be active');
     }
     const now = admin.firestore.FieldValue.serverTimestamp();
+    const activatesEligibilityEvidence = input.status === 'active'
+      && (!existing.exists || existing.data()?.status !== 'active');
     const program = {
       status: input.status,
       countryCodes: input.countryCodes,
@@ -378,6 +436,10 @@ export async function createReferralProgram(
       updatedBy: uid,
       updatedAt: now,
       ...(existing.exists ? {} : { createdBy: uid, createdAt: now }),
+      ...(activatesEligibilityEvidence ? {
+        eligibilityEvidenceVersion: REFERRAL_ELIGIBILITY_EVIDENCE_VERSION,
+        eligibilityEvidenceNotBeforeAt: currentTime.toISOString(),
+      } : {}),
     };
     if (existing.exists) transaction.update(programRef, program);
     else transaction.create(programRef, program);
@@ -643,9 +705,13 @@ export async function processReferralBookingCompletion(
   bookingId: string,
   firestore: Firestore = admin.firestore(),
   currentTime: Date = new Date(),
+  completionEvidenceValue?: unknown,
 ): Promise<{ created: boolean }> {
   if (!DOCUMENT_ID_PATTERN.test(bookingId)) error('invalid-argument', 'bookingId is invalid');
+  const completionEvidence = referralCompletionEvidence(completionEvidenceValue);
+  if (!completionEvidence) return { created: false };
   const bookingRef = firestore.collection('bookings').doc(bookingId);
+  const eligibilityEvidenceRef = firestore.collection('referralBookingEvidence').doc(bookingId);
   const referralAuditRef = firestore.collection('referralAudit').doc();
   const created = await firestore.runTransaction(async transaction => {
     const bookingSnapshot = await transaction.get(bookingRef);
@@ -666,14 +732,16 @@ export async function processReferralBookingCompletion(
     const programRef = firestore.collection('referralPrograms').doc(attribution.programId);
     const codeRef = firestore.collection('referralCodes').doc(attribution.code);
     const rewardRef = firestore.collection('referralRewards').doc(`${attribution.programId}__${booking.clientId}`);
-    const [programSnapshot, codeSnapshot, rewardSnapshot] = await Promise.all([
-      transaction.get(programRef), transaction.get(codeRef), transaction.get(rewardRef),
+    const [programSnapshot, codeSnapshot, rewardSnapshot, eligibilityEvidenceSnapshot] = await Promise.all([
+      transaction.get(programRef), transaction.get(codeRef), transaction.get(rewardRef), transaction.get(eligibilityEvidenceRef),
     ]);
     if (rewardSnapshot.exists) return false;
     const program = programSnapshot.data() as RecordValue | undefined;
     const code = codeSnapshot.data() as RecordValue | undefined;
     const countryCode = typeof attribution.countryCode === 'string' ? attribution.countryCode : 'FR';
     if (!validProgram(program, countryCode, currentTime)) return false;
+    const programEvidence = programEligibilityEvidence(program);
+    if (!programEvidence || !isTrustedCompletionEvidence(completionEvidence, completedAtMs, programEvidence)) return false;
     const inviterOwnerType = ownerType(code?.ownerType);
     if (
       !codeSnapshot.exists || !code || code.status !== 'active' || code.programId !== attribution.programId
@@ -681,8 +749,29 @@ export async function processReferralBookingCompletion(
       || !inviterOwnerType || samePrincipal(code.ownerId, inviterOwnerType, booking.clientId, 'client')
       || (attribution.inviterOwnerType !== undefined && attribution.inviterOwnerType !== inviterOwnerType)
     ) return false;
+    const existingEligibilityEvidence = eligibilityEvidenceSnapshot.data() as RecordValue | undefined;
+    if (
+      eligibilityEvidenceSnapshot.exists
+      && (
+        existingEligibilityEvidence?.version !== completionEvidence.version
+        || existingEligibilityEvidence?.eventId !== completionEvidence.eventId
+        || existingEligibilityEvidence?.updateTimeMs !== completionEvidence.updateTimeMs
+        || existingEligibilityEvidence?.programId !== attribution.programId
+        || existingEligibilityEvidence?.programNotBeforeAtMs !== programEvidence.notBeforeAtMs
+      )
+    ) return false;
     if (attribution.inviterOwnerType === undefined) transaction.update(attributionRef, { inviterOwnerType });
     const now = admin.firestore.FieldValue.serverTimestamp();
+    if (!eligibilityEvidenceSnapshot.exists) {
+      transaction.create(eligibilityEvidenceRef, {
+        version: completionEvidence.version,
+        eventId: completionEvidence.eventId,
+        updateTimeMs: completionEvidence.updateTimeMs,
+        programId: attribution.programId,
+        programNotBeforeAtMs: programEvidence.notBeforeAtMs,
+        createdAt: now,
+      });
+    }
     transaction.create(rewardRef, {
       programId: attribution.programId,
       bookingId,
@@ -694,6 +783,10 @@ export async function processReferralBookingCompletion(
       invitedOwnerId: booking.clientId,
       invitedOwnerType: 'client',
       eligibleCompletedAtMs: completedAtMs,
+      eligibilityEvidenceVersion: completionEvidence.version,
+      eligibilityEvidenceEventId: completionEvidence.eventId,
+      eligibilityEvidenceUpdateTimeMs: completionEvidence.updateTimeMs,
+      eligibilityProgramNotBeforeAtMs: programEvidence.notBeforeAtMs,
       inviterCreditMinor: program?.inviterCreditMinor,
       invitedDiscountMinor: program?.invitedDiscountMinor,
       currency: program?.currency,
@@ -761,11 +854,13 @@ export async function reviewReferralReward(
         inviterCreditMinor: reward.inviterCreditMinor as number, invitedDiscountMinor: reward.invitedDiscountMinor as number,
       };
       const bookingRef = firestore.collection('bookings').doc(approval.bookingId);
+      const eligibilityEvidenceRef = firestore.collection('referralBookingEvidence').doc(approval.bookingId);
       const attributionRef = firestore.collection('referralAttributions').doc(approval.invitedUserId);
       const codeRef = firestore.collection('referralCodes').doc(approval.code);
       const programRef = firestore.collection('referralPrograms').doc(approval.programId);
-      const [bookingSnapshot, attributionSnapshot, codeSnapshot, programSnapshot, clientBookings] = await Promise.all([
+      const [bookingSnapshot, eligibilityEvidenceSnapshot, attributionSnapshot, codeSnapshot, programSnapshot, clientBookings] = await Promise.all([
         transaction.get(bookingRef),
+        transaction.get(eligibilityEvidenceRef),
         transaction.get(attributionRef),
         transaction.get(codeRef),
         transaction.get(programRef),
@@ -775,14 +870,29 @@ export async function reviewReferralReward(
       const attribution = attributionSnapshot.data() as RecordValue | undefined;
       const code = codeSnapshot.data() as RecordValue | undefined;
       const program = programSnapshot.data() as RecordValue | undefined;
+      const eligibilityEvidence = eligibilityEvidenceSnapshot.data() as RecordValue | undefined;
       const inviterOwnerType = ownerType(code?.ownerType);
       const earliestBooking = earliestPositivePaidCompletion(clientBookings.docs as Array<{ id: string; data(): RecordValue }>);
       const completedAtMs = positivePaidCompletionAt(booking);
+      const programEvidence = programEligibilityEvidence(program);
+      const rewardCompletionEvidence = referralCompletionEvidence({
+        version: reward.eligibilityEvidenceVersion,
+        eventId: reward.eligibilityEvidenceEventId,
+        updateTimeMs: reward.eligibilityEvidenceUpdateTimeMs,
+      });
       if (
         !bookingSnapshot.exists || !isPositivePaidBooking(booking)
         || booking.clientId !== approval.invitedUserId
         || !earliestBooking || completedAtMs === undefined || earliestBooking.id !== approval.bookingId
         || reward.eligibleCompletedAtMs !== completedAtMs
+        || !isTrustedCompletionEvidence(rewardCompletionEvidence, completedAtMs, programEvidence)
+        || reward.eligibilityProgramNotBeforeAtMs !== programEvidence?.notBeforeAtMs
+        || !eligibilityEvidenceSnapshot.exists || !eligibilityEvidence
+        || eligibilityEvidence.version !== rewardCompletionEvidence?.version
+        || eligibilityEvidence.eventId !== rewardCompletionEvidence?.eventId
+        || eligibilityEvidence.updateTimeMs !== rewardCompletionEvidence?.updateTimeMs
+        || eligibilityEvidence.programId !== approval.programId
+        || eligibilityEvidence.programNotBeforeAtMs !== programEvidence?.notBeforeAtMs
         || !attributionSnapshot.exists || !attribution || attribution.programId !== approval.programId
         || attribution.code !== approval.code || attribution.inviterId !== approval.inviterId
         || (attribution.inviterOwnerType !== undefined && attribution.inviterOwnerType !== inviterOwnerType)
@@ -1042,7 +1152,7 @@ export async function recordReferralVisit(
   value: unknown,
   firestore: Firestore = admin.firestore(),
   currentTime: Date = new Date(),
-): Promise<{ code: string; status: 'active'; recorded: boolean }> {
+): Promise<PublicReferralVisitResult> {
   const { code, countryCode } = referralCodeLookup(value);
   const recorded = await firestore.runTransaction(async transaction => {
     const codeRef = firestore.collection('referralCodes').doc(code);
@@ -1061,20 +1171,20 @@ export async function recordReferralVisit(
     if (!validProgram(programSnapshot.data() as RecordValue | undefined, countryCode, currentTime)) {
       error('not-found', 'Referral code is unavailable');
     }
+    const total = totalSnapshot.data()?.validatedVisitCount;
+    if (total !== undefined && (!Number.isSafeInteger(total) || (total as number) < 0)) {
+      error('failed-precondition', 'Referral telemetry is invalid');
+    }
+    const validatedVisitCount = (total as number | undefined) ?? 0;
+    if (validatedVisitCount >= MAX_VALIDATED_VISITS_TOTAL) return false;
     const codeTelemetryRef = telemetry.doc(`${referralCode.programId}__${code}`);
     const codeTelemetrySnapshot = await transaction.get(codeTelemetryRef);
-    const total = totalSnapshot.data()?.validatedVisitCount;
     const codeTotal = codeTelemetrySnapshot.data()?.validatedVisitCount;
-    if (
-      (total !== undefined && (!Number.isSafeInteger(total) || (total as number) < 0))
-      || (codeTotal !== undefined && (!Number.isSafeInteger(codeTotal) || (codeTotal as number) < 0))
-    ) error('failed-precondition', 'Referral telemetry is invalid');
-    const validatedVisitCount = (total as number | undefined) ?? 0;
+    if (codeTotal !== undefined && (!Number.isSafeInteger(codeTotal) || (codeTotal as number) < 0)) {
+      error('failed-precondition', 'Referral telemetry is invalid');
+    }
     const codeValidatedVisitCount = (codeTotal as number | undefined) ?? 0;
-    if (
-      validatedVisitCount >= MAX_VALIDATED_VISITS_TOTAL
-      || codeValidatedVisitCount >= MAX_VALIDATED_VISITS_PER_CODE
-    ) return false;
+    if (codeValidatedVisitCount >= MAX_VALIDATED_VISITS_PER_CODE) return false;
     const now = admin.firestore.FieldValue.serverTimestamp();
     transaction.set(totalRef, {
       validatedVisitCount: validatedVisitCount + 1,
@@ -1360,6 +1470,9 @@ export const getPublicReferralCodeFunction = functions.https.onCall(data => (
 ));
 
 export const recordReferralVisitFunction = functions.runWith(referralVisitCallableOptions).https.onCall((data, context) => {
+  if (!context.app) {
+    error('unauthenticated', 'Firebase App Check is required for referral telemetry');
+  }
   if (!canRecordReferralVisit(context.app)) {
     error('resource-exhausted', 'Referral visit telemetry token was already consumed');
   }

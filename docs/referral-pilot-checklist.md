@@ -91,6 +91,14 @@ Jest command passes: they are the assertions under test.
 
 ## Staging release gate
 
+- [ ] Keep referral telemetry disabled in the browser until Firebase Web App
+  Check has been initialized with the staging provider and site key. Enable
+  telemetry only after a fresh limited-use token reaches `recordReferralVisit`;
+  verify missing, invalid, and consumed tokens are rejected with no aggregate
+  write. Referral landing and public-code validation must continue if reporting
+  fails. App Check and the two-instance callable cap reduce abusive work but do
+  not make public browser invocation cost mathematically DDoS-free.
+
 Before a Functions deployment, confirm that the staging Firebase project has
 Blaze billing and that deployment credentials are authorized. Then deploy only
 staging:

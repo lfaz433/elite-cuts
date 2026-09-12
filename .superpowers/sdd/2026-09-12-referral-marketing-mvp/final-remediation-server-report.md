@@ -226,3 +226,24 @@ firebase emulators:exec --only firestore "PATH=/opt/homebrew/bin:$PATH /opt/home
 ```
 
 Result: 1 focused Functions suite passed (54 tests), the Functions TypeScript build passed, and 2 Firestore emulator suites passed (10 tests).
+
+## Follow-up server remediation: invocation boundary and trusted eligibility evidence
+
+`recordReferralVisit` now declares Functions v1 `enforceAppCheck: true`, `consumeAppCheckToken: true`, and `maxInstances: 2`. The SDK wrapper automatically rejects invalid App Check tokens; defence-in-depth handler checks also reject a missing App Check context or a consumed limited-use token before the telemetry implementation can obtain Firestore. The transaction validates the code/program before any aggregate write. Once the global aggregate has reached 1,000,000, it returns `recorded: false` without reading the per-code aggregate. The 10,000 per-code cap, no-event-document storage, and financial isolation remain unchanged.
+
+This bounds server work and storage but does not make public browser traffic cost-free or provide mathematical DDoS immunity: a request can still invoke the public callable before App Check/rate controls reject it. Browser telemetry therefore remains disabled until staging initializes Firebase Web App Check with the required provider/site key, and any telemetry failure is explicitly non-blocking for referral landing and code validation.
+
+Referral pending rewards now require `ReferralCompletionEvidence` from the Firestore completion trigger: evidence version 1, the trusted event ID, and the after-document update timestamp in milliseconds. The reward transaction records a matching private `referralBookingEvidence/{bookingId}` document and duplicates the marker into the pending reward. Activation of a newly created or previously inactive referral program writes its own version-1 `eligibilityEvidenceNotBeforeAt` rollout marker. Both the server-written `completedAt` and event update time must be on or after that threshold, and the event time must not precede completion. Approval re-reads the booking, program, and private evidence record and requires all reward/evidence fields to match. Thus prior or forged legacy pending rewards cannot issue credits; they remain explicitly rejectable. Existing active programs without the rollout marker fail closed until they are reactivated through the Super Admin program flow.
+
+The Super Admin response contract remains `contractVersion: 2` and is now specified field-by-field in the referral design document, including public telemetry result semantics, every funnel field, typed referrers, issued-credit currency totals, flagged queue fields, privileged audit fields, and the one-filter bounded audit-query shape.
+
+Verification for this remediation:
+
+```bash
+npm --prefix functions exec jest -- src/referrals.test.ts --runInBand
+npm --prefix functions exec jest -- src/bookings.test.ts --runInBand
+npm --prefix functions run build
+firebase emulators:exec --only firestore "PATH=/opt/homebrew/bin:$PATH /opt/homebrew/bin/node ./node_modules/jest/bin/jest.js --config='{\"testEnvironment\":\"node\",\"rootDir\":\".\",\"transform\":{}}' --runInBand --runTestsByPath rules-tests/referral.rules.test.cjs rules-tests/booking-transition-enforcement.test.cjs"
+```
+
+Result: referral domain tests passed (58), booking lifecycle tests passed (22), Functions TypeScript build passed, and the two Firestore emulator rule suites passed (10).

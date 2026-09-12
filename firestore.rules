@@ -354,6 +354,10 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /referralBookingEvidence/{bookingId} {
+      allow read, write: if false;
+    }
+
     // Invitations are server-owned. The exact invited email account may read
     // its record, while location invitation managers may audit invitations.
     match /invitations/{invitationId} {

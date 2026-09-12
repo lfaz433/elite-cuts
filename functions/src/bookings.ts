@@ -55,8 +55,18 @@ export const processCompletedBookingReferralFunction = functions.firestore
     const previousStatus = change.before.data()?.status;
     const nextStatus = change.after.data()?.status;
     if (!isReferralEligibleCompletion(previousStatus, nextStatus)) return null;
+    const updateTimeMs = change.after.updateTime?.toMillis();
+    if (
+      !Number.isSafeInteger(updateTimeMs)
+      || typeof context.eventId !== 'string' || context.eventId.length === 0
+    ) return null;
 
-    return processReferralBookingCompletion(context.params.bookingId);
+    return processReferralBookingCompletion(
+      context.params.bookingId,
+      admin.firestore(),
+      new Date(),
+      { version: 1, eventId: context.eventId, updateTimeMs },
+    );
   });
 
 const allowedTransitions: Record<MarketplaceBookingStatus, readonly MarketplaceBookingStatus[]> = {

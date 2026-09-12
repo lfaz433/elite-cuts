@@ -28,6 +28,7 @@ test('authenticated clients cannot write server-owned referral records', async (
   await assertFails(setDoc(doc(authedDb, 'referralAttributions', 'client-a'), { code: 'PARIS-5' }));
   await assertFails(setDoc(doc(authedDb, 'referralRewards', 'reward-a'), { status: 'approved' }));
   await assertFails(setDoc(doc(authedDb, 'creditLedgers', 'ledger-a'), { amountMinor: 500 }));
+  await assertFails(setDoc(doc(authedDb, 'referralBookingEvidence', 'booking-a'), { version: 1 }));
   await assertFails(setDoc(doc(authedDb, 'referralTelemetry', 'overview'), { validatedVisitCount: 1 }));
   await assertFails(setDoc(doc(authedDb, 'referralAudit', 'audit-a'), { action: 'REFERRAL_CODE_CREATED' }));
 });

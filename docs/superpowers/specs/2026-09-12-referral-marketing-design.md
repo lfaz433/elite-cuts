@@ -50,7 +50,9 @@ Append-only record of approved credits and redeemed discounts. Each record inclu
 
 ### `referralTelemetry/{telemetryId}`
 
-Private, server-written aggregate telemetry for successfully validated public referral links. `overview` holds the platform-wide count and `{programId}__{code}` holds a code/program count; no per-visit documents are written. Each aggregate contains only the normalized code where applicable, program ID, country code, count, and server timestamp—never an account, device, IP, address, or profile. A public caller records a visit only through `recordReferralVisit`, which transactionally validates the code and active, currently available program first. The callable enforces Firebase App Check and consumes limited-use App Check tokens; missing, invalid, or already-consumed attestations cannot write telemetry. Counts are financially inert and capped at 10,000 per code and 1,000,000 platform-wide. They represent non-unique validated calls, not authoritative acquisition analytics. Staging must configure the web App Check provider, site keys, and callable enforcement before enabling telemetry; referral-link validation and browsing remain available if best-effort telemetry reporting fails.
+Private, server-written aggregate telemetry for successfully validated public referral links. `overview` holds the platform-wide count and `{programId}__{code}` holds a code/program count; no per-visit documents are written. Each aggregate contains only the normalized code where applicable, program ID, country code, count, and server timestamp—never an account, device, IP, address, or profile. A public caller records a visit only through `recordReferralVisit`, which transactionally validates the code and active, currently available program first. The callable uses Functions v1 `enforceAppCheck: true`, `consumeAppCheckToken: true`, and `maxInstances: 2`; its handler also rejects missing or already-consumed App Check context before Firestore work. It validates the code/program before touching telemetry, and when the global cap is reached it does not read the per-code aggregate. Counts are financially inert and capped at 10,000 per code and 1,000,000 platform-wide. They represent non-unique validated calls, not authoritative acquisition analytics. Staging must configure and initialize the web App Check provider/site key before enabling telemetry; referral-link validation and browsing remain available if best-effort telemetry reporting fails. App Check and the two-instance cap mitigate abusive invocation and Firestore work, but do not make public browser traffic or function-invocation cost mathematically DDoS-free.
+
+The public telemetry result is exactly `{ code: string, status: 'active', recorded: boolean }`. `recorded` is `true` only when an aggregate increment committed; it is `false` for a valid code when either cap is already reached. Missing, invalid, or consumed App Check is rejected before this result, and unavailable code/program returns `not-found` with no aggregate write.
 
 ### `referralAudit/{auditId}`
 
@@ -93,7 +95,55 @@ The dashboard contains:
 
 The initial dashboard uses the current premium dark-and-gold Elite Cuts design. It must show explicit empty states and never show invented financial totals as live data.
 
-`getReferralMarketingOverview` is Super Admin-only. Its versioned UI contract is `ReferralMarketingOverview` with `contractVersion: 2`, `programs`, `funnel`, `approvedCreditTotals`, `topReferrers`, `pendingRewards`, `flaggedRewards`, and `auditTrail`. `funnel` contains `codes`, `validatedVisits`, `attributions`, `attributedSignups`, `rewards`, `eligibleFirstBookings`, `pending`, `pendingRewards`, `approved`, `approvedRewards`, and `rejected`; `validatedVisits` is present only as safely App-Check-gated aggregate telemetry. `approvedCreditTotals` is `[{ currency, amountMinor }]`. Every `topReferrers` row has `{ inviterId, inviterOwnerType, referrals, rewards, approvedCreditsMinor, currency }`, preserving the typed identity. `flaggedRewards` carries each pending manual-review item and its flag reason. Privileged `auditTrail` rows include referral action, program/reward/code identifiers, actor UID and reason when applicable. The query accepts at most one database filter plus `limit`: `{ code?: normalizedCode, programId?: documentId, rewardId?: documentId, action?: referralAction, limit?: 1..50 }`. An unfiltered trail is newest-first; a filter is applied directly to referral-only storage then limited, so matching entries cannot starve behind unrelated events. The contract never merges client, freelancer, or brand namespaces sharing the same string ID.
+`getReferralMarketingOverview` is Super Admin-only. Its machine contract is the exported TypeScript `ReferralMarketingOverview` below; a UI must reject an unsupported `contractVersion` rather than infer missing fields.
+
+```ts
+type ReferralOwnerType = 'client' | 'freelancer' | 'brand';
+
+interface ReferralMarketingOverviewV2 {
+  contractVersion: 2;
+  programs: Array<{
+    id: string; status: 'draft' | 'active' | 'paused' | 'archived';
+    countryCodes: string[]; currency: string; inviterCreditMinor: number;
+    invitedDiscountMinor: number; startsAt: TimestampLike; endsAt: TimestampLike;
+  }>;
+  funnel: {
+    codes: number; validatedVisits: number; attributions: number;
+    attributedSignups: number; rewards: number; eligibleFirstBookings: number;
+    pending: number; pendingRewards: number; approved: number;
+    approvedRewards: number; rejected: number;
+  };
+  approvedCreditTotals: Array<{ currency: string; amountMinor: number }>;
+  topReferrers: Array<{
+    inviterId: string; inviterOwnerType: ReferralOwnerType; referrals: number;
+    rewards: number; approvedCreditsMinor: number; currency: string;
+  }>;
+  pendingRewards: ReferralPendingReward[];
+  flaggedRewards: Array<ReferralPendingReward & { fraudFlag: { status: 'flagged'; reason: string } }>;
+  auditTrail: ReferralAuditEntry[];
+}
+
+interface ReferralPendingReward {
+  id: string; programId: string; bookingId: string; inviterId: string;
+  invitedUserId: string; inviterCreditMinor: number; invitedDiscountMinor: number;
+  currency: string; status: 'pending'; createdAt?: TimestampLike;
+  fraudFlag?: { status: 'flagged' | 'cleared'; reason: string };
+}
+
+interface ReferralAuditEntry {
+  id: string; action: string; programId?: string; rewardId?: string; code?: string;
+  actorUid?: string; reason?: string; createdAt?: TimestampLike;
+}
+
+type ReferralAuditFilter =
+  | { limit?: number }
+  | { code: string; limit?: number }
+  | { programId: string; limit?: number }
+  | { rewardId: string; limit?: number }
+  | { action: string; limit?: number };
+```
+
+`TimestampLike` is the Firestore timestamp value supplied by the callable serializer. `funnel.validatedVisits` is the private App-Check-gated aggregate count; it is non-unique and never affects reward or credit totals. `approvedCreditTotals` includes both approved inviter and invited-client credit legs, grouped solely by currency. `flaggedRewards` is the manual-review queue and requires the `fraudFlag.status === 'flagged'` reason shown above. `auditTrail` is privileged: actor UID and reason are returned only to Super Admin callers. The filter accepts at most one of `code` (normalized code), `programId` (document ID), `rewardId` (document ID), or `action` (referral action), with integer `limit` 1–50; an unfiltered trail is newest-first, and a filtered query runs directly against referral-only audit storage. The contract never merges client, freelancer, or brand namespaces sharing the same string ID.
 
 `setReferralRewardFlag` is Super Admin-only. It requires a non-empty reason and can flag or clear only a pending reward, records a referral audit row, and does not create, approve, reject, or alter a credit. A flagged reward cannot be approved or issue a ledger until a Super Admin explicitly clears the flag with a reason. Flagged rewards remain in the manual review queue; this MVP has no automatic approval path.
 
@@ -102,7 +152,7 @@ The initial dashboard uses the current premium dark-and-gold Elite Cuts design. 
 - Only a new client may be invited in this MVP.
 - The inviter cannot be the invited user.
 - A referral must be attributed before the invited user creates their account.
-- A reward is eligible after the invited user’s earliest positive-paid, non-test booking reaches `completed`. The authoritative server-written `completedAt` timestamp chooses the earliest record (booking ID is a deterministic tie-breaker), and its millisecond value is persisted with the pending reward for approval revalidation. Browser Firestore rules make both `completedAt` and `isTest` immutable to tenant managers; the trusted booking completion/payment server workflows write the evidence. A positive-paid legacy booking without a trustworthy `completedAt` fails eligibility safely.
+- A reward is eligible after the invited user’s earliest positive-paid, non-test booking reaches `completed`. The authoritative server-written `completedAt` timestamp chooses the earliest record (booking ID is a deterministic tie-breaker), and its millisecond value is persisted with the pending reward for approval revalidation. The Firestore completion trigger supplies its immutable event ID and document update timestamp; the reward transaction writes a separate private `referralBookingEvidence/{bookingId}` record with evidence version, event ID, update time, program ID, and the program rollout threshold. Pending rewards duplicate that marker and approval requires both copies to match. Browser Firestore rules make both `completedAt` and `isTest` immutable to tenant managers; the trusted booking completion/payment server workflows write the evidence. An active program receives `eligibilityEvidenceVersion: 1` and `eligibilityEvidenceNotBeforeAt` only on creation or transition to active. Both the server-written completion timestamp and trigger update timestamp must be on or after that threshold; programs/rewards/evidence that predate this marker, omit it, or do not meet it fail approval safely (but legacy pending rewards remain rejectable). A positive-paid legacy booking without trustworthy completion evidence also fails eligibility safely.
 - Cancelled, declined, refunded, missing/unpaid, free/zero-value, and test bookings are ineligible and do not consume the eligible first-booking slot.
 - Each invited client can earn one reward per program.
 - Server validation uses authenticated identity, booking ownership, booking status, program state, and atomic Firestore transactions.
