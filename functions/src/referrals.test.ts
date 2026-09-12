@@ -293,9 +293,13 @@ describe('referral domain', () => {
     const { reviewReferralReward } = loadModule();
     const { firestore, state } = firestoreState({
       users: { 'admin-a': { role: 'superadmin' } },
+      bookings: { 'booking-a': { clientId: 'new-client', status: 'completed', isTest: false } },
+      referralPrograms: { 'program-a': activeProgram },
+      referralCodes: { FRIEND: { programId: 'program-a', ownerId: 'inviter-a', status: 'active' } },
+      referralAttributions: { 'new-client': { programId: 'program-a', code: 'FRIEND', inviterId: 'inviter-a' } },
       referralRewards: {
         'program-a__new-client': {
-          programId: 'program-a', inviterId: 'inviter-a', invitedUserId: 'new-client',
+          programId: 'program-a', bookingId: 'booking-a', code: 'FRIEND', inviterId: 'inviter-a', invitedUserId: 'new-client',
           inviterCreditMinor: 500, invitedDiscountMinor: 300, currency: 'EUR', status: 'pending',
         },
       },
@@ -314,6 +318,32 @@ describe('referral domain', () => {
     await expect(reviewReferralReward('admin-a', {
       rewardId: 'program-a__new-client', decision: 'approve',
     }, firestore)).rejects.toMatchObject({ code: 'failed-precondition' });
+  });
+
+  test('does not approve a pending reward whose booking was not the invited client’s first completion', async () => {
+    const { reviewReferralReward } = loadModule();
+    const { firestore, state } = firestoreState({
+      users: { 'admin-a': { role: 'superadmin' } },
+      bookings: {
+        'booking-a': { clientId: 'new-client', status: 'completed', isTest: false },
+        'older-booking': { clientId: 'new-client', status: 'completed', isTest: false },
+      },
+      referralPrograms: { 'program-a': activeProgram },
+      referralCodes: { FRIEND: { programId: 'program-a', ownerId: 'inviter-a', status: 'active' } },
+      referralAttributions: { 'new-client': { programId: 'program-a', code: 'FRIEND', inviterId: 'inviter-a' } },
+      referralRewards: {
+        pending: {
+          programId: 'program-a', bookingId: 'booking-a', code: 'FRIEND', inviterId: 'inviter-a', invitedUserId: 'new-client',
+          inviterCreditMinor: 500, invitedDiscountMinor: 300, currency: 'EUR', status: 'pending',
+        },
+      },
+      creditLedgers: {}, auditEvents: {},
+    });
+
+    await expect(reviewReferralReward('admin-a', { rewardId: 'pending', decision: 'approve' }, firestore))
+      .rejects.toMatchObject({ code: 'failed-precondition' });
+    expect(state.referralRewards.pending.status).toBe('pending');
+    expect(state.creditLedgers).toEqual({});
   });
 
   test('refuses to issue a ledger from a malformed pending reward', async () => {
@@ -340,7 +370,7 @@ describe('referral domain', () => {
       users: { 'admin-a': { role: 'superadmin' } },
       referralRewards: {
         pending: {
-          inviterId: 'inviter-a', invitedUserId: 'new-client', inviterCreditMinor: 500,
+          programId: 'program-a', bookingId: 'booking-a', code: 'FRIEND', inviterId: 'inviter-a', invitedUserId: 'new-client', inviterCreditMinor: 500,
           invitedDiscountMinor: 300, currency: 'EUR', status: 'pending',
         },
       },

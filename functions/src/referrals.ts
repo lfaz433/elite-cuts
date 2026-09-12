@@ -381,11 +381,46 @@ export async function reviewReferralReward(
     if (!rewardSnapshot.exists || !reward) error('not-found', 'Referral reward not found');
     if (reward.status !== 'pending') error('failed-precondition', 'Referral reward is no longer pending review');
     if (
-      typeof reward.inviterId !== 'string' || typeof reward.invitedUserId !== 'string'
+      typeof reward.programId !== 'string' || !DOCUMENT_ID_PATTERN.test(reward.programId)
+      || typeof reward.bookingId !== 'string' || !DOCUMENT_ID_PATTERN.test(reward.bookingId)
+      || typeof reward.code !== 'string' || !CODE_PATTERN.test(reward.code)
+      || typeof reward.inviterId !== 'string' || !DOCUMENT_ID_PATTERN.test(reward.inviterId)
+      || typeof reward.invitedUserId !== 'string' || !DOCUMENT_ID_PATTERN.test(reward.invitedUserId)
       || typeof reward.currency !== 'string' || !CURRENCY_PATTERN.test(reward.currency)
       || !Number.isSafeInteger(reward.inviterCreditMinor) || (reward.inviterCreditMinor as number) < 0
       || !Number.isSafeInteger(reward.invitedDiscountMinor) || (reward.invitedDiscountMinor as number) < 0
     ) error('failed-precondition', 'Referral reward is invalid');
+    if (status === 'approved') {
+      const bookingRef = firestore.collection('bookings').doc(reward.bookingId);
+      const attributionRef = firestore.collection('referralAttributions').doc(reward.invitedUserId);
+      const codeRef = firestore.collection('referralCodes').doc(reward.code);
+      const programRef = firestore.collection('referralPrograms').doc(reward.programId);
+      const [bookingSnapshot, attributionSnapshot, codeSnapshot, programSnapshot, clientBookings] = await Promise.all([
+        transaction.get(bookingRef),
+        transaction.get(attributionRef),
+        transaction.get(codeRef),
+        transaction.get(programRef),
+        transaction.get(firestore.collection('bookings').where('clientId', '==', reward.invitedUserId)),
+      ]);
+      const booking = bookingSnapshot.data() as RecordValue | undefined;
+      const attribution = attributionSnapshot.data() as RecordValue | undefined;
+      const code = codeSnapshot.data() as RecordValue | undefined;
+      const program = programSnapshot.data() as RecordValue | undefined;
+      const completedBookings = clientBookings.docs.filter(candidate => {
+        const candidateValue = candidate.data() as RecordValue;
+        return candidateValue.status === 'completed' && candidateValue.isTest !== true;
+      });
+      if (
+        !bookingSnapshot.exists || !booking || booking.status !== 'completed' || booking.isTest === true
+        || booking.clientId !== reward.invitedUserId
+        || completedBookings.length !== 1 || completedBookings[0].id !== reward.bookingId
+        || !attributionSnapshot.exists || !attribution || attribution.programId !== reward.programId
+        || attribution.code !== reward.code || attribution.inviterId !== reward.inviterId
+        || !codeSnapshot.exists || !code || code.status !== 'active' || code.programId !== reward.programId
+        || code.ownerId !== reward.inviterId || reward.inviterId === reward.invitedUserId
+        || !programSnapshot.exists || !program
+      ) error('failed-precondition', 'Referral reward eligibility is no longer valid');
+    }
     const now = admin.firestore.FieldValue.serverTimestamp();
     transaction.update(rewardRef, {
       status, reviewedBy: uid, reviewedAt: now, updatedAt: now,

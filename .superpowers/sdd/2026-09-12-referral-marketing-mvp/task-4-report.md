@@ -2,6 +2,26 @@
 
 Implemented the protected `Marketing & parrainage` Super Admin tab, the trusted aggregate overview callable, EUR/France fixed-credit program controls, and a manual review queue. Reward approval continues to create platform credit ledger entries only; this task adds no payout or transfer mechanism.
 
+## Integrity follow-up
+
+Before approval, the reward review transaction now re-reads and validates the completed booking, the caller's referral attribution, the referral code, the referral program, and the invited client's complete booking history. It refuses approval unless the booking is the only completed non-test booking for that client, all identifiers link exactly, the code remains active and owned by the inviter, the program exists, and the referral is not self-referred. Rejection still only requires the existing review validation and a reason, so invalid pending records remain rejectable without issuing a credit.
+
+The new regression initially failed because the prior review approved a reward when the invited client already had another completed booking:
+
+```text
+Received promise resolved instead of rejected
+Resolved to value: {"rewardId": "pending", "status": "approved"}
+```
+
+After the transactional eligibility validation:
+
+```text
+$ npx jest functions/src/referrals.test.ts --runInBand
+Test Suites: 1 passed, 1 total
+Tests:       15 passed, 15 total
+Snapshots:   0 total
+```
+
 ## TDD evidence
 
 Before implementation, the required dashboard test failed because the dashboard module did not yet exist:
@@ -48,7 +68,7 @@ ok 2 - labels pending referral credits for manual review
 
 $ npx jest functions/src/referrals.test.ts --runInBand
 Test Suites: 1 passed, 1 total
-Tests:       14 passed, 14 total
+Tests:       15 passed, 15 total
 Snapshots:   0 total
 
 $ node --test src/app/components/superadmin/ReferralMarketingDashboard.test.mjs && npm run build && npm --prefix functions run build
@@ -128,7 +148,7 @@ dist/assets/ScannerModal-BDcaKWha.js                 335.87 kB │ gzip: 100.52 
 dist/assets/index-TZHjGAn7.js                        417.85 kB │ gzip: 120.83 kB
 dist/assets/vendor-charts-CoETup6n.js                557.52 kB │ gzip: 157.60 kB
 dist/assets/vendor-firebase-DZaL-dkb.js              565.49 kB │ gzip: 134.38 kB
-✓ built in 4.62s
+✓ built in 4.21s
 
 > build
 > tsc
