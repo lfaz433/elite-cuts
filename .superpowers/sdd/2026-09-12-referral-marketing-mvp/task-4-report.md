@@ -22,6 +22,32 @@ Tests:       15 passed, 15 total
 Snapshots:   0 total
 ```
 
+## Legacy rejection follow-up
+
+The eligibility-chain schema is now evaluated only for `approve`. A pending reward that lacks the historical program, booking, or code linkage can be rejected with a valid reason; the transaction records the rejection and audit event, omits a missing program ID, and creates no credit ledger. Approval still rejects such a record before any write.
+
+The regression initially failed with `Rejected to value: [Error: Referral reward is invalid]`, proving that the validation previously ran before the decision branch. Final focused verification:
+
+```text
+$ npx jest functions/src/referrals.test.ts --runInBand
+Test Suites: 1 passed, 1 total
+Tests:       16 passed, 16 total
+Snapshots:   0 total
+
+$ npm --prefix functions run build
+> build
+> tsc
+
+$ node --test src/app/components/superadmin/ReferralMarketingDashboard.test.mjs
+# tests 2
+# pass 2
+# fail 0
+
+$ npm run build
+✓ 2834 modules transformed.
+✓ built in 4.20s
+```
+
 ## TDD evidence
 
 Before implementation, the required dashboard test failed because the dashboard module did not yet exist:
@@ -68,7 +94,7 @@ ok 2 - labels pending referral credits for manual review
 
 $ npx jest functions/src/referrals.test.ts --runInBand
 Test Suites: 1 passed, 1 total
-Tests:       15 passed, 15 total
+Tests:       16 passed, 16 total
 Snapshots:   0 total
 
 $ node --test src/app/components/superadmin/ReferralMarketingDashboard.test.mjs && npm run build && npm --prefix functions run build

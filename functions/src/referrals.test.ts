@@ -364,6 +364,21 @@ describe('referral domain', () => {
     expect(state.creditLedgers).toEqual({});
   });
 
+  test('rejects a legacy pending reward missing approval linkage without issuing credits', async () => {
+    const { reviewReferralReward } = loadModule();
+    const { firestore, state } = firestoreState({
+      users: { 'admin-a': { role: 'superadmin' } },
+      referralRewards: { legacy: { status: 'pending' } },
+      creditLedgers: {}, auditEvents: {},
+    });
+
+    await expect(reviewReferralReward('admin-a', {
+      rewardId: 'legacy', decision: 'reject', reason: 'Legacy record has no verifiable referral linkage',
+    }, firestore)).resolves.toEqual({ rewardId: 'legacy', status: 'rejected' });
+    expect(state.referralRewards.legacy).toMatchObject({ status: 'rejected', reviewReason: 'Legacy record has no verifiable referral linkage' });
+    expect(state.creditLedgers).toEqual({});
+  });
+
   test('requires a reason when rejecting a pending reward', async () => {
     const { reviewReferralReward } = loadModule();
     const { firestore, state } = firestoreState({
