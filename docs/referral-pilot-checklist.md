@@ -17,8 +17,9 @@ completed step. Pilot only against `elite-cuts-staging`; do not use production.
   Confirm the Super Admin overview increments validated visits without creating
   an attribution, reward, or credit. Repeat with a missing, paused, expired,
   or archived code and confirm it returns unavailable and records no visit.
-  Treat the metric as raw validated calls rather than unique visitors: public
-  calls can be repeated until staging rate limiting/App Check is available.
+  Treat the metric as capped, non-unique validated calls rather than unique
+  visitors: replay can increase a code's count only to 10,000 and the staging
+  platform total only to 1,000,000; neither counter has financial effect.
 - [ ] Attribution once — **deferred for browser pilot**. The landing route
   captures the code, but current client registration has no role-onboarding
   path that reads the capture and calls `attributeReferral` after Firebase Auth
@@ -31,7 +32,10 @@ completed step. Pilot only against `elite-cuts-staging`; do not use production.
   `confirmed` (or legacy `approved`) to `completed`. Confirm exactly one
   pending reward pair is created after any earlier ineligible booking, and the
   completion remains successful if no valid referral is present. Add a second
-  positive-paid completion and confirm it cannot create a second reward.
+  positive-paid completion and confirm it cannot create a second reward or
+  invalidate approval of the earlier timestamped eligible reward. Confirm a
+  positive-paid legacy booking lacking `completedAt` fails referral eligibility
+  safely rather than guessing its order.
 - [ ] Retry the same completed-booking event. Confirm the deterministic reward
   is returned or retained and no duplicate reward or credit ledger entry is
   created.
@@ -41,18 +45,21 @@ completed step. Pilot only against `elite-cuts-staging`; do not use production.
 - [ ] As Super Admin, flag a pending reward with a non-empty reason. Confirm it
   appears in the manual-review queue, adds a referral audit event, and changes
   neither reward status nor ledger balances. Clear the flag with a reason and
-  confirm only a Super Admin can perform either action; an explicit Super Admin
-  approval is still required before credits issue.
+  confirm only a Super Admin can perform either action. Confirm approval is
+  refused while flagged and that only explicit flag clearance followed by an
+  explicit Super Admin approval can issue credits.
 - [ ] Confirm the Super Admin overview shows validated visits, attributed
   sign-ups, eligible first bookings, pending/approved rewards, issued credits
   by currency, typed top referrers, and a bounded referral audit search. Use a
   client and brand with the same identifier string to verify their top-referrer
-  rows remain separate.
+  rows remain separate. Verify audit lookup by normalized code and a separate
+  program, reward, or action filter returns the relevant referral rows with
+  privileged actor/reason details, not generic application audit events.
 - [ ] Pause the referral program. Confirm new code use and reward eligibility
   are blocked while existing booking behavior remains unaffected.
 - [ ] Attempt authenticated browser writes to `referralPrograms`,
   `referralCodes`, `referralAttributions`, `referralRewards`, and
-  `creditLedgers`, `referralVisits`, and referral audit records. Confirm every
+  `creditLedgers`, `referralTelemetry`, and referral audit records. Confirm every
   direct write is denied.
 - [ ] Confirm the pilot contains no cash payout, withdrawal, transfer, bank
   action, Stripe charge, Stripe checkout, or automatic price reduction.

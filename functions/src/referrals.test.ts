@@ -270,7 +270,7 @@ describe('referral domain', () => {
     await expect(attributeReferral('X', { code: 'BRANDX' }, firestore, now))
       .resolves.toEqual({ attributed: true, programId: 'program-a' });
     expect(state.referralAttributions.X).toMatchObject({ inviterId: 'X', inviterOwnerType: 'brand' });
-    state.bookings['booking-x'] = { clientId: 'X', status: 'completed', isTest: false, paymentStatus: 'paid', pricePaidMinor: 2500 };
+    state.bookings['booking-x'] = { clientId: 'X', status: 'completed', isTest: false, paymentStatus: 'paid', pricePaidMinor: 2500, completedAt: '2026-09-12T10:00:00.000Z' };
     await expect(processReferralBookingCompletion('booking-x', firestore, now)).resolves.toEqual({ created: true });
     expect(state.referralRewards['program-a__X']).toMatchObject({ inviterOwnerId: 'X', inviterOwnerType: 'brand' });
     await expect(reviewReferralReward('admin-a', { rewardId: 'program-a__X', decision: 'approve' }, firestore))
@@ -352,7 +352,7 @@ describe('referral domain', () => {
   test('creates one pending reward only for the first completed non-test booking', async () => {
     const { processReferralBookingCompletion } = loadModule();
     const { firestore, state } = firestoreState({
-      bookings: { 'booking-1': { clientId: 'new-client', status: 'completed', isTest: false, paymentStatus: 'paid', pricePaidMinor: 2500 } },
+      bookings: { 'booking-1': { clientId: 'new-client', status: 'completed', isTest: false, paymentStatus: 'paid', pricePaidMinor: 2500, completedAt: '2026-09-12T10:00:00.000Z' } },
       referralPrograms: { 'program-a': activeProgram },
       referralCodes: {
         FRIEND: { code: 'FRIEND', programId: 'program-a', ownerType: 'client', ownerId: 'inviter-a', status: 'active' },
@@ -375,13 +375,14 @@ describe('referral domain', () => {
       .resolves.toEqual({ created: false });
   });
 
-  test('treats the first positive paid completion as eligible after a free completion', async () => {
+  test('approves the earliest positive paid completion despite free and later paid bookings', async () => {
     const { processReferralBookingCompletion, reviewReferralReward } = loadModule();
     const { firestore, state } = firestoreState({
       users: { 'admin-a': { role: 'superadmin' } },
       bookings: {
-        free: { clientId: 'new-client', status: 'completed', isTest: false, paymentStatus: 'paid', pricePaidMinor: 0 },
-        paid: { clientId: 'new-client', status: 'completed', isTest: false, paymentStatus: 'paid', pricePaidMinor: 2500 },
+        free: { clientId: 'new-client', status: 'completed', isTest: false, paymentStatus: 'paid', pricePaidMinor: 0, completedAt: '2026-09-10T10:00:00.000Z' },
+        paid: { clientId: 'new-client', status: 'completed', isTest: false, paymentStatus: 'paid', pricePaidMinor: 2500, completedAt: '2026-09-11T10:00:00.000Z' },
+        later: { clientId: 'new-client', status: 'completed', isTest: false, paymentStatus: 'paid', pricePaidMinor: 1200, completedAt: '2026-09-12T10:00:00.000Z' },
       },
       referralPrograms: { 'program-a': activeProgram },
       referralCodes: { FRIEND: { code: 'FRIEND', programId: 'program-a', ownerId: 'inviter-a', ownerType: 'client', status: 'active' } },
@@ -393,6 +394,7 @@ describe('referral domain', () => {
     await expect(processReferralBookingCompletion('paid', firestore, now)).resolves.toEqual({ created: true });
     await expect(reviewReferralReward('admin-a', { rewardId: 'program-a__new-client', decision: 'approve' }, firestore))
       .resolves.toEqual({ rewardId: 'program-a__new-client', status: 'approved' });
+    await expect(processReferralBookingCompletion('later', firestore, now)).resolves.toEqual({ created: false });
     expect(state.creditLedgers['program-a__new-client__inviter']).toMatchObject({ amountMinor: 500, status: 'approved' });
   });
 
@@ -412,6 +414,27 @@ describe('referral domain', () => {
 
     await expect(processReferralBookingCompletion('booking-1', firestore, new Date('2026-09-12T12:00:00Z')))
       .resolves.toEqual({ created: false });
+  });
+
+  test('creates at most one reward when two eligible completions are processed concurrently', async () => {
+    const { processReferralBookingCompletion } = loadModule();
+    const { firestore, state } = firestoreState({
+      bookings: {
+        first: { clientId: 'new-client', status: 'completed', isTest: false, paymentStatus: 'paid', pricePaidMinor: 2500, completedAt: '2026-09-11T10:00:00.000Z' },
+        second: { clientId: 'new-client', status: 'completed', isTest: false, paymentStatus: 'paid', pricePaidMinor: 2500, completedAt: '2026-09-12T10:00:00.000Z' },
+      },
+      referralPrograms: { 'program-a': activeProgram },
+      referralCodes: { FRIEND: { code: 'FRIEND', programId: 'program-a', ownerId: 'inviter-a', ownerType: 'client', status: 'active' } },
+      referralAttributions: { 'new-client': { code: 'FRIEND', programId: 'program-a', inviterId: 'inviter-a', expiresAt: '2026-09-20T00:00:00.000Z' } },
+      referralRewards: {},
+    });
+
+    await expect(Promise.all([
+      processReferralBookingCompletion('first', firestore, new Date('2026-09-12T12:00:00Z')),
+      processReferralBookingCompletion('second', firestore, new Date('2026-09-12T12:00:00Z')),
+    ])).resolves.toEqual([{ created: true }, { created: false }]);
+    expect(Object.keys(state.referralRewards)).toEqual(['program-a__new-client']);
+    expect(state.referralRewards['program-a__new-client']).toMatchObject({ bookingId: 'first' });
   });
 
   test('skips rewards when a different completed non-test booking already exists', async () => {
@@ -436,14 +459,14 @@ describe('referral domain', () => {
     const { reviewReferralReward } = loadModule();
     const { firestore, state } = firestoreState({
       users: { 'admin-a': { role: 'superadmin' } },
-      bookings: { 'booking-a': { clientId: 'new-client', status: 'completed', isTest: false, paymentStatus: 'paid', pricePaidMinor: 2500 } },
+      bookings: { 'booking-a': { clientId: 'new-client', status: 'completed', isTest: false, paymentStatus: 'paid', pricePaidMinor: 2500, completedAt: '2026-09-12T10:00:00.000Z' } },
       referralPrograms: { 'program-a': activeProgram },
       referralCodes: { FRIEND: { programId: 'program-a', ownerId: 'inviter-a', ownerType: 'client', status: 'active' } },
       referralAttributions: { 'new-client': { programId: 'program-a', code: 'FRIEND', inviterId: 'inviter-a' } },
       referralRewards: {
         'program-a__new-client': {
           programId: 'program-a', bookingId: 'booking-a', code: 'FRIEND', inviterId: 'inviter-a', invitedUserId: 'new-client',
-          inviterCreditMinor: 500, invitedDiscountMinor: 300, currency: 'EUR', status: 'pending',
+          eligibleCompletedAtMs: Date.parse('2026-09-12T10:00:00.000Z'), inviterCreditMinor: 500, invitedDiscountMinor: 300, currency: 'EUR', status: 'pending',
         },
       },
       creditLedgers: {}, auditEvents: {},
@@ -659,11 +682,11 @@ describe('referral domain', () => {
   });
 
   test('creates and then reuses an authenticated client\'s generated active code', async () => {
-    const { createMyReferralCode } = loadModule();
+    const { createMyReferralCode, getReferralMarketingOverview } = loadModule();
     const { firestore, state } = firestoreState({
-      users: { 'client-a': { uid: 'client-a' } },
+      users: { 'client-a': { uid: 'client-a' }, 'admin-a': { role: 'superadmin' } },
       referralProgramState: { active: { programId: 'program-a' } }, referralPrograms: { 'program-a': activeProgram },
-      referralCodes: {}, memberships: {}, freelancerProfiles: {},
+      referralCodes: {}, memberships: {}, freelancerProfiles: {}, referralTelemetry: {}, referralAudit: {},
     });
     const now = new Date('2026-09-12T12:00:00Z');
 
@@ -674,6 +697,9 @@ describe('referral domain', () => {
       code: 'CLIENT-A1', ownerType: 'client', programId: 'program-a', reused: true,
     });
     expect(state.referralCodes['CLIENT-A1'].ownerId).toBe('client-a');
+    await expect(getReferralMarketingOverview('admin-a', { code: 'client-a1', limit: 1 }, firestore)).resolves.toMatchObject({
+      auditTrail: [{ action: 'REFERRAL_CODE_CREATED', code: 'CLIENT-A1', actorUid: 'client-a' }],
+    });
     await expect(createMyReferralCode('client-a', { code: 'FORGED-A1' }, firestore, now, () => 'UNUSED-2'))
       .rejects.toMatchObject({ code: 'invalid-argument' });
   });
@@ -922,21 +948,25 @@ describe('referral domain', () => {
         'program-a': activeProgram,
         'paused-program': { ...activeProgram, status: 'paused' },
       },
-      referralVisits: {}, referralRewards: {}, creditLedgers: {},
+      referralTelemetry: {}, referralRewards: {}, creditLedgers: {},
     });
 
     await expect(recordReferralVisit({ code: 'missing' }, firestore, new Date('2026-09-12T12:00:00Z')))
       .rejects.toMatchObject({ code: 'not-found' });
     await expect(recordReferralVisit({ code: 'paused' }, firestore, new Date('2026-09-12T12:00:00Z')))
       .rejects.toMatchObject({ code: 'not-found' });
-    expect(state.referralVisits).toEqual({});
+    expect(state.referralTelemetry).toEqual({});
     await expect(recordReferralVisit({ code: 'friend' }, firestore, new Date('2026-09-12T12:00:00Z')))
       .resolves.toEqual({ code: 'FRIEND', status: 'active', recorded: true });
-    expect(Object.values(state.referralVisits)).toEqual([expect.objectContaining({
-      code: 'FRIEND', programId: 'program-a', countryCode: 'FR',
-    })]);
+    expect(state.referralTelemetry['program-a__FRIEND']).toMatchObject({
+      code: 'FRIEND', programId: 'program-a', countryCode: 'FR', validatedVisitCount: 1,
+    });
     expect(state.referralRewards).toEqual({});
     expect(state.creditLedgers).toEqual({});
+    state.referralTelemetry['program-a__FRIEND'].validatedVisitCount = 10_000;
+    await expect(recordReferralVisit({ code: 'friend' }, firestore, new Date('2026-09-12T12:00:00Z')))
+      .resolves.toEqual({ code: 'FRIEND', status: 'active', recorded: false });
+    expect(state.referralTelemetry['program-a__FRIEND'].validatedVisitCount).toBe(10_000);
   });
 
   test('allows only a super admin to flag and clear pending referral activity', async () => {
@@ -966,15 +996,43 @@ describe('referral domain', () => {
     expect(state.referralRewards.pending.fraudFlag).toMatchObject({ status: 'cleared', reason: 'Reviewed and cleared' });
   });
 
+  test('requires a Super Admin to clear a flagged reward before approval can issue credits', async () => {
+    const { processReferralBookingCompletion, reviewReferralReward, setReferralRewardFlag } = loadModule();
+    const { firestore, state } = firestoreState({
+      users: { 'admin-a': { role: 'superadmin' } },
+      bookings: { paid: { clientId: 'new-client', status: 'completed', isTest: false, paymentStatus: 'paid', pricePaidMinor: 2500, completedAt: '2026-09-11T10:00:00.000Z' } },
+      referralPrograms: { 'program-a': activeProgram },
+      referralCodes: { FRIEND: { code: 'FRIEND', programId: 'program-a', ownerId: 'inviter-a', ownerType: 'client', status: 'active' } },
+      referralAttributions: { 'new-client': { code: 'FRIEND', programId: 'program-a', inviterId: 'inviter-a', expiresAt: '2026-09-20T00:00:00.000Z' } },
+      referralRewards: {}, creditLedgers: {}, referralAudit: {}, auditEvents: {},
+    });
+    const now = new Date('2026-09-12T12:00:00Z');
+
+    await expect(processReferralBookingCompletion('paid', firestore, now)).resolves.toEqual({ created: true });
+    await expect(setReferralRewardFlag('admin-a', {
+      rewardId: 'program-a__new-client', flagged: true, reason: 'Awaiting fraud review',
+    }, firestore)).resolves.toEqual({ rewardId: 'program-a__new-client', flagged: true });
+    await expect(reviewReferralReward('admin-a', { rewardId: 'program-a__new-client', decision: 'approve' }, firestore))
+      .rejects.toMatchObject({ code: 'failed-precondition' });
+    expect(state.creditLedgers).toEqual({});
+    await expect(setReferralRewardFlag('admin-a', {
+      rewardId: 'program-a__new-client', flagged: false, reason: 'Manual review cleared the activity',
+    }, firestore)).resolves.toEqual({ rewardId: 'program-a__new-client', flagged: false });
+    await expect(reviewReferralReward('admin-a', { rewardId: 'program-a__new-client', decision: 'approve' }, firestore))
+      .resolves.toEqual({ rewardId: 'program-a__new-client', status: 'approved' });
+    expect(Object.keys(state.creditLedgers)).toHaveLength(2);
+    await expect(reviewReferralReward('admin-a', { rewardId: 'program-a__new-client', decision: 'approve' }, firestore))
+      .rejects.toMatchObject({ code: 'failed-precondition' });
+  });
+
   test('returns typed observability totals, flagged queue, and bounded referral audit search', async () => {
     const { getReferralMarketingOverview } = loadModule();
     const { firestore } = firestoreState({
       users: { 'admin-a': { role: 'superadmin' } },
       referralPrograms: { 'program-a': activeProgram },
       referralCodes: { FRIEND: { code: 'FRIEND', programId: 'program-a', ownerId: 'X', ownerType: 'client', status: 'active' } },
-      referralVisits: {
-        first: { code: 'FRIEND', programId: 'program-a', countryCode: 'FR', recordedAt: '2026-09-12T10:00:00.000Z' },
-        second: { code: 'FRIEND', programId: 'program-a', countryCode: 'FR', recordedAt: '2026-09-12T11:00:00.000Z' },
+      referralTelemetry: {
+        overview: { validatedVisitCount: 2 },
       },
       referralAttributions: { invited: { code: 'FRIEND', programId: 'program-a', inviterId: 'X', inviterOwnerType: 'client' } },
       referralRewards: {
@@ -988,14 +1046,14 @@ describe('referral domain', () => {
         inviter: { ownerId: 'X', ownerType: 'client', amountMinor: 500, currency: 'EUR', kind: 'referral_inviter_credit', status: 'approved' },
         invited: { ownerId: 'invited', ownerType: 'client', amountMinor: 300, currency: 'EUR', kind: 'referral_invited_discount', status: 'approved' },
       },
-      auditEvents: {
+      referralAudit: {
         matching: { action: 'REFERRAL_REWARD_FLAGGED', rewardId: 'pending', programId: 'program-a', createdAt: '2026-09-12T11:00:00.000Z' },
         other: { action: 'REFERRAL_REWARD_APPROVED', rewardId: 'other', programId: 'program-a', createdAt: '2026-09-12T12:00:00.000Z' },
         unrelated: { action: 'BOOKING_CREATED', createdAt: '2026-09-12T13:00:00.000Z' },
       },
     });
 
-    await expect(getReferralMarketingOverview('admin-a', { search: 'pending', limit: 1 }, firestore)).resolves.toMatchObject({
+    await expect(getReferralMarketingOverview('admin-a', { rewardId: 'pending', limit: 1 }, firestore)).resolves.toMatchObject({
       funnel: {
         validatedVisits: 2, attributedSignups: 1, eligibleFirstBookings: 1,
         pendingRewards: 1, approvedRewards: 0,
@@ -1005,7 +1063,7 @@ describe('referral domain', () => {
       flaggedRewards: [{ id: 'pending', fraudFlag: { status: 'flagged', reason: 'Duplicate device signal' } }],
       auditTrail: [{ rewardId: 'pending', action: 'REFERRAL_REWARD_FLAGGED' }],
     });
-    await expect(getReferralMarketingOverview('admin-a', { search: 'pending', limit: 51 }, firestore))
+    await expect(getReferralMarketingOverview('admin-a', { rewardId: 'pending', limit: 51 }, firestore))
       .rejects.toMatchObject({ code: 'invalid-argument' });
   });
 });

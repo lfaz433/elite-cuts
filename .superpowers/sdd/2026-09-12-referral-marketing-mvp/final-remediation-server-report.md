@@ -187,3 +187,22 @@ npm --prefix functions run build
 ```
 
 Result: 1 suite passed, 50 tests passed; the Functions TypeScript build exited successfully.
+
+## Follow-up server remediation: bounded observability and deterministic paid-first rewards
+
+Referral eligibility now selects the earliest positive-paid, non-test completed booking by the authoritative server-written `completedAt` timestamp, using booking ID only as a deterministic equal-timestamp tie-breaker. Pending rewards persist `eligibleCompletedAtMs`; approval revalidates that exact earliest booking and marker. Consequently, an earlier free booking is ignored, a later paid booking cannot invalidate an already-pending earliest reward, and a second paid booking cannot create another reward. Any positive-paid booking missing a trustworthy `completedAt` fails closed; a legacy pending reward without the marker remains rejectable but cannot be approved into credits.
+
+Public visit telemetry is no longer an unbounded per-request event collection. `recordReferralVisit` transactionally validates the live code/program and increments only two private aggregate documents: an overview counter and a `{programId}__{code}` counter. Counts cap at 1,000,000 platform-wide and 10,000 per code; a capped valid call returns `recorded: false`. They contain no visitor identity, are non-unique/replayable telemetry only, and do not alter attribution, rewards, or ledgers. The Super Admin overview reads its single overview counter rather than scanning public-call records.
+
+Referral history now writes dedicated private `referralAudit` rows for referral program changes, code creation, attribution, pending reward creation, manual flag/clear, and review outcomes. The Super Admin overview reads this collection directly, with one validated `code`, `programId`, `rewardId`, or `action` filter plus a bounded 1–50 limit. Unfiltered history is newest-first; filtered history does not scan generic audit events and returns privileged actor/reason fields only to Super Admins.
+
+Flagged pending rewards now fail explicit approval with no ledger write. A Super Admin must clear the flag with a non-empty reason before a normal explicit approval can proceed. Successful flags, clears, rejects, and approvals all add referral-specific audit rows; legacy invalid rewards remain rejectable without eligibility validation or credits.
+
+Verification for this remediation:
+
+```bash
+npm --prefix functions exec jest -- src/referrals.test.ts --runInBand
+npm --prefix functions run build
+```
+
+Result: 1 suite passed, 52 tests passed; the Functions TypeScript build exited successfully.
