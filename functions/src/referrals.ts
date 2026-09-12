@@ -107,6 +107,20 @@ function ownerType(value: unknown): OwnerType | null {
   return value === 'client' || value === 'freelancer' || value === 'brand' ? value : null;
 }
 
+function samePrincipal(
+  leftId: unknown,
+  leftType: unknown,
+  rightId: unknown,
+  rightType: unknown,
+): boolean {
+  return typeof leftId === 'string' && typeof rightId === 'string'
+    && leftId === rightId && ownerType(leftType) === ownerType(rightType);
+}
+
+function principalKey(ownerId: string, ownerTypeValue: OwnerType): string {
+  return `${ownerTypeValue}:${ownerId}`;
+}
+
 function activeMembershipsFor(uid: string, snapshots: Array<{ data(): RecordValue }>): RecordValue[] {
   return snapshots.map(snapshot => snapshot.data()).filter(membership => (
     membership.userId === uid && membership.status === 'active'
@@ -412,7 +426,13 @@ export async function attributeReferral(
     if (!codeSnapshot.exists || !referralCode || referralCode.status !== 'active') {
       error('not-found', 'Referral code is unavailable');
     }
-    if (referralCode.ownerId === uid) error('permission-denied', 'You cannot use your own referral code');
+    const inviterOwnerType = ownerType(referralCode.ownerType);
+    if (
+      !inviterOwnerType || typeof referralCode.ownerId !== 'string' || !DOCUMENT_ID_PATTERN.test(referralCode.ownerId)
+    ) error('failed-precondition', 'Referral code is invalid');
+    if (samePrincipal(referralCode.ownerId, inviterOwnerType, uid, 'client')) {
+      error('permission-denied', 'You cannot use your own referral code');
+    }
     if (typeof referralCode.programId !== 'string') error('failed-precondition', 'Referral code is invalid');
     const profile = userSnapshot.data() as RecordValue | undefined;
     if (
@@ -433,6 +453,7 @@ export async function attributeReferral(
       code,
       programId: referralCode.programId,
       inviterId: referralCode.ownerId,
+      inviterOwnerType,
       countryCode,
       expiresAt: new Date(currentTime.getTime() + 30 * DAY_MS).toISOString(),
       recordedAt: now,
@@ -478,11 +499,14 @@ export async function processReferralBookingCompletion(
     const code = codeSnapshot.data() as RecordValue | undefined;
     const countryCode = typeof attribution.countryCode === 'string' ? attribution.countryCode : 'FR';
     if (!validProgram(program, countryCode, currentTime)) return false;
+    const inviterOwnerType = ownerType(code?.ownerType);
     if (
       !codeSnapshot.exists || !code || code.status !== 'active' || code.programId !== attribution.programId
       || code.ownerId !== attribution.inviterId || typeof attribution.inviterId !== 'string'
-      || attribution.inviterId === booking.clientId || !ownerType(code.ownerType)
+      || !inviterOwnerType || samePrincipal(code.ownerId, inviterOwnerType, booking.clientId, 'client')
+      || (attribution.inviterOwnerType !== undefined && attribution.inviterOwnerType !== inviterOwnerType)
     ) return false;
+    if (attribution.inviterOwnerType === undefined) transaction.update(attributionRef, { inviterOwnerType });
     const now = admin.firestore.FieldValue.serverTimestamp();
     transaction.create(rewardRef, {
       programId: attribution.programId,
@@ -490,7 +514,7 @@ export async function processReferralBookingCompletion(
       code: attribution.code,
       inviterId: attribution.inviterId,
       inviterOwnerId: code.ownerId,
-      inviterOwnerType: code.ownerType,
+      inviterOwnerType,
       invitedUserId: booking.clientId,
       invitedOwnerId: booking.clientId,
       invitedOwnerType: 'client',
@@ -578,8 +602,10 @@ export async function reviewReferralReward(
         || completedBookings.length !== 1 || completedBookings[0].id !== approval.bookingId
         || !attributionSnapshot.exists || !attribution || attribution.programId !== approval.programId
         || attribution.code !== approval.code || attribution.inviterId !== approval.inviterId
+        || (attribution.inviterOwnerType !== undefined && attribution.inviterOwnerType !== inviterOwnerType)
         || !codeSnapshot.exists || !code || code.status !== 'active' || code.programId !== approval.programId
-        || code.ownerId !== approval.inviterId || !inviterOwnerType || approval.inviterId === approval.invitedUserId
+        || code.ownerId !== approval.inviterId || !inviterOwnerType
+        || samePrincipal(approval.inviterId, inviterOwnerType, approval.invitedUserId, 'client')
         || (reward.inviterOwnerId !== undefined && reward.inviterOwnerId !== approval.inviterId)
         || (reward.inviterOwnerType !== undefined && reward.inviterOwnerType !== inviterOwnerType)
         || (reward.invitedOwnerId !== undefined && reward.invitedOwnerId !== approval.invitedUserId)
@@ -813,18 +839,27 @@ export async function getReferralMarketingOverview(
     return safeProgram ? [safeProgram] : [];
   }).sort((left, right) => String(left.id).localeCompare(String(right.id)));
 
-  const attributionsByInviter = new Map<string, number>();
+  const attributionsByInviter = new Map<string, { inviterId: string; inviterOwnerType: OwnerType; referrals: number }>();
   for (const attributionSnapshot of attributionsSnapshot.docs) {
     const attribution = attributionSnapshot.data() as RecordValue;
-    if (typeof attribution.inviterId !== 'string') continue;
-    attributionsByInviter.set(attribution.inviterId, (attributionsByInviter.get(attribution.inviterId) ?? 0) + 1);
+    const inviterOwnerType = ownerType(attribution.inviterOwnerType);
+    if (typeof attribution.inviterId !== 'string' || !inviterOwnerType) continue;
+    const key = principalKey(attribution.inviterId, inviterOwnerType);
+    const current = attributionsByInviter.get(key);
+    attributionsByInviter.set(key, {
+      inviterId: attribution.inviterId,
+      inviterOwnerType,
+      referrals: (current?.referrals ?? 0) + 1,
+    });
   }
 
   let pending = 0;
   let approved = 0;
   let rejected = 0;
   const pendingRewards: RecordValue[] = [];
-  const referrerTotals = new Map<string, { rewards: number; approvedCreditsMinor: number; currency: string }>();
+  const referrerTotals = new Map<string, {
+    inviterId: string; inviterOwnerType: OwnerType; rewards: number; approvedCreditsMinor: number; currency: string;
+  }>();
   for (const rewardSnapshot of rewardsSnapshot.docs) {
     const reward = rewardSnapshot.data() as RecordValue;
     if (reward.status === 'pending') pending += 1;
@@ -832,27 +867,38 @@ export async function getReferralMarketingOverview(
     else if (reward.status === 'rejected') rejected += 1;
     const pendingReward = safePendingRewardForOverview(rewardSnapshot.id, reward);
     if (pendingReward) pendingRewards.push(pendingReward);
-    if (typeof reward.inviterId !== 'string' || typeof reward.currency !== 'string' || !CURRENCY_PATTERN.test(reward.currency)) continue;
-    const current = referrerTotals.get(reward.inviterId) ?? { rewards: 0, approvedCreditsMinor: 0, currency: reward.currency };
+    const inviterOwnerType = ownerType(reward.inviterOwnerType);
+    if (
+      typeof reward.inviterId !== 'string' || !inviterOwnerType
+      || typeof reward.currency !== 'string' || !CURRENCY_PATTERN.test(reward.currency)
+    ) continue;
+    const key = principalKey(reward.inviterId, inviterOwnerType);
+    const current = referrerTotals.get(key) ?? {
+      inviterId: reward.inviterId, inviterOwnerType, rewards: 0, approvedCreditsMinor: 0, currency: reward.currency,
+    };
     current.rewards += 1;
     if (reward.status === 'approved' && Number.isSafeInteger(reward.inviterCreditMinor) && (reward.inviterCreditMinor as number) >= 0) {
       current.approvedCreditsMinor += reward.inviterCreditMinor as number;
     }
-    referrerTotals.set(reward.inviterId, current);
+    referrerTotals.set(key, current);
   }
-  const topReferrers = new Map<string, { referrals: number; rewards: number; approvedCreditsMinor: number; currency: string }>();
-  for (const [inviterId, referrals] of attributionsByInviter) {
-    const total = referrerTotals.get(inviterId);
-    topReferrers.set(inviterId, {
-      referrals,
+  const topReferrers = new Map<string, {
+    inviterId: string; inviterOwnerType: OwnerType; referrals: number; rewards: number; approvedCreditsMinor: number; currency: string;
+  }>();
+  for (const [key, attribution] of attributionsByInviter) {
+    const total = referrerTotals.get(key);
+    topReferrers.set(key, {
+      inviterId: attribution.inviterId,
+      inviterOwnerType: attribution.inviterOwnerType,
+      referrals: attribution.referrals,
       rewards: total?.rewards ?? 0,
       approvedCreditsMinor: total?.approvedCreditsMinor ?? 0,
       currency: total?.currency ?? 'EUR',
     });
   }
-  for (const [inviterId, total] of referrerTotals) {
-    if (topReferrers.has(inviterId)) continue;
-    topReferrers.set(inviterId, { referrals: 0, ...total });
+  for (const [key, total] of referrerTotals) {
+    if (topReferrers.has(key)) continue;
+    topReferrers.set(key, { referrals: 0, ...total });
   }
 
   return {
@@ -865,8 +911,9 @@ export async function getReferralMarketingOverview(
       approved,
       rejected,
     },
-    topReferrers: [...topReferrers.entries()].map(([inviterId, total]) => ({ inviterId, ...total }))
-      .sort((left, right) => right.referrals - left.referrals || right.rewards - left.rewards || left.inviterId.localeCompare(right.inviterId))
+    topReferrers: [...topReferrers.values()]
+      .sort((left, right) => right.referrals - left.referrals || right.rewards - left.rewards
+        || left.inviterOwnerType.localeCompare(right.inviterOwnerType) || left.inviterId.localeCompare(right.inviterId))
       .slice(0, 10),
     pendingRewards: pendingRewards.sort((left, right) => (
       (timestampMs(right.createdAt) ?? 0) - (timestampMs(left.createdAt) ?? 0) || String(left.id).localeCompare(String(right.id))

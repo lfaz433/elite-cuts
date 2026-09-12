@@ -101,3 +101,20 @@ npm --prefix functions run build
 Result: 1 suite passed, 39 tests passed; the Functions TypeScript build exited successfully.
 
 `npm --prefix functions run lint` was also attempted but cannot run in this repository because ESLint 8 finds no configuration file under `functions/` (it reports the search beginning at `functions/lib`). This remediation does not add or change lint configuration.
+
+## Follow-up server remediation: typed attribution and referral identity
+
+`attributeReferral` now persists `inviterOwnerType` atomically from the validated referral code. `getReferralMarketingOverview` keys its attribution and reward aggregates by the complete `{ inviterId, inviterOwnerType }` identity and returns that type with each top-referrer row. Older attributions or rewards with no recognized owner type are excluded from that grouped output rather than being merged by raw ID; their raw records still remain in the aggregate funnel counts.
+
+Self-referral checks now compare typed principal identities. The invited account is always the `client` principal with its UID, so a code owned by `brand:X` is valid for `client:X`; `client:X` referring itself remains denied. Reward processing checks the live referral-code namespace and backfills a legacy attribution's missing type only in the transaction when that code verifies it. Reward approval applies the same typed comparison and rejects a stored attribution type that conflicts with the code.
+
+Focused regression coverage includes a dashboard collision with client `X`, brand `X`, and legacy untyped records, plus the full client-`X` / brand-`X` attribution, paid-booking reward, and Super Admin approval lifecycle.
+
+Verification for this follow-up:
+
+```bash
+npm --prefix functions exec jest -- src/referrals.test.ts --runInBand
+npm --prefix functions run build
+```
+
+Result: 1 suite passed, 41 tests passed; the Functions TypeScript build exited successfully.

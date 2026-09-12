@@ -38,7 +38,7 @@ Maps a normalized, case-insensitive code to its owner: `ownerType` (`client`, `f
 
 ### `referralAttributions/{invitedUserId}`
 
-Stores the immutable selected code, inviter identity, program, recorded time, source, and expiration. One invited user can have only one attribution.
+Stores the immutable selected code, inviter identity and `inviterOwnerType` from that code, program, recorded time, source, and expiration. One invited user can have only one attribution. The inviter's namespace makes a client UID distinct from a brand ID with the same string.
 
 ### `referralRewards/{rewardId}`
 
@@ -55,7 +55,7 @@ The dashboard contains:
 - program status and country availability;
 - controls for reward values, activation, pause, and end date;
 - totals for visits, attributed sign-ups, eligible first bookings, pending rewards, approved rewards, and credit issued;
-- conversion funnel and top referrers;
+- conversion funnel and top referrers, identified by the `{ inviterId, inviterOwnerType }` pair;
 - a review queue with fraud flags and approve/reject actions;
 - a searchable referral/reward audit trail.
 

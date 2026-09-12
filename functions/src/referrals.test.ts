@@ -123,11 +123,11 @@ describe('referral domain', () => {
         INVITER: { code: 'INVITER', programId: 'program-a', ownerId: 'inviter-a', ownerType: 'client', status: 'active' },
       },
       referralAttributions: {
-        'invited-a': { programId: 'program-a', code: 'INVITER', inviterId: 'inviter-a' },
+        'invited-a': { programId: 'program-a', code: 'INVITER', inviterId: 'inviter-a', inviterOwnerType: 'client' },
       },
       referralRewards: {
         'reward-a': {
-          programId: 'program-a', bookingId: 'booking-a', inviterId: 'inviter-a', invitedUserId: 'invited-a',
+          programId: 'program-a', bookingId: 'booking-a', inviterId: 'inviter-a', inviterOwnerType: 'client', invitedUserId: 'invited-a',
           inviterCreditMinor: 500, invitedDiscountMinor: 300, currency: 'EUR', status: 'pending', createdAt: '2026-09-12T10:00:00.000Z',
         },
       },
@@ -139,11 +139,37 @@ describe('referral domain', () => {
         invitedDiscountMinor: 300, startsAt: '2026-09-01T00:00:00.000Z', endsAt: '2026-10-01T00:00:00.000Z',
       }],
       funnel: { codes: 1, attributions: 1, rewards: 1, pending: 1, approved: 0, rejected: 0 },
-      topReferrers: [{ inviterId: 'inviter-a', referrals: 1, rewards: 1, approvedCreditsMinor: 0, currency: 'EUR' }],
+      topReferrers: [{ inviterId: 'inviter-a', inviterOwnerType: 'client', referrals: 1, rewards: 1, approvedCreditsMinor: 0, currency: 'EUR' }],
       pendingRewards: [{
         id: 'reward-a', programId: 'program-a', bookingId: 'booking-a', inviterId: 'inviter-a', invitedUserId: 'invited-a',
         inviterCreditMinor: 500, invitedDiscountMinor: 300, currency: 'EUR', status: 'pending', createdAt: '2026-09-12T10:00:00.000Z',
       }],
+    });
+  });
+
+  test('keeps client and brand referrers with the same ID separate in the marketing overview', async () => {
+    const { getReferralMarketingOverview } = loadModule();
+    const { firestore } = firestoreState({
+      users: { 'admin-a': { role: 'superadmin' } },
+      referralPrograms: {}, referralCodes: {},
+      referralAttributions: {
+        client: { inviterId: 'X', inviterOwnerType: 'client' },
+        brand: { inviterId: 'X', inviterOwnerType: 'brand' },
+        legacy: { inviterId: 'X' },
+      },
+      referralRewards: {
+        client: { inviterId: 'X', inviterOwnerType: 'client', inviterCreditMinor: 500, currency: 'EUR', status: 'approved' },
+        brand: { inviterId: 'X', inviterOwnerType: 'brand', inviterCreditMinor: 700, currency: 'EUR', status: 'approved' },
+        legacy: { inviterId: 'X', inviterCreditMinor: 900, currency: 'EUR', status: 'approved' },
+      },
+    });
+
+    await expect(getReferralMarketingOverview('admin-a', {}, firestore)).resolves.toMatchObject({
+      funnel: { attributions: 3, rewards: 3, approved: 3 },
+      topReferrers: [
+        { inviterId: 'X', inviterOwnerType: 'brand', referrals: 1, rewards: 1, approvedCreditsMinor: 700, currency: 'EUR' },
+        { inviterId: 'X', inviterOwnerType: 'client', referrals: 1, rewards: 1, approvedCreditsMinor: 500, currency: 'EUR' },
+      ],
     });
   });
 
@@ -195,6 +221,29 @@ describe('referral domain', () => {
     await expect(attributeReferral('new-client', { code: 'OWN' }, firestore, new Date('2026-09-12T12:00:00Z')))
       .rejects.toMatchObject({ code: 'permission-denied' });
     expect(state.referralAttributions).toEqual({});
+  });
+
+  test('permits a client to use an unrelated brand code with the same ID through reward approval', async () => {
+    const { attributeReferral, processReferralBookingCompletion, reviewReferralReward } = loadModule();
+    const { firestore, state } = firestoreState({
+      users: { X: { role: 'client' }, 'admin-a': { role: 'superadmin' } },
+      freelancerProfiles: {}, memberships: {}, brands: { X: { name: 'X' } },
+      referralPrograms: { 'program-a': activeProgram },
+      referralCodes: { BRANDX: { code: 'BRANDX', programId: 'program-a', ownerType: 'brand', ownerId: 'X', status: 'active' } },
+      referralAttributions: {}, bookings: {},
+      referralRewards: {}, creditLedgers: {}, auditEvents: {},
+    });
+    const now = new Date('2026-09-12T12:00:00Z');
+
+    await expect(attributeReferral('X', { code: 'BRANDX' }, firestore, now))
+      .resolves.toEqual({ attributed: true, programId: 'program-a' });
+    expect(state.referralAttributions.X).toMatchObject({ inviterId: 'X', inviterOwnerType: 'brand' });
+    state.bookings['booking-x'] = { clientId: 'X', status: 'completed', isTest: false, paymentStatus: 'paid', pricePaidMinor: 2500 };
+    await expect(processReferralBookingCompletion('booking-x', firestore, now)).resolves.toEqual({ created: true });
+    expect(state.referralRewards['program-a__X']).toMatchObject({ inviterOwnerId: 'X', inviterOwnerType: 'brand' });
+    await expect(reviewReferralReward('admin-a', { rewardId: 'program-a__X', decision: 'approve' }, firestore))
+      .resolves.toEqual({ rewardId: 'program-a__X', status: 'approved' });
+    expect(state.creditLedgers['program-a__X__inviter']).toMatchObject({ ownerId: 'X', ownerType: 'brand' });
   });
 
   test('reserves a normalized code once and keeps the code owner server-derived', async () => {
