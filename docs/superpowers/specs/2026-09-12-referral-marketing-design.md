@@ -50,7 +50,7 @@ Append-only record of approved credits and redeemed discounts. Each record inclu
 
 ### `referralTelemetry/{telemetryId}`
 
-Private, server-written aggregate telemetry for successfully validated public referral links. `overview` holds the platform-wide count and `{programId}__{code}` holds a code/program count; no per-visit documents are written. Each aggregate contains only the normalized code where applicable, program ID, country code, count, and server timestamp—never an account, device, IP, address, or profile. A public caller records a visit only through `recordReferralVisit`, which transactionally validates the code and active, currently available program first. The callable uses Functions v1 `enforceAppCheck: true`, `consumeAppCheckToken: true`, and `maxInstances: 2`; its handler also rejects missing or already-consumed App Check context before Firestore work. It validates the code/program before touching telemetry, and when the global cap is reached it does not read the per-code aggregate. Counts are financially inert and capped at 10,000 per code and 1,000,000 platform-wide. They represent non-unique validated calls, not authoritative acquisition analytics. Staging must configure and initialize the web App Check provider/site key before enabling telemetry; referral-link validation and browsing remain available if best-effort telemetry reporting fails. App Check and the two-instance cap mitigate abusive invocation and Firestore work, but do not make public browser traffic or function-invocation cost mathematically DDoS-free.
+Private, server-written aggregate telemetry for successfully validated public referral links. `overview` holds the platform-wide count and `{programId}__{code}` holds a code/program count; no per-visit documents are written. Each aggregate contains only the normalized code where applicable, program ID, country code, count, and server timestamp—never an account, device, IP, address, or profile. A public caller records a visit only through `recordReferralVisit`. Its transaction reads the normalized code and global aggregate, validates the code and active/current program, and only then mutates aggregate counters. The callable uses Functions v1 `enforceAppCheck: true`, `consumeAppCheckToken: true`, and `maxInstances: 2`; its handler also rejects missing or already-consumed App Check context before Firestore work. When the global cap is reached after validation, it does not read the per-code aggregate. Counts are financially inert and capped at 10,000 per code and 1,000,000 platform-wide. They represent non-unique validated calls, not authoritative acquisition analytics. Staging must configure and initialize the web App Check provider/site key before enabling telemetry; referral-link validation and browsing remain available if best-effort telemetry reporting fails. App Check and the two-instance cap mitigate abusive invocation and Firestore work, but do not make public browser traffic or function-invocation cost mathematically DDoS-free.
 
 The public telemetry result is exactly `{ code: string, status: 'active', recorded: boolean }`. `recorded` is `true` only when an aggregate increment committed; it is `false` for a valid code when either cap is already reached. Missing, invalid, or consumed App Check is rejected before this result, and unavailable code/program returns `not-found` with no aggregate write.
 
@@ -100,12 +100,18 @@ The initial dashboard uses the current premium dark-and-gold Elite Cuts design. 
 ```ts
 type ReferralOwnerType = 'client' | 'freelancer' | 'brand';
 
-interface ReferralMarketingOverviewV2 {
+interface PublicReferralVisitResult {
+  code: string;
+  status: 'active';
+  recorded: boolean;
+}
+
+interface ReferralMarketingOverview {
   contractVersion: 2;
   programs: Array<{
     id: string; status: 'draft' | 'active' | 'paused' | 'archived';
     countryCodes: string[]; currency: string; inviterCreditMinor: number;
-    invitedDiscountMinor: number; startsAt: TimestampLike; endsAt: TimestampLike;
+    invitedDiscountMinor: number; startsAt: string; endsAt: string;
   }>;
   funnel: {
     codes: number; validatedVisits: number; attributions: number;
@@ -116,7 +122,7 @@ interface ReferralMarketingOverviewV2 {
   approvedCreditTotals: Array<{ currency: string; amountMinor: number }>;
   topReferrers: Array<{
     inviterId: string; inviterOwnerType: ReferralOwnerType; referrals: number;
-    rewards: number; approvedCreditsMinor: number; currency: string;
+    rewards: number; approvedCreditTotals: Array<{ currency: string; amountMinor: number }>;
   }>;
   pendingRewards: ReferralPendingReward[];
   flaggedRewards: Array<ReferralPendingReward & { fraudFlag: { status: 'flagged'; reason: string } }>;
@@ -126,24 +132,24 @@ interface ReferralMarketingOverviewV2 {
 interface ReferralPendingReward {
   id: string; programId: string; bookingId: string; inviterId: string;
   invitedUserId: string; inviterCreditMinor: number; invitedDiscountMinor: number;
-  currency: string; status: 'pending'; createdAt?: TimestampLike;
+  currency: string; status: 'pending'; createdAt?: string;
   fraudFlag?: { status: 'flagged' | 'cleared'; reason: string };
 }
 
 interface ReferralAuditEntry {
   id: string; action: string; programId?: string; rewardId?: string; code?: string;
-  actorUid?: string; reason?: string; createdAt?: TimestampLike;
+  actorUid?: string; reason?: string; createdAt?: string;
 }
 
 type ReferralAuditFilter =
-  | { limit?: number }
-  | { code: string; limit?: number }
-  | { programId: string; limit?: number }
-  | { rewardId: string; limit?: number }
-  | { action: string; limit?: number };
+  | { limit?: number; code?: never; programId?: never; rewardId?: never; action?: never }
+  | { code: string; limit?: number; programId?: never; rewardId?: never; action?: never }
+  | { programId: string; limit?: number; code?: never; rewardId?: never; action?: never }
+  | { rewardId: string; limit?: number; code?: never; programId?: never; action?: never }
+  | { action: string; limit?: number; code?: never; programId?: never; rewardId?: never };
 ```
 
-`TimestampLike` is the Firestore timestamp value supplied by the callable serializer. `funnel.validatedVisits` is the private App-Check-gated aggregate count; it is non-unique and never affects reward or credit totals. `approvedCreditTotals` includes both approved inviter and invited-client credit legs, grouped solely by currency. `flaggedRewards` is the manual-review queue and requires the `fraudFlag.status === 'flagged'` reason shown above. `auditTrail` is privileged: actor UID and reason are returned only to Super Admin callers. The filter accepts at most one of `code` (normalized code), `programId` (document ID), `rewardId` (document ID), or `action` (referral action), with integer `limit` 1–50; an unfiltered trail is newest-first, and a filtered query runs directly against referral-only audit storage. The contract never merges client, freelancer, or brand namespaces sharing the same string ID.
+All returned date/timestamp fields are ISO-8601 UTC strings; no Firestore `Timestamp` objects are returned. `funnel.validatedVisits` is the private App-Check-gated aggregate count; it is non-unique and never affects reward or credit totals. The overview-level `approvedCreditTotals` includes both approved inviter and invited-client credit legs, grouped solely by currency. Each typed `topReferrers` row independently exposes only its own `approvedCreditTotals`, also grouped by currency; it has no currency-less amount. `flaggedRewards` is the manual-review queue and contains only rows with `fraudFlag.status === 'flagged'` and a required reason. `auditTrail` is privileged: actor UID and reason are returned only to Super Admin callers. The filter accepts at most one of `code` (normalized code), `programId` (document ID), `rewardId` (document ID), or `action` (referral action), with integer `limit` 1–50; an unfiltered trail is newest-first, and a filtered query runs directly against referral-only audit storage. The contract never merges client, freelancer, or brand namespaces sharing the same string ID.
 
 `setReferralRewardFlag` is Super Admin-only. It requires a non-empty reason and can flag or clear only a pending reward, records a referral audit row, and does not create, approve, reject, or alter a credit. A flagged reward cannot be approved or issue a ledger until a Super Admin explicitly clears the flag with a reason. Flagged rewards remain in the manual review queue; this MVP has no automatic approval path.
 

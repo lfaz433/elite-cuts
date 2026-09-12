@@ -181,7 +181,7 @@ describe('referral domain', () => {
         invitedDiscountMinor: 300, startsAt: '2026-09-01T00:00:00.000Z', endsAt: '2026-10-01T00:00:00.000Z',
       }],
       funnel: { codes: 1, attributions: 1, rewards: 1, pending: 1, approved: 0, rejected: 0 },
-      topReferrers: [{ inviterId: 'inviter-a', inviterOwnerType: 'client', referrals: 1, rewards: 1, approvedCreditsMinor: 0, currency: 'EUR' }],
+      topReferrers: [{ inviterId: 'inviter-a', inviterOwnerType: 'client', referrals: 1, rewards: 1, approvedCreditTotals: [] }],
       pendingRewards: [{
         id: 'reward-a', programId: 'program-a', bookingId: 'booking-a', inviterId: 'inviter-a', invitedUserId: 'invited-a',
         inviterCreditMinor: 500, invitedDiscountMinor: 300, currency: 'EUR', status: 'pending', createdAt: '2026-09-12T10:00:00.000Z',
@@ -209,9 +209,39 @@ describe('referral domain', () => {
     await expect(getReferralMarketingOverview('admin-a', {}, firestore)).resolves.toMatchObject({
       funnel: { attributions: 3, rewards: 3, approved: 3 },
       topReferrers: [
-        { inviterId: 'X', inviterOwnerType: 'brand', referrals: 1, rewards: 1, approvedCreditsMinor: 700, currency: 'EUR' },
-        { inviterId: 'X', inviterOwnerType: 'client', referrals: 1, rewards: 1, approvedCreditsMinor: 500, currency: 'EUR' },
+        { inviterId: 'X', inviterOwnerType: 'brand', referrals: 1, rewards: 1, approvedCreditTotals: [{ currency: 'EUR', amountMinor: 700 }] },
+        { inviterId: 'X', inviterOwnerType: 'client', referrals: 1, rewards: 1, approvedCreditTotals: [{ currency: 'EUR', amountMinor: 500 }] },
       ],
+    });
+  });
+
+  test('keeps a typed referrer’s approved credits separated by currency', async () => {
+    const { getReferralMarketingOverview } = loadModule();
+    const { firestore } = firestoreState({
+      users: { 'admin-a': { role: 'superadmin' } },
+      referralPrograms: {
+        'program-eur': { ...activeProgram, currency: 'EUR' },
+        'program-usd': { ...activeProgram, currency: 'USD' },
+      },
+      referralCodes: {},
+      referralAttributions: {
+        eur: { inviterId: 'X', inviterOwnerType: 'client', programId: 'program-eur' },
+        usd: { inviterId: 'X', inviterOwnerType: 'client', programId: 'program-usd' },
+      },
+      referralRewards: {
+        eur: { inviterId: 'X', inviterOwnerType: 'client', inviterCreditMinor: 500, currency: 'EUR', status: 'approved' },
+        usd: { inviterId: 'X', inviterOwnerType: 'client', inviterCreditMinor: 700, currency: 'USD', status: 'approved' },
+      },
+    });
+
+    await expect(getReferralMarketingOverview('admin-a', {}, firestore)).resolves.toMatchObject({
+      topReferrers: [{
+        inviterId: 'X', inviterOwnerType: 'client', referrals: 2, rewards: 2,
+        approvedCreditTotals: [
+          { currency: 'EUR', amountMinor: 500 },
+          { currency: 'USD', amountMinor: 700 },
+        ],
+      }],
     });
   });
 

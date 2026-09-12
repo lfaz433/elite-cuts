@@ -247,3 +247,22 @@ firebase emulators:exec --only firestore "PATH=/opt/homebrew/bin:$PATH /opt/home
 ```
 
 Result: referral domain tests passed (58), booking lifecycle tests passed (22), Functions TypeScript build passed, and the two Firestore emulator rule suites passed (10).
+
+## Follow-up server remediation: currency-safe reporting contract
+
+`getReferralMarketingOverview` no longer exposes a currency-less `approvedCreditsMinor` on a top-referrer row. Each row remains keyed by `{ inviterId, inviterOwnerType }` and now returns `approvedCreditTotals: [{ currency, amountMinor }]`. Reward counts and referral counts remain currency-neutral counts; every monetary minor-unit total is separated by currency. This prevents EUR and USD inviter credits from being added and labelled with an arbitrary first currency.
+
+The exported v2 DTO is now concrete rather than opaque: `ReferralProgramOverview`, `ReferralCreditTotal`, `ReferralFraudFlag`, `ReferralPendingRewardOverview`, `ReferralAuditEntry`, `ReferralTopReferrer`, `ReferralAuditFilter`, `PublicReferralVisitResult`, and `ReferralMarketingOverview` define the exact callable contract. Safe overview projection normalizes program, pending-reward, and audit timestamps to ISO-8601 UTC strings, matching the documentation; no Firestore `Timestamp` is returned to the UI. The specification now shows the exact public telemetry result, funnel fields, bounded mutually-exclusive audit-filter shape, flag requirement, and privileged actor/reason fields.
+
+Documentation also now distinguishes the telemetry transaction's initial reads from mutations: it reads the normalized code and global counter, validates code/program availability, and only then updates aggregate counters. Invalid/unavailable code never mutates telemetry; a globally capped valid code avoids the per-code aggregate read.
+
+Verification for this remediation:
+
+```bash
+npm --prefix functions exec jest -- src/referrals.test.ts --runInBand
+npm --prefix functions exec jest -- src/bookings.test.ts --runInBand
+npm --prefix functions run build
+firebase emulators:exec --only firestore "PATH=/opt/homebrew/bin:$PATH /opt/homebrew/bin/node ./node_modules/jest/bin/jest.js --config='{\"testEnvironment\":\"node\",\"rootDir\":\".\",\"transform\":{}}' --runInBand --runTestsByPath rules-tests/referral.rules.test.cjs rules-tests/booking-transition-enforcement.test.cjs"
+```
+
+Result: referral domain tests passed (59), booking lifecycle tests passed (22), Functions TypeScript build passed, and the two Firestore emulator rule suites passed (10).

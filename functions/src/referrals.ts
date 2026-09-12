@@ -24,9 +24,70 @@ export interface PublicReferralVisitResult {
   recorded: boolean;
 }
 
+export interface ReferralProgramOverview {
+  id: string;
+  status: ProgramStatus;
+  countryCodes: string[];
+  currency: string;
+  inviterCreditMinor: number;
+  invitedDiscountMinor: number;
+  startsAt: string;
+  endsAt: string;
+}
+
+export interface ReferralCreditTotal {
+  currency: string;
+  amountMinor: number;
+}
+
+export interface ReferralFraudFlag {
+  status: 'flagged' | 'cleared';
+  reason: string;
+}
+
+export interface ReferralPendingRewardOverview {
+  id: string;
+  programId: string;
+  bookingId: string;
+  inviterId: string;
+  invitedUserId: string;
+  inviterCreditMinor: number;
+  invitedDiscountMinor: number;
+  currency: string;
+  status: 'pending';
+  createdAt?: string;
+  fraudFlag?: ReferralFraudFlag;
+}
+
+export interface ReferralAuditEntry {
+  id: string;
+  action: string;
+  programId?: string;
+  rewardId?: string;
+  code?: string;
+  actorUid?: string;
+  reason?: string;
+  createdAt?: string;
+}
+
+export interface ReferralTopReferrer {
+  inviterId: string;
+  inviterOwnerType: OwnerType;
+  referrals: number;
+  rewards: number;
+  approvedCreditTotals: ReferralCreditTotal[];
+}
+
+export type ReferralAuditFilter =
+  | { limit?: number }
+  | { code: string; limit?: number }
+  | { programId: string; limit?: number }
+  | { rewardId: string; limit?: number }
+  | { action: string; limit?: number };
+
 export interface ReferralMarketingOverview {
   contractVersion: 2;
-  programs: RecordValue[];
+  programs: ReferralProgramOverview[];
   funnel: {
     codes: number;
     validatedVisits: number;
@@ -40,14 +101,11 @@ export interface ReferralMarketingOverview {
     approvedRewards: number;
     rejected: number;
   };
-  approvedCreditTotals: Array<{ currency: string; amountMinor: number }>;
-  topReferrers: Array<{
-    inviterId: string; inviterOwnerType: OwnerType; referrals: number; rewards: number;
-    approvedCreditsMinor: number; currency: string;
-  }>;
-  pendingRewards: RecordValue[];
-  flaggedRewards: RecordValue[];
-  auditTrail: RecordValue[];
+  approvedCreditTotals: ReferralCreditTotal[];
+  topReferrers: ReferralTopReferrer[];
+  pendingRewards: ReferralPendingRewardOverview[];
+  flaggedRewards: Array<ReferralPendingRewardOverview & { fraudFlag: { status: 'flagged'; reason: string } }>;
+  auditTrail: ReferralAuditEntry[];
 }
 
 const CODE_PATTERN = /^[A-Z0-9][A-Z0-9-]{2,31}$/;
@@ -121,6 +179,11 @@ function timestampMs(value: unknown): number | undefined {
     }
   }
   return undefined;
+}
+
+function timestampIso(value: unknown): string | undefined {
+  const milliseconds = timestampMs(value);
+  return milliseconds === undefined ? undefined : new Date(milliseconds).toISOString();
 }
 
 function dateInput(value: unknown, field: string): string {
@@ -1202,7 +1265,7 @@ export async function recordReferralVisit(
   return { code, status: 'active', recorded };
 }
 
-function safeProgramForOverview(id: string, program: RecordValue): RecordValue | null {
+function safeProgramForOverview(id: string, program: RecordValue): ReferralProgramOverview | null {
   if (
     (program.status !== 'draft' && program.status !== 'active' && program.status !== 'paused' && program.status !== 'archived')
     || !Array.isArray(program.countryCodes) || !program.countryCodes.every(country => typeof country === 'string')
@@ -1213,17 +1276,17 @@ function safeProgramForOverview(id: string, program: RecordValue): RecordValue |
   ) return null;
   return {
     id,
-    status: program.status,
-    countryCodes: program.countryCodes,
-    currency: program.currency,
-    inviterCreditMinor: program.inviterCreditMinor,
-    invitedDiscountMinor: program.invitedDiscountMinor,
-    startsAt: program.startsAt,
-    endsAt: program.endsAt,
+    status: program.status as ProgramStatus,
+    countryCodes: program.countryCodes as string[],
+    currency: program.currency as string,
+    inviterCreditMinor: program.inviterCreditMinor as number,
+    invitedDiscountMinor: program.invitedDiscountMinor as number,
+    startsAt: timestampIso(program.startsAt) as string,
+    endsAt: timestampIso(program.endsAt) as string,
   };
 }
 
-function safePendingRewardForOverview(id: string, reward: RecordValue): RecordValue | null {
+function safePendingRewardForOverview(id: string, reward: RecordValue): ReferralPendingRewardOverview | null {
   if (
     reward.status !== 'pending' || typeof reward.programId !== 'string' || typeof reward.bookingId !== 'string'
     || typeof reward.inviterId !== 'string' || typeof reward.invitedUserId !== 'string'
@@ -1232,7 +1295,7 @@ function safePendingRewardForOverview(id: string, reward: RecordValue): RecordVa
     || typeof reward.currency !== 'string' || !CURRENCY_PATTERN.test(reward.currency)
   ) return null;
   const fraudFlag = reward.fraudFlag as RecordValue | undefined;
-  const safeFraudFlag = fraudFlag
+  const safeFraudFlag: ReferralFraudFlag | undefined = fraudFlag
     && (fraudFlag.status === 'flagged' || fraudFlag.status === 'cleared')
     && typeof fraudFlag.reason === 'string'
     ? { status: fraudFlag.status, reason: fraudFlag.reason }
@@ -1243,18 +1306,18 @@ function safePendingRewardForOverview(id: string, reward: RecordValue): RecordVa
     bookingId: reward.bookingId,
     inviterId: reward.inviterId,
     invitedUserId: reward.invitedUserId,
-    inviterCreditMinor: reward.inviterCreditMinor,
-    invitedDiscountMinor: reward.invitedDiscountMinor,
-    currency: reward.currency,
+    inviterCreditMinor: reward.inviterCreditMinor as number,
+    invitedDiscountMinor: reward.invitedDiscountMinor as number,
+    currency: reward.currency as string,
     status: 'pending',
     ...(safeFraudFlag ? { fraudFlag: safeFraudFlag } : {}),
-    ...(reward.createdAt === undefined ? {} : { createdAt: reward.createdAt }),
+    ...(timestampIso(reward.createdAt) === undefined ? {} : { createdAt: timestampIso(reward.createdAt) }),
   };
 }
 
 function approvedCreditTotalsForOverview(
   snapshots: Array<{ data(): RecordValue }>,
-): Array<{ currency: string; amountMinor: number }> {
+): ReferralCreditTotal[] {
   const totals = new Map<string, number>();
   for (const snapshot of snapshots) {
     const ledger = snapshot.data();
@@ -1270,15 +1333,16 @@ function approvedCreditTotalsForOverview(
     .sort((left, right) => String(left.currency).localeCompare(String(right.currency)));
 }
 
-function safeReferralAuditForOverview(id: string, event: RecordValue): RecordValue | null {
+function safeReferralAuditForOverview(id: string, event: RecordValue): ReferralAuditEntry | null {
   if (typeof event.action !== 'string' || !event.action.startsWith('REFERRAL_')) return null;
-  const item: RecordValue = { id, action: event.action };
+  const item: ReferralAuditEntry = { id, action: event.action };
   if (typeof event.rewardId === 'string' && DOCUMENT_ID_PATTERN.test(event.rewardId)) item.rewardId = event.rewardId;
   if (typeof event.programId === 'string' && DOCUMENT_ID_PATTERN.test(event.programId)) item.programId = event.programId;
   if (typeof event.code === 'string' && CODE_PATTERN.test(event.code)) item.code = event.code;
   if (typeof event.actorUid === 'string' && DOCUMENT_ID_PATTERN.test(event.actorUid)) item.actorUid = event.actorUid;
   if (typeof event.reason === 'string' && event.reason.length > 0 && event.reason.length <= 500) item.reason = event.reason;
-  if (event.createdAt !== undefined) item.createdAt = event.createdAt;
+  const createdAt = timestampIso(event.createdAt);
+  if (createdAt !== undefined) item.createdAt = createdAt;
   return item;
 }
 
@@ -1329,10 +1393,10 @@ export async function getReferralMarketingOverview(
   let pending = 0;
   let approved = 0;
   let rejected = 0;
-  const pendingRewards: RecordValue[] = [];
-  const flaggedRewards: RecordValue[] = [];
+  const pendingRewards: ReferralPendingRewardOverview[] = [];
+  const flaggedRewards: Array<ReferralPendingRewardOverview & { fraudFlag: { status: 'flagged'; reason: string } }> = [];
   const referrerTotals = new Map<string, {
-    inviterId: string; inviterOwnerType: OwnerType; rewards: number; approvedCreditsMinor: number; currency: string;
+    inviterId: string; inviterOwnerType: OwnerType; rewards: number; approvedCredits: Map<string, number>;
   }>();
   for (const rewardSnapshot of rewardsSnapshot.docs) {
     const reward = rewardSnapshot.data() as RecordValue;
@@ -1342,7 +1406,10 @@ export async function getReferralMarketingOverview(
     const pendingReward = safePendingRewardForOverview(rewardSnapshot.id, reward);
     if (pendingReward) {
       pendingRewards.push(pendingReward);
-      if ((pendingReward.fraudFlag as RecordValue | undefined)?.status === 'flagged') flaggedRewards.push(pendingReward);
+      const fraudFlag = pendingReward.fraudFlag;
+      if (fraudFlag?.status === 'flagged') {
+        flaggedRewards.push({ ...pendingReward, fraudFlag: { status: 'flagged', reason: fraudFlag.reason } });
+      }
     }
     const inviterOwnerType = ownerType(reward.inviterOwnerType);
     if (
@@ -1351,17 +1418,19 @@ export async function getReferralMarketingOverview(
     ) continue;
     const key = principalKey(reward.inviterId, inviterOwnerType);
     const current = referrerTotals.get(key) ?? {
-      inviterId: reward.inviterId, inviterOwnerType, rewards: 0, approvedCreditsMinor: 0, currency: reward.currency,
+      inviterId: reward.inviterId, inviterOwnerType, rewards: 0, approvedCredits: new Map<string, number>(),
     };
     current.rewards += 1;
-    if (reward.status === 'approved' && Number.isSafeInteger(reward.inviterCreditMinor) && (reward.inviterCreditMinor as number) >= 0) {
-      current.approvedCreditsMinor += reward.inviterCreditMinor as number;
+    const inviterCreditMinor = reward.inviterCreditMinor as number;
+    if (reward.status === 'approved' && Number.isSafeInteger(inviterCreditMinor) && inviterCreditMinor >= 0) {
+      current.approvedCredits.set(
+        reward.currency,
+        (current.approvedCredits.get(reward.currency) ?? 0) + inviterCreditMinor,
+      );
     }
     referrerTotals.set(key, current);
   }
-  const topReferrers = new Map<string, {
-    inviterId: string; inviterOwnerType: OwnerType; referrals: number; rewards: number; approvedCreditsMinor: number; currency: string;
-  }>();
+  const topReferrers = new Map<string, ReferralTopReferrer>();
   for (const [key, attribution] of attributionsByInviter) {
     const total = referrerTotals.get(key);
     topReferrers.set(key, {
@@ -1369,13 +1438,22 @@ export async function getReferralMarketingOverview(
       inviterOwnerType: attribution.inviterOwnerType,
       referrals: attribution.referrals,
       rewards: total?.rewards ?? 0,
-      approvedCreditsMinor: total?.approvedCreditsMinor ?? 0,
-      currency: total?.currency ?? 'EUR',
+      approvedCreditTotals: total ? [...total.approvedCredits.entries()]
+        .map(([currency, amountMinor]) => ({ currency, amountMinor }))
+        .sort((left, right) => left.currency.localeCompare(right.currency)) : [],
     });
   }
   for (const [key, total] of referrerTotals) {
     if (topReferrers.has(key)) continue;
-    topReferrers.set(key, { referrals: 0, ...total });
+    topReferrers.set(key, {
+      inviterId: total.inviterId,
+      inviterOwnerType: total.inviterOwnerType,
+      referrals: 0,
+      rewards: total.rewards,
+      approvedCreditTotals: [...total.approvedCredits.entries()]
+        .map(([currency, amountMinor]) => ({ currency, amountMinor }))
+        .sort((left, right) => left.currency.localeCompare(right.currency)),
+    });
   }
   const auditTrail = auditSnapshot.docs
     .flatMap(snapshot => {
