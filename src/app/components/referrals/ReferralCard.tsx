@@ -1,21 +1,26 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Copy, Gift, Share2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   creditLabel,
+  canCreateReferralCodeForScope,
   createMyReferralCode,
   getMyReferralWorkspace,
   getPublicReferralCode,
   isActiveReferralCode,
   isShareableReferralCode,
   referralLink,
-  referralCodesForWorkspace,
+  referralWorkspaceForScope,
+  type ReferralSurface,
   type ReferralWorkspace,
+  type ReferralWorkspaceScope,
 } from '../../lib/marketplace/referrals';
 
 interface ReferralCardProps {
   title: string;
   description: string;
+  surface: ReferralSurface;
+  brandId?: string | null;
 }
 
 function codeStatus(status: string): string {
@@ -25,9 +30,9 @@ function codeStatus(status: string): string {
   return status;
 }
 
-function creditSummary(workspace: ReferralWorkspace): Array<{ currency: string; amountMinor: number; pending: boolean }> {
+function creditSummary(workspace: ReferralWorkspaceScope): Array<{ currency: string; amountMinor: number; pending: boolean }> {
   const totals = new Map<string, { amountMinor: number; pending: boolean }>();
-  for (const reward of [...workspace.rewards, ...(workspace.brandWorkspaces ?? []).flatMap(brand => brand.rewards)]) {
+  for (const reward of workspace.rewards) {
     if (reward.status !== 'approved' && reward.status !== 'pending') continue;
     const current = totals.get(reward.currency) ?? { amountMinor: 0, pending: false };
     current.amountMinor += reward.amountMinor;
@@ -37,16 +42,19 @@ function creditSummary(workspace: ReferralWorkspace): Array<{ currency: string; 
   return [...totals.entries()].map(([currency, summary]) => ({ currency, ...summary }));
 }
 
-export default function ReferralCard({ title, description }: ReferralCardProps) {
+export default function ReferralCard({ title, description, surface, brandId }: ReferralCardProps) {
   const [workspace, setWorkspace] = useState<ReferralWorkspace | null>(null);
   const [error, setError] = useState(false);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [creatingCode, setCreatingCode] = useState(false);
   const [verifiedCodes, setVerifiedCodes] = useState<Record<string, boolean>>({});
+  const [verifyingCode, setVerifyingCode] = useState<string | null>(null);
+  const mounted = useRef(true);
 
-  const loadWorkspace = useCallback(async () => {
+  const fetchWorkspace = useCallback(async () => {
     const nextWorkspace = await getMyReferralWorkspace();
-    const codes = referralCodesForWorkspace(nextWorkspace);
+    const scope = referralWorkspaceForScope(nextWorkspace, surface, brandId);
+    const codes = scope.codes;
     const validation = await Promise.all(codes.map(async code => {
       try {
         const verified = await getPublicReferralCode(code.code);
@@ -55,59 +63,92 @@ export default function ReferralCard({ title, description }: ReferralCardProps) 
         return [code.code, false] as const;
       }
     }));
-    setWorkspace(nextWorkspace);
-    setVerifiedCodes(Object.fromEntries(validation));
+    return { workspace: nextWorkspace, verifiedCodes: Object.fromEntries(validation) };
+  }, [brandId, surface]);
+
+  const loadWorkspace = useCallback(async () => {
+    const result = await fetchWorkspace();
+    if (!mounted.current) return false;
+    setWorkspace(result.workspace);
+    setVerifiedCodes(result.verifiedCodes);
     setError(false);
-  }, []);
+    return true;
+  }, [fetchWorkspace]);
 
   useEffect(() => {
-    let current = true;
+    mounted.current = true;
     void loadWorkspace().catch(() => {
-      if (!current) return;
+      if (!mounted.current) return;
       setError(true);
     });
-    return () => { current = false; };
+    return () => { mounted.current = false; };
   }, [loadWorkspace]);
 
-  const credits = useMemo(() => workspace ? creditSummary(workspace) : [], [workspace]);
-  const codes = useMemo(() => workspace ? referralCodesForWorkspace(workspace) : [], [workspace]);
+  const activeScope = useMemo(() => workspace ? referralWorkspaceForScope(workspace, surface, brandId) : { codes: [], rewards: [] }, [brandId, surface, workspace]);
+  const credits = useMemo(() => creditSummary(activeScope), [activeScope]);
+  const codes = activeScope.codes;
+  const canCreate = workspace ? canCreateReferralCodeForScope(workspace, surface, brandId) : false;
   const createCode = async () => {
+    if (!canCreate) return;
     setCreatingCode(true);
     try {
       const result = await createMyReferralCode();
       await loadWorkspace();
       toast.success(result.reused ? 'Votre lien de parrainage est disponible.' : 'Votre lien de parrainage est prêt.');
     } catch {
-      toast.error('Un programme de parrainage actif est nécessaire pour créer un lien.');
+      toast.error('Impossible de créer ce lien de parrainage pour cet espace.');
     } finally {
-      setCreatingCode(false);
+      if (mounted.current) setCreatingCode(false);
+    }
+  };
+  const useVerifiedLink = async (code: string, action: 'copy' | 'share') => {
+    if (verifyingCode) return;
+    setVerifyingCode(code);
+    const referralCode = codes.find(item => item.code === code);
+    try {
+      const verified = await getPublicReferralCode(code);
+      if (!referralCode || !isShareableReferralCode(referralCode, verified)) {
+        if (mounted.current) {
+          setVerifiedCodes(current => ({ ...current, [code]: false }));
+          setVerifyingCode(null);
+        }
+        toast.error('Ce lien de parrainage n’est plus disponible.');
+        return;
+      }
+    } catch {
+      if (mounted.current) {
+        setVerifiedCodes(current => ({ ...current, [code]: false }));
+        setVerifyingCode(null);
+      }
+      toast.error('Ce lien de parrainage n’est plus disponible.');
+      return;
+    }
+    try {
+      const link = referralLink(window.location.origin, code);
+      if (action === 'share' && navigator.share) {
+        await navigator.share({ title: 'Barberboard', text: 'Utilisez mon lien de parrainage Barberboard.', url: link });
+        return;
+      }
+      if (!navigator.clipboard) {
+        toast.error('Le presse-papiers n’est pas disponible sur cet appareil.');
+        return;
+      }
+      await navigator.clipboard.writeText(link);
+      if (mounted.current) setCopiedCode(code);
+      toast.success('Lien de parrainage copié.');
+    } catch (reason) {
+      if ((reason as DOMException).name !== 'AbortError') {
+        toast.error(action === 'share' ? 'Le partage est indisponible pour le moment.' : 'Impossible de copier le lien de parrainage.');
+      }
+    } finally {
+      if (mounted.current) setVerifyingCode(null);
     }
   };
   const copyLink = async (code: string) => {
-    const link = referralLink(window.location.origin, code);
-    if (!navigator.clipboard) {
-      toast.error('Le presse-papiers n’est pas disponible sur cet appareil.');
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(link);
-      setCopiedCode(code);
-      toast.success('Lien de parrainage copié.');
-    } catch {
-      toast.error('Impossible de copier le lien de parrainage.');
-    }
+    await useVerifiedLink(code, 'copy');
   };
   const shareLink = async (code: string) => {
-    const link = referralLink(window.location.origin, code);
-    if (!navigator.share) {
-      await copyLink(code);
-      return;
-    }
-    try {
-      await navigator.share({ title: 'Barberboard', text: 'Utilisez mon lien de parrainage Barberboard.', url: link });
-    } catch (reason) {
-      if ((reason as DOMException).name !== 'AbortError') toast.error('Le partage est indisponible pour le moment.');
-    }
+    await useVerifiedLink(code, 'share');
   };
 
   return (
@@ -130,14 +171,14 @@ export default function ReferralCard({ title, description }: ReferralCardProps) 
                 <p className="mt-1 text-xs text-white/50">Statut : {codeStatus(code.status)}</p>
               </div>
               {verifiedCodes[code.code] ? <div className="flex gap-2">
-                <button type="button" onClick={() => void copyLink(code.code)} className="inline-flex items-center gap-2 rounded-xl border border-white/15 px-3 py-2 text-sm font-bold text-white/75 hover:bg-white/5">
+                <button type="button" disabled={verifyingCode !== null} onClick={() => void copyLink(code.code)} className="inline-flex items-center gap-2 rounded-xl border border-white/15 px-3 py-2 text-sm font-bold text-white/75 hover:bg-white/5 disabled:opacity-50">
                   {copiedCode === code.code ? <Check className="h-4 w-4 text-emerald-300" /> : <Copy className="h-4 w-4" />} Copier
                 </button>
-                <button type="button" onClick={() => void shareLink(code.code)} className="inline-flex items-center gap-2 rounded-xl bg-[#D4AF37] px-3 py-2 text-sm font-black text-black"><Share2 className="h-4 w-4" /> Partager</button>
+                <button type="button" disabled={verifyingCode !== null} onClick={() => void shareLink(code.code)} className="inline-flex items-center gap-2 rounded-xl bg-[#D4AF37] px-3 py-2 text-sm font-black text-black disabled:opacity-50"><Share2 className="h-4 w-4" /> {verifyingCode === code.code ? 'Vérification…' : 'Partager'}</button>
               </div> : <p className="text-sm text-white/45">{isActiveReferralCode(code.status) ? 'Le programme de ce code est indisponible pour le moment.' : 'Ce code ne peut pas être partagé tant qu’il n’est pas actif.'}</p>}
             </div>
           ))}
-          {codes.length === 0 && <div className="rounded-2xl border border-dashed border-white/15 p-4"><p className="text-sm text-white/50">Créez votre lien de parrainage personnel. Les règles d’éligibilité sont vérifiées côté serveur.</p><button type="button" disabled={creatingCode} onClick={() => void createCode()} className="mt-3 rounded-xl bg-[#D4AF37] px-4 py-2.5 text-sm font-black text-black disabled:opacity-50">{creatingCode ? 'Création du lien…' : 'Créer mon lien de parrainage'}</button></div>}
+          {codes.length === 0 && <div className="rounded-2xl border border-dashed border-white/15 p-4"><p className="text-sm text-white/50">{canCreate ? 'Créez votre lien de parrainage pour cet espace. Les règles d’éligibilité sont vérifiées côté serveur.' : 'Aucun code n’est disponible pour cet espace. La création doit être ciblée côté serveur lorsqu’un compte possède plusieurs espaces de parrainage.'}</p>{canCreate && <button type="button" disabled={creatingCode} onClick={() => void createCode()} className="mt-3 rounded-xl bg-[#D4AF37] px-4 py-2.5 text-sm font-black text-black disabled:opacity-50">{creatingCode ? 'Création du lien…' : 'Créer mon lien de parrainage'}</button>}</div>}
         </div>
         {credits.length > 0 && <div className="mt-5 border-t border-white/10 pt-4"><p className="text-xs font-black uppercase tracking-[0.16em] text-white/45">Mes crédits</p><div className="mt-2 flex flex-wrap gap-2">{credits.map(credit => <span key={credit.currency} className="rounded-full border border-[#D4AF37]/25 bg-[#D4AF37]/10 px-3 py-1.5 text-sm font-bold text-[#f5dfa0]">{creditLabel(credit)}{credit.pending ? ' · inclut un montant en attente' : ''}</span>)}</div></div>}
         {workspace.attribution && <p className="mt-5 text-sm text-white/55">Code invité enregistré : <span className="font-mono font-bold text-white">{workspace.attribution.code}</span>. Il sera pris en compte si votre première réservation est terminée.</p>}

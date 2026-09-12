@@ -39,8 +39,10 @@ const {
   readCapturedReferralAttribution,
   REFERRAL_ATTRIBUTION_STORAGE_KEY,
   REFERRAL_ATTRIBUTION_TTL_MS,
+  ReferralStorageUnavailableError,
   referralLink,
-  referralCodesForWorkspace,
+  referralWorkspaceForScope,
+  validateAndCaptureReferralCode,
 } = loaded.exports;
 
 test('builds a share link from the supplied origin and referral code', () => {
@@ -112,10 +114,48 @@ test('accepts a link for sharing only after public server validation', async () 
   assert.deepEqual(callableCalls, [['getPublicReferralCode', { code: 'ec-client' }]]);
 });
 
-test('includes authorized brand codes in the sharing workspace', () => {
-  assert.deepEqual(referralCodesForWorkspace({
-    codes: [{ code: 'CLIENT-A', ownerType: 'client', programId: 'program-a', status: 'active' }],
-    rewards: [],
-    brandWorkspaces: [{ brandId: 'brand-a', codes: [{ code: 'BRAND-A', ownerType: 'brand', programId: 'program-a', status: 'active' }], rewards: [] }],
-  }).map(code => code.code), ['CLIENT-A', 'BRAND-A']);
+test('keeps the selected brand workspace separate from personal referral data', () => {
+  const workspace = {
+    codes: [
+      { code: 'CLIENT-A', ownerType: 'client', programId: 'program-a', status: 'active' },
+      { code: 'FREELANCER-A', ownerType: 'freelancer', programId: 'program-a', status: 'active' },
+    ],
+    rewards: [{ id: 'client-reward', role: 'inviter', amountMinor: 500, currency: 'EUR', status: 'approved' }],
+    brandWorkspaces: [
+      { brandId: 'brand-a', codes: [{ code: 'BRAND-A', ownerType: 'brand', programId: 'program-a', status: 'active' }], rewards: [{ id: 'brand-a-reward', role: 'inviter', amountMinor: 300, currency: 'EUR', status: 'approved' }] },
+      { brandId: 'brand-b', codes: [{ code: 'BRAND-B', ownerType: 'brand', programId: 'program-a', status: 'active' }], rewards: [{ id: 'brand-b-reward', role: 'inviter', amountMinor: 700, currency: 'EUR', status: 'approved' }] },
+    ],
+  };
+
+  assert.deepEqual(referralWorkspaceForScope(workspace, 'brand', 'brand-b').codes.map(code => code.code), ['BRAND-B']);
+  assert.deepEqual(referralWorkspaceForScope(workspace, 'brand', 'brand-b').rewards.map(reward => reward.id), ['brand-b-reward']);
+  assert.deepEqual(referralWorkspaceForScope(workspace, 'client').codes.map(code => code.code), ['CLIENT-A']);
+  assert.deepEqual(referralWorkspaceForScope(workspace, 'client').rewards, []);
+});
+
+test('validates a public code before touching local storage', async () => {
+  const events = [];
+  const storage = { setItem: () => events.push('storage') };
+  const validate = async code => {
+    events.push(`validate:${code}`);
+    throw new Error('unavailable');
+  };
+
+  await assert.rejects(validateAndCaptureReferralCode('EC-CLIENT', storage, validate), /unavailable/);
+  assert.deepEqual(events, ['validate:EC-CLIENT']);
+});
+
+test('reports unavailable storage only after public validation succeeds', async () => {
+  const events = [];
+  const storage = { setItem: () => { events.push('storage'); throw new Error('blocked'); } };
+  const validate = async code => {
+    events.push(`validate:${code}`);
+    return { code: 'EC-CLIENT', status: 'active' };
+  };
+
+  await assert.rejects(
+    validateAndCaptureReferralCode('EC-CLIENT', storage, validate),
+    error => error instanceof ReferralStorageUnavailableError,
+  );
+  assert.deepEqual(events, ['validate:EC-CLIENT', 'storage']);
 });

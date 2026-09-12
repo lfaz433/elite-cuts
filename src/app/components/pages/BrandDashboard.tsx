@@ -273,7 +273,7 @@ export default function BrandDashboard() {
         </aside>
 
         <main className="min-w-0 space-y-6">
-          <ReferralCard title="Faites connaître vos salons" description="Partagez un lien de parrainage Barberboard et consultez les crédits associés à votre compte." />
+          <ReferralCard surface="brand" brandId={brandId} title="Faites connaître vos salons" description="Partagez un lien de parrainage Barberboard et consultez les crédits associés à ce réseau." />
           {showLocationForm && brandId ? (
             <LocationForm brandId={brandId} onCreated={handleCreated} onCancel={() => setShowLocationForm(false)} />
           ) : selectedLocation ? (

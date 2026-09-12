@@ -44,10 +44,24 @@ export interface PublicReferralCode {
   status: 'active';
 }
 
+export type ReferralSurface = 'client' | 'freelancer' | 'brand';
+
+export interface ReferralWorkspaceScope {
+  codes: ReferralCode[];
+  rewards: ReferralReward[];
+}
+
 export interface StoredReferralAttribution {
   code: string;
   capturedAt: number;
   expiresAt: number;
+}
+
+export class ReferralStorageUnavailableError extends Error {
+  constructor() {
+    super('Referral storage is unavailable');
+    this.name = 'ReferralStorageUnavailableError';
+  }
 }
 
 const getMyReferralWorkspaceCall = httpsCallable<Record<string, never>, unknown>(
@@ -179,12 +193,33 @@ export function isShareableReferralCode(code: ReferralCode, verified: PublicRefe
   return isActiveReferralCode(code.status) && verified?.status === 'active' && verified.code === code.code;
 }
 
-export function referralCodesForWorkspace(workspace: ReferralWorkspace): ReferralCode[] {
-  const byCode = new Map<string, ReferralCode>();
-  for (const code of [...workspace.codes, ...(workspace.brandWorkspaces ?? []).flatMap(brand => brand.codes)]) {
-    byCode.set(code.code, code);
+export function referralWorkspaceForScope(
+  workspace: ReferralWorkspace,
+  surface: ReferralSurface,
+  brandId?: string | null,
+): ReferralWorkspaceScope {
+  if (surface === 'brand') {
+    const brandWorkspace = workspace.brandWorkspaces?.find(brand => brand.brandId === brandId);
+    return brandWorkspace ? { codes: brandWorkspace.codes, rewards: brandWorkspace.rewards } : { codes: [], rewards: [] };
   }
-  return [...byCode.values()];
+  const hasAnotherPersonalScope = workspace.codes.some(code => (
+    (code.ownerType === 'client' || code.ownerType === 'freelancer') && code.ownerType !== surface
+  ));
+  return {
+    codes: workspace.codes.filter(code => code.ownerType === surface),
+    rewards: hasAnotherPersonalScope ? [] : workspace.rewards,
+  };
+}
+
+export function canCreateReferralCodeForScope(
+  workspace: ReferralWorkspace,
+  surface: ReferralSurface,
+  brandId?: string | null,
+): boolean {
+  if (surface === 'brand') {
+    return workspace.brandWorkspaces?.length === 1 && workspace.brandWorkspaces[0].brandId === brandId;
+  }
+  return (workspace.brandWorkspaces?.length ?? 0) === 0;
 }
 
 export function creditLabel({ amountMinor, currency }: Pick<ReferralReward, 'amountMinor' | 'currency'>): string {
@@ -210,6 +245,19 @@ export function captureReferralAttribution(
   };
   storage.setItem(REFERRAL_ATTRIBUTION_STORAGE_KEY, JSON.stringify(attribution));
   return attribution;
+}
+
+export async function validateAndCaptureReferralCode(
+  code: string,
+  storage: Pick<Storage, 'setItem'>,
+  validate: (value: string) => Promise<PublicReferralCode> = getPublicReferralCode,
+): Promise<StoredReferralAttribution | null> {
+  const verified = await validate(code);
+  try {
+    return captureReferralAttribution(verified.code, storage);
+  } catch {
+    throw new ReferralStorageUnavailableError();
+  }
 }
 
 export function readCapturedReferralAttribution(
