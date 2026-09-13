@@ -32,7 +32,7 @@ test('calculates referral funnel conversion rates from real counts', () => {
 test('labels pending referral credits for manual review', () => {
   const { telemetryText } = loadDashboard();
 
-  assert.equal(telemetryText(0, false), 'Indisponible (App Check désactivé)');
+  assert.equal(telemetryText(0), '0 visite(s) validée(s)');
 });
 
 test('parses only the exact v2 overview contract and preserves typed currency keys', () => {
