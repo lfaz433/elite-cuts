@@ -213,8 +213,8 @@ Expected: PASS.
 
 - [ ] **Step 3: Perform staging release only after Functions deployment is available**
 
-Run: `firebase deploy --only firestore:rules,functions --project staging`  
-Expected: deploy to `elite-cuts-staging` only. Do not run this command while the project lacks Blaze billing.
+Run: `npm --prefix functions run deploy:staging`
+Expected: the guard verifies that `staging` resolves to `elite-cuts-staging`, then deploys Firestore rules, the exact index manifest, and Functions together. Do not run this command while the project lacks Blaze billing.
 
 - [ ] **Step 4: Commit documentation**
 

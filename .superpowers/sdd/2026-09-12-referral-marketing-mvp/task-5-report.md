@@ -41,14 +41,15 @@ direct-write-denial suite.
 The staging deploy command was deliberately not run:
 
 ```bash
-firebase deploy --only firestore:rules,functions --project staging
+npm --prefix functions run deploy:staging
 ```
 
 The required sequence is:
 
 1. `elite-cuts-staging` has Blaze billing and authorized deployment
    credentials, because Cloud Functions deployment requires Blaze.
-2. Deploy Firestore rules and Functions to staging only with the command above.
+2. Use the guarded command above to verify the staging alias and deploy
+   Firestore rules, the exact index manifest, and Functions together.
 3. Run the four-user staging pilot and record evidence for each checklist item.
 4. Make a release decision from the pilot evidence.
 

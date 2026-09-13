@@ -11,7 +11,7 @@ This remediation changes only referral server code, its focused tests, the Funct
 Reward creation and approval now require the same authoritative payment data written by `functions/src/bookingPayment.ts` and the completed walk-in path:
 
 - `status === 'completed'`
-- `isTest !== true`
+- `isTest === false`
 - `paymentStatus === 'paid'`
 - `pricePaidMinor` is a safe integer greater than zero
 
@@ -166,7 +166,7 @@ Result: 1 suite passed, 46 tests passed; the Functions TypeScript build exited s
 
 ## Follow-up server remediation: paid-first eligibility and observability
 
-The completed-booking and approval transactions now use the identical authoritative `isPositivePaidBooking` predicate when counting a client's prior eligible bookings. A completed free/zero-value, missing/unpaid, cancelled, declined, refunded, or test booking does not consume the first eligible slot. The first positive paid non-test completion can therefore create a reward after an earlier free completion, while a second positive paid completion still prevents reward creation/approval. Both checks remain inside their respective Firestore transactions.
+The completed-booking and approval transactions now use the identical authoritative `isPositivePaidBooking` predicate when counting a client's prior eligible bookings. A completed free/zero-value, missing/unpaid, cancelled, declined, or refunded booking—or any booking whose `isTest` value is anything other than the canonical boolean `false`—does not consume the first eligible slot. The first positive-paid completion with `isTest === false` can therefore create a reward after an earlier free completion, while a second canonical positive-paid completion still prevents reward creation/approval. Both checks remain inside their respective Firestore transactions.
 
 Added private server-written `referralVisits` telemetry and the unauthenticated `recordReferralVisit` callable. It validates the normalized code plus active/current program before writing only `{ code, programId, countryCode, recordedAt }`; unavailable codes write nothing. It returns no owner or visitor information and is entirely isolated from attribution, rewards, and credit ledgers. Visits count validated public calls, not unique people; public call repetition is possible until a platform-level anti-abuse control such as App Check/rate limiting is deployed.
 
@@ -190,7 +190,7 @@ Result: 1 suite passed, 50 tests passed; the Functions TypeScript build exited s
 
 ## Follow-up server remediation: bounded observability and deterministic paid-first rewards
 
-Referral eligibility now selects the earliest positive-paid, non-test completed booking by the authoritative server-written `completedAt` timestamp, using booking ID only as a deterministic equal-timestamp tie-breaker. Pending rewards persist `eligibleCompletedAtMs`; approval revalidates that exact earliest booking and marker. Consequently, an earlier free booking is ignored, a later paid booking cannot invalidate an already-pending earliest reward, and a second paid booking cannot create another reward. Any positive-paid booking missing a trustworthy `completedAt` fails closed; a legacy pending reward without the marker remains rejectable but cannot be approved into credits.
+Referral eligibility now selects the earliest positive-paid completed booking with `isTest === false` by the authoritative server-written `completedAt` timestamp, using booking ID only as a deterministic equal-timestamp tie-breaker. Missing or non-boolean `isTest` values fail closed and can neither earn nor suppress a later canonical booking. Pending rewards persist `eligibleCompletedAtMs`; approval revalidates that exact earliest booking and marker. Consequently, an earlier free booking is ignored, a later paid booking cannot invalidate an already-pending earliest reward, and a second paid booking cannot create another reward. Any positive-paid booking missing a trustworthy `completedAt` fails closed; a legacy pending reward without the marker remains rejectable but cannot be approved into credits.
 
 Public visit telemetry is no longer an unbounded per-request event collection. `recordReferralVisit` transactionally validates the live code/program and increments only two private aggregate documents: an overview counter and a `{programId}__{code}` counter. Counts cap at 1,000,000 platform-wide and 10,000 per code; a capped valid call returns `recorded: false`. They contain no visitor identity, are non-unique/replayable telemetry only, and do not alter attribution, rewards, or ledgers. The Super Admin overview reads its single overview counter rather than scanning public-call records.
 
@@ -213,7 +213,7 @@ Result: 1 suite passed, 52 tests passed; the Functions TypeScript build exited s
 
 Before staging telemetry is enabled, configure the Firebase web App Check provider and its site keys, and verify callable enforcement with fresh limited-use tokens. The metrics remain non-unique validated calls rather than audience analytics; the caps bound storage and writes, not the number of requests a caller can attempt.
 
-The paid-first selection and approval checks retain the full millisecond timestamp from server-written `completedAt`; no seconds truncation occurs. Browser Firestore rules now prohibit tenant-manager changes to `completedAt` and `isTest`, while the Admin-SDK booking completion/payment workflows retain authority to write those fields. This prevents a browser manager from backdating an eligibility candidate or changing its test classification. The first positive-paid, non-test completion stays approvable after later paid bookings; any positive-paid legacy booking without trustworthy server completion evidence fails closed.
+The paid-first selection and approval checks retain the full millisecond timestamp from server-written `completedAt`; no seconds truncation occurs. Browser Firestore rules now prohibit tenant-manager changes to `completedAt` and `isTest`, while the Admin-SDK booking completion/payment workflows retain authority to write those fields. This prevents a browser manager from backdating an eligibility candidate or changing its test classification. The first positive-paid completion with `isTest === false` stays approvable after later paid bookings; any positive-paid legacy booking without the canonical boolean or trustworthy server completion evidence fails closed.
 
 `ReferralMarketingOverview` is now an exported server DTO with `contractVersion: 2`. Its documented fields are `programs`, full funnel totals (including App-Check-gated `validatedVisits`), currency-separated approved credits, `{ inviterId, inviterOwnerType }` top referrers, pending/flagged queues (including flag reasons), and the bounded referral-only audit trail with privileged actor/reason data. The v2 contract makes the typed identity and audit/filter guarantees explicit for the frontend consumer.
 
