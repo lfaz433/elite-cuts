@@ -1237,6 +1237,24 @@ describe('referral domain', () => {
     });
   });
 
+  test('does not hide an authorized brand behind more than twenty irrelevant memberships', async () => {
+    const { getMyReferralWorkspace } = loadModule();
+    const irrelevant = Object.fromEntries(Array.from({ length: 21 }, (_, index) => [
+      `irrelevant-${index}`, { userId: 'admin-a', brandId: `irrelevant-brand-${index}`, role: 'worker', status: 'active' },
+    ]));
+    const { firestore } = firestoreState({
+      memberships: {
+        ...irrelevant,
+        valid: { userId: 'admin-a', brandId: 'brand-a', role: 'principal_admin', status: 'active' },
+      },
+      brands: { 'brand-a': { name: 'A' } }, referralCodes: {}, referralRewards: {}, referralAttributions: {},
+    });
+
+    await expect(getMyReferralWorkspace('admin-a', {}, firestore)).resolves.toMatchObject({
+      brandWorkspaces: [{ brandId: 'brand-a' }],
+    });
+  });
+
   test('separates client invitee, client inviter, freelancer inviter, and brand workspace data', async () => {
     const { getMyReferralWorkspace } = loadModule();
     const { firestore } = firestoreState({

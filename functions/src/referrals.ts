@@ -1254,10 +1254,14 @@ function creditTotals(rewards: RecordValue[], ledgers: CanonicalApprovedCreditLe
 }
 
 async function authorizedBrandIds(uid: string, firestore: Firestore): Promise<string[]> {
-  const memberships = await firestore.collection('memberships').where('userId', '==', uid)
-    .limit(MAX_BRAND_WORKSPACES + 1).get();
-  if (memberships.docs.length > MAX_BRAND_WORKSPACES) error('resource-exhausted', 'Too many brands to load safely');
-  const ids = brandIdsFromMemberships(uid, memberships.docs as Array<{ data(): RecordValue }>);
+  const memberships = firestore.collection('memberships').where('userId', '==', uid).where('status', '==', 'active');
+  const [principals, salonAdmins] = await Promise.all([
+    memberships.where('role', '==', 'principal_admin').limit(MAX_BRAND_WORKSPACES + 1).get(),
+    memberships.where('role', '==', 'salon_admin').limit(MAX_BRAND_WORKSPACES + 1).get(),
+  ]);
+  const matchingMemberships = [...principals.docs, ...salonAdmins.docs] as Array<{ data(): RecordValue }>;
+  const ids = brandIdsFromMemberships(uid, matchingMemberships);
+  if (ids.length > MAX_BRAND_WORKSPACES) error('resource-exhausted', 'Too many brands to load safely');
   if (ids.length > MAX_BRAND_WORKSPACES) error('resource-exhausted', 'Too many brands to load safely');
   const brands = await Promise.all(ids.map(brandId => firestore.collection('brands').doc(brandId).get()));
   return ids.filter((_, index) => brands[index].exists);
