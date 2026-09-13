@@ -857,7 +857,12 @@ export async function processReferralBookingCompletion(
     ]);
     const attribution = attributionSnapshot.data() as RecordValue | undefined;
     if (!attributionSnapshot.exists || !attribution || typeof attribution.programId !== 'string' || typeof attribution.code !== 'string') return false;
-    if (timestampMs(attribution.expiresAt) === undefined || (timestampMs(attribution.expiresAt) as number) < currentTime.getTime()) return false;
+    // Attribution expiry is evaluated at the immutable completion event, not at
+    // delayed trigger handling time.
+    if (
+      timestampMs(attribution.expiresAt) === undefined
+      || (timestampMs(attribution.expiresAt) as number) < completionEvidence.updateTimeMs
+    ) return false;
     const earliestBooking = earliestPositivePaidCompletion(completedBookings.docs as Array<{ id: string; data(): RecordValue }>);
     const completedAtMs = positivePaidCompletionAt(booking);
     if (!earliestBooking || completedAtMs === undefined || earliestBooking.id !== bookingId) return false;
@@ -1365,9 +1370,29 @@ function safeProgramForOverview(id: string, program: RecordValue): ReferralProgr
   };
 }
 
+function canonicalReferralRewardForOverview(id: string, reward: RecordValue): boolean {
+  const qualification = trustedQualificationFromEvidence(reward);
+  const completionEvidence = qualification ? referralCompletionEvidence({
+    version: qualification.eligibilityEvidenceVersion,
+    eventId: qualification.eligibilityEvidenceEventId,
+    updateTimeMs: qualification.eligibilityEvidenceUpdateTimeMs,
+  }) : null;
+  return qualification !== null
+    && qualification.rewardId === id
+    && id === `${qualification.programId}__${qualification.invitedUserId}`
+    && qualification.inviterId === qualification.inviterOwnerId
+    && qualification.invitedUserId === qualification.invitedOwnerId
+    && isTrustedCompletionEvidence(completionEvidence, qualification.eligibleCompletedAtMs, {
+      version: qualification.eligibilityEvidenceVersion,
+      notBeforeAtMs: qualification.eligibilityProgramNotBeforeAtMs,
+    })
+    && (reward.status === 'pending' || reward.status === 'approved' || reward.status === 'rejected' || reward.status === 'cancelled');
+}
+
 function safePendingRewardForOverview(id: string, reward: RecordValue): ReferralPendingRewardOverview | null {
   if (
-    reward.status !== 'pending' || typeof reward.programId !== 'string' || typeof reward.bookingId !== 'string'
+    !canonicalReferralRewardForOverview(id, reward)
+    || reward.status !== 'pending' || typeof reward.programId !== 'string' || typeof reward.bookingId !== 'string'
     || typeof reward.inviterId !== 'string' || typeof reward.invitedUserId !== 'string'
     || !Number.isSafeInteger(reward.inviterCreditMinor) || (reward.inviterCreditMinor as number) < 0
     || !Number.isSafeInteger(reward.invitedDiscountMinor) || (reward.invitedDiscountMinor as number) < 0
@@ -1423,9 +1448,7 @@ function canonicalApprovedCreditLedgerForOverview(
   const reward = rewardsById.get(ledger.rewardId);
   if (
     !reward || reward.status !== 'approved'
-    || reward.rewardId !== ledger.rewardId
-    || typeof reward.programId !== 'string' || typeof reward.invitedUserId !== 'string'
-    || ledger.rewardId !== `${reward.programId}__${reward.invitedUserId}`
+    || !canonicalReferralRewardForOverview(ledger.rewardId, reward)
   ) return null;
   const expectedOwnerId = kind === 'referral_inviter_credit' ? reward.inviterOwnerId : reward.invitedOwnerId;
   const expectedOwnerType = kind === 'referral_inviter_credit' ? ownerType(reward.inviterOwnerType) : ownerType(reward.invitedOwnerType);
@@ -1517,18 +1540,19 @@ export async function getReferralMarketingOverview(
   let rejected = 0;
   const pendingRewards: ReferralPendingRewardOverview[] = [];
   const flaggedRewards: Array<ReferralPendingRewardOverview & { fraudFlag: { status: 'flagged'; reason: string } }> = [];
-  const rewardsById = new Map<string, RecordValue>(rewardsSnapshot.docs.map(snapshot => (
-    [snapshot.id, snapshot.data() as RecordValue]
-  )));
+  const canonicalRewards = rewardsSnapshot.docs.flatMap(snapshot => {
+    const reward = snapshot.data() as RecordValue;
+    return canonicalReferralRewardForOverview(snapshot.id, reward) ? [{ id: snapshot.id, reward }] : [];
+  });
+  const rewardsById = new Map<string, RecordValue>(canonicalRewards.map(({ id, reward }) => [id, reward]));
   const referrerTotals = new Map<string, {
     inviterId: string; inviterOwnerType: OwnerType; rewards: number; approvedCredits: Map<string, number>;
   }>();
-  for (const rewardSnapshot of rewardsSnapshot.docs) {
-    const reward = rewardSnapshot.data() as RecordValue;
+  for (const { id: rewardId, reward } of canonicalRewards) {
     if (reward.status === 'pending') pending += 1;
     else if (reward.status === 'approved') approved += 1;
     else if (reward.status === 'rejected') rejected += 1;
-    const pendingReward = safePendingRewardForOverview(rewardSnapshot.id, reward);
+    const pendingReward = safePendingRewardForOverview(rewardId, reward);
     if (pendingReward) {
       pendingRewards.push(pendingReward);
       const fraudFlag = pendingReward.fraudFlag;
@@ -1610,8 +1634,8 @@ export async function getReferralMarketingOverview(
       validatedVisits,
       attributions: attributionsSnapshot.docs.length,
       attributedSignups: attributionsSnapshot.docs.length,
-      rewards: rewardsSnapshot.docs.length,
-      eligibleFirstBookings: rewardsSnapshot.docs.length,
+      rewards: canonicalRewards.length,
+      eligibleFirstBookings: canonicalRewards.length,
       pending,
       pendingRewards: pending,
       approved,

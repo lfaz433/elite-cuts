@@ -300,3 +300,19 @@ firebase emulators:exec --only firestore "PATH=/opt/homebrew/bin:$PATH /opt/home
 ```
 
 Result: referral domain tests passed (62), booking lifecycle tests passed (22), Functions TypeScript build passed, and the focused Firestore rule suites passed (10).
+
+## Final approval integrity follow-up: canonical overview rewards and delayed attribution expiry
+
+The Super Admin overview now applies one strict canonical-reward predicate before every referral reward-derived projection. A row must carry its deterministic `{programId}__{invitedUserId}` ID in both document key and `rewardId`, complete valid qualification/evidence fields, matching `inviterId`/`inviterOwnerId` plus owner type, and matching invited client user/owner ID/type. Pending, approved, rejected, and cancelled reward rows failing that predicate are excluded from funnel counts, pending and flagged queues, top-referrer reward counts, and the reward lookup used to validate canonical credit-ledger legs. Platform issued totals remain ledger-derived, but a ledger paired with a corrupt reward is now excluded too; this prevents one corrupt reward from producing separate count and credit rows for different principals.
+
+Completion processing now compares `referralAttributions.expiresAt` to the trusted Firestore trigger event update timestamp, rather than handler wall-clock time. This matches program availability: delayed delivery cannot discard a completion made while an attribution was still live, while an attribution that expired before the trusted completion event still fails safely.
+
+Verification for this follow-up:
+
+```bash
+npm --prefix functions exec jest -- src/referrals.test.ts --runInBand
+npm --prefix functions exec jest -- src/bookings.test.ts --runInBand
+npm --prefix functions run build
+```
+
+Result: referral domain tests passed (64), booking lifecycle tests passed (22), and Functions TypeScript build passed.

@@ -153,6 +153,35 @@ function trustedReferralCompletion(eventId = 'event-1', at = '2026-09-12T12:00:0
   return { version: 1, eventId, updateTimeMs: Date.parse(at) };
 }
 
+function canonicalOverviewReward(id, values = {}) {
+  const [defaultProgramId, defaultInvitedUserId] = id.split('__');
+  const programId = values.programId ?? defaultProgramId;
+  const invitedUserId = values.invitedUserId ?? defaultInvitedUserId;
+  const inviterId = values.inviterId ?? 'inviter-a';
+  return {
+    rewardId: id,
+    programId,
+    bookingId: values.bookingId ?? 'booking-a',
+    code: values.code ?? 'FRIEND',
+    inviterId,
+    inviterOwnerId: values.inviterOwnerId ?? inviterId,
+    inviterOwnerType: values.inviterOwnerType ?? 'client',
+    invitedUserId,
+    invitedOwnerId: values.invitedOwnerId ?? invitedUserId,
+    invitedOwnerType: values.invitedOwnerType ?? 'client',
+    currency: values.currency ?? 'EUR',
+    inviterCreditMinor: values.inviterCreditMinor ?? 500,
+    invitedDiscountMinor: values.invitedDiscountMinor ?? 300,
+    eligibleCompletedAtMs: values.eligibleCompletedAtMs ?? Date.parse('2026-09-12T10:00:00.000Z'),
+    eligibilityEvidenceVersion: 1,
+    eligibilityEvidenceEventId: values.eligibilityEvidenceEventId ?? 'event-overview',
+    eligibilityEvidenceUpdateTimeMs: values.eligibilityEvidenceUpdateTimeMs ?? Date.parse('2026-09-12T12:00:00.000Z'),
+    eligibilityProgramNotBeforeAtMs: values.eligibilityProgramNotBeforeAtMs ?? Date.parse('2026-09-01T00:00:00.000Z'),
+    status: values.status ?? 'approved',
+    ...values,
+  };
+}
+
 describe('referral domain', () => {
   test('returns aggregate referral marketing data only to a super admin', async () => {
     const { getReferralMarketingOverview } = loadModule();
@@ -168,10 +197,9 @@ describe('referral domain', () => {
         'invited-a': { programId: 'program-a', code: 'INVITER', inviterId: 'inviter-a', inviterOwnerType: 'client' },
       },
       referralRewards: {
-        'reward-a': {
-          programId: 'program-a', bookingId: 'booking-a', inviterId: 'inviter-a', inviterOwnerType: 'client', invitedUserId: 'invited-a',
-          inviterCreditMinor: 500, invitedDiscountMinor: 300, currency: 'EUR', status: 'pending', createdAt: '2026-09-12T10:00:00.000Z',
-        },
+        'program-a__invited-a': canonicalOverviewReward('program-a__invited-a', {
+          inviterId: 'inviter-a', status: 'pending', createdAt: '2026-09-12T10:00:00.000Z',
+        }),
       },
     });
 
@@ -183,7 +211,7 @@ describe('referral domain', () => {
       funnel: { codes: 1, attributions: 1, rewards: 1, pending: 1, approved: 0, rejected: 0 },
       topReferrers: [{ inviterId: 'inviter-a', inviterOwnerType: 'client', referrals: 1, rewards: 1, approvedCreditTotals: [] }],
       pendingRewards: [{
-        id: 'reward-a', programId: 'program-a', bookingId: 'booking-a', inviterId: 'inviter-a', invitedUserId: 'invited-a',
+        id: 'program-a__invited-a', programId: 'program-a', bookingId: 'booking-a', inviterId: 'inviter-a', invitedUserId: 'invited-a',
         inviterCreditMinor: 500, invitedDiscountMinor: 300, currency: 'EUR', status: 'pending', createdAt: '2026-09-12T10:00:00.000Z',
       }],
     });
@@ -200,8 +228,8 @@ describe('referral domain', () => {
         legacy: { inviterId: 'X' },
       },
       referralRewards: {
-        'program-client__client-a': { rewardId: 'program-client__client-a', programId: 'program-client', invitedUserId: 'client-a', inviterId: 'X', inviterOwnerId: 'X', inviterOwnerType: 'client', inviterCreditMinor: 500, currency: 'EUR', status: 'approved' },
-        'program-brand__client-b': { rewardId: 'program-brand__client-b', programId: 'program-brand', invitedUserId: 'client-b', inviterId: 'X', inviterOwnerId: 'X', inviterOwnerType: 'brand', inviterCreditMinor: 700, currency: 'EUR', status: 'approved' },
+        'program-client__client-a': canonicalOverviewReward('program-client__client-a', { inviterId: 'X', inviterOwnerType: 'client', inviterCreditMinor: 500 }),
+        'program-brand__client-b': canonicalOverviewReward('program-brand__client-b', { inviterId: 'X', inviterOwnerType: 'brand', inviterCreditMinor: 700 }),
         legacy: { inviterId: 'X', inviterCreditMinor: 900, currency: 'EUR', status: 'approved' },
       },
       creditLedgers: {
@@ -211,7 +239,7 @@ describe('referral domain', () => {
     });
 
     await expect(getReferralMarketingOverview('admin-a', {}, firestore)).resolves.toMatchObject({
-      funnel: { attributions: 3, rewards: 3, approved: 3 },
+      funnel: { attributions: 3, rewards: 2, approved: 2 },
       topReferrers: [
         { inviterId: 'X', inviterOwnerType: 'brand', referrals: 1, rewards: 1, approvedCreditTotals: [{ currency: 'EUR', amountMinor: 700 }] },
         { inviterId: 'X', inviterOwnerType: 'client', referrals: 1, rewards: 1, approvedCreditTotals: [{ currency: 'EUR', amountMinor: 500 }] },
@@ -233,8 +261,8 @@ describe('referral domain', () => {
         usd: { inviterId: 'X', inviterOwnerType: 'client', programId: 'program-usd' },
       },
       referralRewards: {
-        'program-eur__client-eur': { rewardId: 'program-eur__client-eur', programId: 'program-eur', invitedUserId: 'client-eur', inviterId: 'X', inviterOwnerId: 'X', inviterOwnerType: 'client', inviterCreditMinor: 500, currency: 'EUR', status: 'approved' },
-        'program-usd__client-usd': { rewardId: 'program-usd__client-usd', programId: 'program-usd', invitedUserId: 'client-usd', inviterId: 'X', inviterOwnerId: 'X', inviterOwnerType: 'client', inviterCreditMinor: 700, currency: 'USD', status: 'approved' },
+        'program-eur__client-eur': canonicalOverviewReward('program-eur__client-eur', { inviterId: 'X', inviterCreditMinor: 500, currency: 'EUR' }),
+        'program-usd__client-usd': canonicalOverviewReward('program-usd__client-usd', { inviterId: 'X', inviterCreditMinor: 700, currency: 'USD' }),
       },
       creditLedgers: {
         'program-eur__client-eur__inviter': { rewardId: 'program-eur__client-eur', ownerId: 'X', ownerType: 'client', amountMinor: 500, currency: 'EUR', kind: 'referral_inviter_credit', status: 'approved' },
@@ -449,7 +477,7 @@ describe('referral domain', () => {
         },
       },
       referralCodes: { FRIEND: { code: 'FRIEND', programId: 'program-a', ownerId: 'inviter-a', ownerType: 'client', status: 'active' } },
-      referralAttributions: { 'new-client': { code: 'FRIEND', programId: 'program-a', inviterId: 'inviter-a', expiresAt: '2026-09-20T00:00:00.000Z' } },
+      referralAttributions: { 'new-client': { code: 'FRIEND', programId: 'program-a', inviterId: 'inviter-a', expiresAt: '2026-09-12T11:00:00.000Z' } },
       referralRewards: {}, creditLedgers: {}, auditEvents: {},
     });
 
@@ -460,6 +488,27 @@ describe('referral domain', () => {
     await expect(reviewReferralReward('admin-a', {
       rewardId: 'program-a__new-client', decision: 'approve',
     }, firestore)).resolves.toEqual({ rewardId: 'program-a__new-client', status: 'approved' });
+  });
+
+  test('does not create a reward when attribution expired before the trusted completion event', async () => {
+    const { processReferralBookingCompletion } = loadModule();
+    const { firestore, state } = firestoreState({
+      bookings: {
+        paid: {
+          clientId: 'new-client', status: 'completed', isTest: false, paymentStatus: 'paid', pricePaidMinor: 2500,
+          completedAt: '2026-09-12T10:00:00.000Z',
+        },
+      },
+      referralPrograms: { 'program-a': activeProgram },
+      referralCodes: { FRIEND: { code: 'FRIEND', programId: 'program-a', ownerId: 'inviter-a', ownerType: 'client', status: 'active' } },
+      referralAttributions: { 'new-client': { code: 'FRIEND', programId: 'program-a', inviterId: 'inviter-a', expiresAt: '2026-09-12T10:15:00.000Z' } },
+      referralRewards: {},
+    });
+
+    await expect(processReferralBookingCompletion(
+      'paid', firestore, new Date('2026-09-12T12:00:00.000Z'), trustedReferralCompletion('event-paid', '2026-09-12T10:30:00.000Z'),
+    )).resolves.toEqual({ created: false });
+    expect(state.referralRewards).toEqual({});
   });
 
   test('does not create a pending reward without trusted trigger completion evidence', async () => {
@@ -672,18 +721,9 @@ describe('referral domain', () => {
         corrupt: { inviterId: 'wrong-owner', inviterOwnerType: 'brand' },
       },
       referralRewards: {
-        'program-a__client-a': {
-          rewardId: 'program-a__client-a', programId: 'program-a', invitedUserId: 'client-a', inviterId: 'inviter-a', inviterOwnerId: 'inviter-a', inviterOwnerType: 'client',
-          invitedOwnerId: 'client-a', invitedOwnerType: 'client', inviterCreditMinor: 500, invitedDiscountMinor: 300, currency: 'EUR', status: 'approved',
-        },
-        'program-b__client-b': {
-          rewardId: 'program-b__client-b', programId: 'program-b', invitedUserId: 'client-b', inviterId: 'wrong-owner', inviterOwnerId: 'wrong-owner', inviterOwnerType: 'brand',
-          invitedOwnerId: 'client-b', invitedOwnerType: 'client', inviterCreditMinor: 900, invitedDiscountMinor: 300, currency: 'EUR', status: 'approved',
-        },
-        orphan: {
-          rewardId: 'orphan', programId: 'program-c', invitedUserId: 'client-c', inviterId: 'orphan-owner', inviterOwnerId: 'orphan-owner', inviterOwnerType: 'client',
-          invitedOwnerId: 'client-c', invitedOwnerType: 'client', inviterCreditMinor: 1200, invitedDiscountMinor: 300, currency: 'EUR', status: 'approved',
-        },
+        'program-a__client-a': canonicalOverviewReward('program-a__client-a', { inviterId: 'inviter-a' }),
+        'program-b__client-b': canonicalOverviewReward('program-b__client-b', { inviterId: 'wrong-owner', inviterOwnerType: 'brand', inviterCreditMinor: 900 }),
+        orphan: canonicalOverviewReward('orphan', { programId: 'program-c', invitedUserId: 'client-c', inviterId: 'orphan-owner', inviterCreditMinor: 1200 }),
       },
       creditLedgers: {
         'program-a__client-a__inviter': {
@@ -708,8 +748,32 @@ describe('referral domain', () => {
       topReferrers: [
         { inviterId: 'wrong-owner', inviterOwnerType: 'brand', approvedCreditTotals: [] },
         { inviterId: 'inviter-a', inviterOwnerType: 'client', approvedCreditTotals: [{ currency: 'EUR', amountMinor: 500 }] },
-        { inviterId: 'orphan-owner', inviterOwnerType: 'client', approvedCreditTotals: [] },
       ],
+    });
+  });
+
+  test('excludes a reward with mismatched duplicated principal identities from all overview counts and credits', async () => {
+    const { getReferralMarketingOverview } = loadModule();
+    const { firestore } = firestoreState({
+      users: { 'admin-a': { role: 'superadmin' } }, referralPrograms: {}, referralCodes: {}, referralTelemetry: {}, referralAttributions: {},
+      referralRewards: {
+        'program-a__client-a': canonicalOverviewReward('program-a__client-a', {
+          inviterId: 'displayed-inviter', inviterOwnerId: 'ledger-owner',
+        }),
+      },
+      creditLedgers: {
+        'program-a__client-a__inviter': {
+          rewardId: 'program-a__client-a', ownerId: 'ledger-owner', ownerType: 'client', amountMinor: 500,
+          currency: 'EUR', kind: 'referral_inviter_credit', status: 'approved',
+        },
+      },
+      referralAudit: {},
+    });
+
+    await expect(getReferralMarketingOverview('admin-a', {}, firestore)).resolves.toMatchObject({
+      funnel: { rewards: 0, eligibleFirstBookings: 0, approved: 0, approvedRewards: 0 },
+      approvedCreditTotals: [],
+      topReferrers: [],
     });
   });
 
@@ -1292,29 +1356,24 @@ describe('referral domain', () => {
       },
       referralAttributions: { invited: { code: 'FRIEND', programId: 'program-a', inviterId: 'X', inviterOwnerType: 'client' } },
       referralRewards: {
-        pending: {
-          programId: 'program-a', bookingId: 'booking-a', code: 'FRIEND', inviterId: 'X', inviterOwnerType: 'client', invitedUserId: 'invited',
-          inviterCreditMinor: 500, invitedDiscountMinor: 300, currency: 'EUR', status: 'pending',
+        'program-a__invited': canonicalOverviewReward('program-a__invited', {
+          inviterId: 'X', status: 'pending',
           fraudFlag: { status: 'flagged', reason: 'Duplicate device signal', reviewedBy: 'admin-a' },
-        },
-        'program-a__credited': {
-          rewardId: 'program-a__credited', programId: 'program-a', invitedUserId: 'credited', inviterId: 'X', inviterOwnerId: 'X', inviterOwnerType: 'client',
-          invitedOwnerId: 'credited', invitedOwnerType: 'client', inviterCreditMinor: 500, invitedDiscountMinor: 300,
-          currency: 'EUR', status: 'approved',
-        },
+        }),
+        'program-a__credited': canonicalOverviewReward('program-a__credited', { inviterId: 'X' }),
       },
       creditLedgers: {
         'program-a__credited__inviter': { rewardId: 'program-a__credited', ownerId: 'X', ownerType: 'client', amountMinor: 500, currency: 'EUR', kind: 'referral_inviter_credit', status: 'approved' },
         'program-a__credited__invited': { rewardId: 'program-a__credited', ownerId: 'credited', ownerType: 'client', amountMinor: 300, currency: 'EUR', kind: 'referral_invited_discount', status: 'approved' },
       },
       referralAudit: {
-        matching: { action: 'REFERRAL_REWARD_FLAGGED', rewardId: 'pending', programId: 'program-a', createdAt: '2026-09-12T11:00:00.000Z' },
+        matching: { action: 'REFERRAL_REWARD_FLAGGED', rewardId: 'program-a__invited', programId: 'program-a', createdAt: '2026-09-12T11:00:00.000Z' },
         other: { action: 'REFERRAL_REWARD_APPROVED', rewardId: 'other', programId: 'program-a', createdAt: '2026-09-12T12:00:00.000Z' },
         unrelated: { action: 'BOOKING_CREATED', createdAt: '2026-09-12T13:00:00.000Z' },
       },
     });
 
-    await expect(getReferralMarketingOverview('admin-a', { rewardId: 'pending', limit: 1 }, firestore)).resolves.toMatchObject({
+    await expect(getReferralMarketingOverview('admin-a', { rewardId: 'program-a__invited', limit: 1 }, firestore)).resolves.toMatchObject({
       contractVersion: 2,
       funnel: {
         validatedVisits: 2, attributedSignups: 1, eligibleFirstBookings: 2,
@@ -1322,10 +1381,10 @@ describe('referral domain', () => {
       },
       approvedCreditTotals: [{ currency: 'EUR', amountMinor: 800 }],
       topReferrers: [{ inviterId: 'X', inviterOwnerType: 'client', referrals: 1, rewards: 2 }],
-      flaggedRewards: [{ id: 'pending', fraudFlag: { status: 'flagged', reason: 'Duplicate device signal' } }],
-      auditTrail: [{ rewardId: 'pending', action: 'REFERRAL_REWARD_FLAGGED' }],
+      flaggedRewards: [{ id: 'program-a__invited', fraudFlag: { status: 'flagged', reason: 'Duplicate device signal' } }],
+      auditTrail: [{ rewardId: 'program-a__invited', action: 'REFERRAL_REWARD_FLAGGED' }],
     });
-    await expect(getReferralMarketingOverview('admin-a', { rewardId: 'pending', limit: 51 }, firestore))
+    await expect(getReferralMarketingOverview('admin-a', { rewardId: 'program-a__invited', limit: 51 }, firestore))
       .rejects.toMatchObject({ code: 'invalid-argument' });
   });
 
