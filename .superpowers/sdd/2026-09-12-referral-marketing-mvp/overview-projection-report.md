@@ -44,6 +44,10 @@ Pending and flagged page items are validated against exact booking, booking-evid
 
 If `referralMarketingState/v3` or `referralMarketingSummaries/overview` is missing, malformed, or from another epoch, the callable returns `state: 'migrationRequired'`, zero counts, and empty non-truncated pages without querying historical referral collections. A manually written shallow zero summary therefore cannot fabricate an empty dashboard over legacy rows. Wrong-epoch audit, telemetry, owner-history, or canonical source rows are not merged into V3.
 
+`getMyReferralWorkspace` applies the same exact gate and global-summary validation before reading an owner summary, attribution, or owner history. Its V3 response exposes `state: 'ready' | 'migrationRequired'`; a missing/invalid gate returns an unavailable zero summary and empty, non-truncated history without running the owner-history query.
+
+Referral eligibility now requires `booking.isTest === false`, exactly matching both bounded earlier-booking queries. The authoritative `bookings` writer persists `isTest: false` for every new normal/staff booking, and Firestore rules keep the field immutable. Missing legacy values fail closed and cannot earn or suppress a later canonical positive-paid booking.
+
 The existing SuperAdmin UI parser still accepts only contract version 2, so it rejects the V3 payload instead of rendering inferred fields. No UI file was changed.
 
 ## Initialization and migration gate
@@ -52,24 +56,24 @@ The existing SuperAdmin UI parser still accepts only contract version 2, so it r
 
 Empty staging should deploy indexes/functions, wait for indexes to become ready, and invoke this callable once. A project with history must use a separately reviewed Admin SDK reconciliation tool to validate/backfill canonical V3 rows and projections and atomically create a `status: reconciled` gate with the evidence-backed summary. The runtime initializer has no manual override or arbitrary seed path.
 
-`firestore.indexes.json` is wired through `firebase.json` and covers scoped memberships, earlier-eligible-booking existence checks, the equal-timestamp/lower-document-ID tie-break query, program summaries, typed referrer rankings, pending/flagged detail, all five audit variants, and owner history. Reward creation and approval prove there is neither a strictly earlier positive-paid completion nor an equal-time completion with a lower document ID using two bounded `limit(1)` multi-range queries; they do not use the invalid pattern of ordering first by a field other than the inequality field. The exact staging command is `firebase deploy --only firestore:rules,firestore:indexes,functions --project staging`.
+`firestore.indexes.json` is wired through `firebase.json` and covers scoped memberships, earlier-eligible-booking existence checks, the equal-timestamp/lower-document-ID tie-break query, program summaries, typed referrer rankings, pending/flagged detail, all five audit variants, and owner history. Reward creation and approval prove there is neither a strictly earlier positive-paid completion nor an equal-time completion with a lower document ID using two bounded `limit(1)` multi-range queries; they do not use the invalid pattern of ordering first by a field other than the inequality field. The documented `npm --prefix functions run deploy:staging` and explicitly confirmed production script both deploy `firestore:rules,firestore:indexes,functions` only after verifying their `.firebaserc` aliases.
 
 ## Verification output
 
 Command:
 
 ```text
-./node_modules/.bin/jest --runInBand functions/src/referrals.test.ts functions/src/bookings.test.ts
+./node_modules/.bin/jest --runInBand functions/src/referrals.test.ts functions/src/bookings.test.ts rules-tests/booking-create.test.cjs rules-tests/booking-payment.test.cjs rules-tests/environment-config.test.cjs
 ```
 
 Output:
 
 ```text
-Test Suites: 2 passed, 2 total
-Tests:       107 passed, 107 total
+Test Suites: 5 passed, 5 total
+Tests:       161 passed, 161 total
 Snapshots:   0 total
-Time:        5.638 s, estimated 6 s
-Ran all test suites matching functions/src/referrals.test.ts|functions/src/bookings.test.ts.
+Time:        7.121 s
+Ran all test suites matching functions/src/referrals.test.ts|functions/src/bookings.test.ts|rules-tests/booking-create.test.cjs|rules-tests/booking-payment.test.cjs|rules-tests/environment-config.test.cjs.
 ```
 
 Command:
@@ -109,4 +113,10 @@ The Firestore emulator also loaded `firestore.indexes.json` and executed the
 exact multi-range eligibility shape against seeded data, returning
 `eligible-query-docs=1,tie-query-docs=1` with exit code `0`.
 
-The referral tests explicitly exercise no-scan query spying, callback retry idempotency, typed client/brand ID separation, EUR/USD partitioning, program pause/reactivation, telemetry caps, approval/rejection/flag transitions, stable continuation pages, legacy migration safety, empty-first/repeat initialization, shallow-summary rejection, exact index manifest coverage, fixed top-ten semantics, maximum-length hashed reward creation/review/history pagination, and protected client authorization paths.
+The rollout follow-up also ran `booking-create-concurrency` and
+`booking-transition-enforcement` through the Firestore emulator: 2 suites and
+10 tests passed in 6.279 seconds. This verifies that a normal authoritative
+booking persists `isTest: false`, and browser updates cannot add or change the
+server-owned field.
+
+The referral tests explicitly exercise no-scan query spying, callback retry idempotency, typed client/brand ID separation, EUR/USD partitioning, program pause/reactivation, telemetry caps, approval/rejection/flag transitions, stable continuation pages, legacy migration safety, empty-first/repeat initialization, shallow global/owner-summary rejection, exact index/deploy-script coverage, missing-`isTest` fail-closed behavior, free/paid ordering, fixed top-ten semantics, maximum-length hashed reward creation/review/history pagination, and protected client authorization paths.

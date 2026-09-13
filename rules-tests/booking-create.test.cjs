@@ -47,6 +47,7 @@ test.each([
   'pricePaid',
   'tip',
   'paymentMethod',
+  'isTest',
 ])(
   'server booking parser rejects client-owned %s',
   field => {
@@ -111,6 +112,7 @@ test('server booking creation persists unpaid zero-value financial defaults', as
     pricePaid: 0,
     tip: 0,
     expectedAmountMinor: 4000,
+    isTest: false,
   });
   expect(state.bookings['booking-a']).not.toHaveProperty('paymentMethod');
 });

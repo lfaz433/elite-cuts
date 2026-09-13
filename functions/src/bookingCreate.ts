@@ -406,6 +406,7 @@ export async function createBooking(
       tenantId,
       locationId: tenantId,
       clientId,
+      isTest: false,
       status,
       paymentStatus: staffAction?.status === 'completed' ? 'paid' : 'unpaid',
       pricePaid: staffAction?.status === 'completed' ? staffAction.payment.amountMinor / 100 : 0,

@@ -398,6 +398,7 @@ service cloud.firestore {
         )
         && request.resource.data.tenantId == resource.data.tenantId
         && request.resource.data.get('locationId', null) == resource.data.get('locationId', null)
+        && request.resource.data.get('isTest', null) == resource.data.get('isTest', null)
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'status',
           'statusUpdatedAt',

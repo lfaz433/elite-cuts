@@ -167,4 +167,7 @@ test('a tenant manager cannot forge referral eligibility timestamps or test stat
   await assertFails(updateDoc(doc(db, 'bookings', 'booking-a'), {
     isTest: true,
   }));
+  await assertFails(updateDoc(doc(db, 'bookings', 'booking-a'), {
+    isTest: false,
+  }));
 });

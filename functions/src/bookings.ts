@@ -53,8 +53,9 @@ export const processCompletedBookingReferralFunction = functions.firestore
   .document('bookings/{bookingId}')
   .onUpdate(async (change, context) => {
     const previousStatus = change.before.data()?.status;
-    const nextStatus = change.after.data()?.status;
-    if (!isReferralEligibleCompletion(previousStatus, nextStatus)) return null;
+    const nextBooking = change.after.data();
+    const nextStatus = nextBooking?.status;
+    if (!isReferralEligibleCompletion(previousStatus, nextStatus) || nextBooking?.isTest !== false) return null;
     const updateTimeMs = change.after.updateTime?.toMillis();
     if (
       !Number.isSafeInteger(updateTimeMs)

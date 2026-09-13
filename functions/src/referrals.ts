@@ -51,6 +51,7 @@ export interface ReferralWorkspaceHistoryItem {
 
 export interface ReferralWorkspaceV3 {
   contractVersion: 3;
+  state: 'ready' | 'migrationRequired';
   scope: ReferralWorkspaceScope;
   summary: ReferralWorkspaceSummary;
   attribution?: { code: string; programId: string; inviterOwnerType: OwnerType; expiresAt: string };
@@ -293,7 +294,7 @@ function validProgram(program: RecordValue | undefined, countryCode: string, now
 
 function isPositivePaidBooking(booking: RecordValue | undefined): booking is RecordValue {
   return booking?.status === 'completed'
-    && booking.isTest !== true
+    && booking.isTest === false
     && booking.paymentStatus === 'paid'
     && Number.isSafeInteger(booking.pricePaidMinor)
     && (booking.pricePaidMinor as number) > 0;
@@ -2127,6 +2128,20 @@ export async function getMyReferralWorkspace(
   const uid = callerUid(caller);
   const input = referralWorkspaceInput(value);
   const { ownerType: ownerTypeValue, ownerId } = await authorizeWorkspaceScope(uid, input.scope, firestore);
+  const [gateSnapshot, marketingSnapshot] = await Promise.all([
+    firestore.collection('referralMarketingState').doc(REFERRAL_MARKETING_STATE_ID).get(),
+    firestore.collection('referralMarketingSummaries').doc('overview').get(),
+  ]);
+  if (!gateSnapshot.exists || !validMarketingGate(gateSnapshot.data() as RecordValue | undefined)
+    || !marketingSnapshot.exists || !safeMarketingSummary(marketingSnapshot.data() as RecordValue | undefined)) {
+    return {
+      contractVersion: 3,
+      state: 'migrationRequired',
+      scope: input.scope,
+      summary: unavailableWorkspaceSummary(ownerTypeValue),
+      history: { role: input.role, items: [], truncated: false },
+    };
+  }
   const summaryRef = firestore.collection('referralOwnerSummaries').doc(ownerSummaryId(ownerTypeValue, ownerId));
   const historyCollection = firestore.collection('referralOwnerHistory');
   let historyQuery = historyCollection.where('ownerKey', '==', ownerSummaryId(ownerTypeValue, ownerId))
@@ -2200,6 +2215,7 @@ export async function getMyReferralWorkspace(
   }
   return {
     contractVersion: 3,
+    state: 'ready',
     scope: input.scope,
     summary,
     ...(attribution ? { attribution: {

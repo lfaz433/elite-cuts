@@ -166,7 +166,7 @@ test('completion and cash payment commit together with one audit event', async (
     status: 'active', role: 'admin', permissions: { manageBookings: true },
   };
   const state = {
-    bookings: { 'booking-a': { tenantId: 'tenant-a', locationId: 'tenant-a', barberId: 'barber-a', date: '2026-09-05', time: '10:00', status: 'approved', paymentStatus: 'unpaid', expectedAmountMinor: 4000 } },
+    bookings: { 'booking-a': { tenantId: 'tenant-a', locationId: 'tenant-a', barberId: 'barber-a', date: '2026-09-05', time: '10:00', status: 'approved', paymentStatus: 'unpaid', expectedAmountMinor: 4000, isTest: false } },
     memberships: { 'membership-a': membership },
     audit_logs: {},
     notifications: {},
@@ -192,7 +192,7 @@ test('completion and cash payment commit together with one audit event', async (
   });
 
   expect(state.bookings['booking-a']).toMatchObject({
-    status: 'completed', paymentStatus: 'paid', pricePaidMinor: 4000, tipMinor: 500,
+    status: 'completed', paymentStatus: 'paid', pricePaidMinor: 4000, tipMinor: 500, isTest: false,
   });
   expect(state.audit_logs['audit-a']).toMatchObject({
     action: 'BOOKING_COMPLETED_AND_PAID', actorUid: 'manager-a', bookingId: 'booking-a',
@@ -248,6 +248,7 @@ test('marketplace staff can complete a booking when brand and location ids diffe
   }, paymentFirestore(state));
 
   expect(state.bookings['booking-a']).toMatchObject({ status: 'completed', paymentStatus: 'paid' });
+  expect(state.bookings['booking-a']).not.toHaveProperty('isTest');
 });
 
 test('legacy booking amount is atomically resolved from its location-scoped service', async () => {

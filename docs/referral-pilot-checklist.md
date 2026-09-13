@@ -43,6 +43,9 @@ completed step. Pilot only against `elite-cuts-staging`; do not use production.
   safely rather than guessing its order. Confirm a tenant manager cannot
   directly backdate or otherwise change `completedAt` or `isTest`; normal
   server completion/payment workflows must remain able to record them.
+  Confirm the newly created canonical booking contains immutable
+  `isTest: false`. A pre-rollout booking with no `isTest` field must neither
+  earn a reward nor suppress a later positive-paid canonical booking.
 - [ ] Retry the same completed-booking event. Confirm the deterministic reward
   is returned or retained and no duplicate reward or credit ledger entry is
   created.
@@ -118,7 +121,7 @@ Blaze billing and that deployment credentials are authorized. Then deploy only
 staging:
 
 ```bash
-firebase deploy --only firestore:rules,firestore:indexes,functions --project staging
+npm --prefix functions run deploy:staging
 ```
 
 Verify Firebase resolves `staging` to `elite-cuts-staging`. Never substitute
@@ -128,3 +131,17 @@ initializer or the reviewed reconciliation workflow above, run the four-user
 pilot, and make the release decision from its recorded evidence.
 The deferred browser registration-attribution step must be recorded as a
 release limitation; it is not a prerequisite to deploy to staging.
+
+The guarded script verifies `.firebaserc` first, then deploys the exact rules,
+indexes, and functions resource set with `--project staging`.
+
+For a later production release, keep the guarded alias check and deploy the
+same rules, exact index manifest, and functions together; do not use a
+functions-only command:
+
+```bash
+CONFIRM_PRODUCTION_PROJECT=elite-cuts-app npm --prefix functions run deploy:production
+```
+
+The script verifies `.firebaserc` resolves `production` to `elite-cuts-app`
+before running `firebase deploy --only firestore:rules,firestore:indexes,functions --project production`.

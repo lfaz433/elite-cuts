@@ -23,6 +23,18 @@ function loadBookings(relativePath = 'bookings.ts') {
 const { transition, redactAddress, initialBookingStatus } = loadBookings();
 
 describe('marketplace booking lifecycle', () => {
+  test('completion trigger ignores legacy bookings without explicit isTest false', async () => {
+    const { processCompletedBookingReferralFunction } = loadBookings();
+    const change = {
+      before: { data: () => ({ status: 'confirmed' }) },
+      after: { data: () => ({ status: 'completed' }), updateTime: { toMillis: () => Date.now() } },
+    };
+
+    await expect(processCompletedBookingReferralFunction.run(change, {
+      params: { bookingId: 'legacy-booking' }, eventId: 'event-legacy',
+    })).resolves.toBeNull();
+  });
+
   test('allows an approval request to become confirmed but not completed', () => {
     expect(transition('pending_approval', 'confirmed')).toBe('confirmed');
     expect(() => transition('pending_approval', 'completed'))

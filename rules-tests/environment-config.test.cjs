@@ -51,8 +51,10 @@ test('implicit Firebase CLI target is staging and deploy scripts name their targ
   expect(functionsPackage.scripts).not.toHaveProperty('deploy');
   expect(functionsPackage.scripts['deploy:staging']).toContain('--project staging');
   expect(functionsPackage.scripts['deploy:staging']).toContain('guard-firebase-target.mjs staging');
+  expect(functionsPackage.scripts['deploy:staging']).toContain('--only firestore:rules,firestore:indexes,functions');
   expect(functionsPackage.scripts['deploy:production']).toContain('--project production');
   expect(functionsPackage.scripts['deploy:production']).toContain('guard-firebase-target.mjs production');
+  expect(functionsPackage.scripts['deploy:production']).toContain('--only firestore:rules,firestore:indexes,functions');
 });
 
 test('Firebase target guard rejects any staging or production alias remap', () => {

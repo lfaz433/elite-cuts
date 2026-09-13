@@ -73,7 +73,9 @@ test('simultaneous requests cannot commit overlapping bookings for one barber an
   expect(results.filter(result => result.status === 'rejected')).toHaveLength(1);
   expect(results.find(result => result.status === 'rejected').reason.message)
     .toBe('Booking slot is no longer available');
-  expect((await db.collection('bookings').get()).size).toBe(1);
+  const bookings = await db.collection('bookings').get();
+  expect(bookings.size).toBe(1);
+  expect(bookings.docs[0].data()).toMatchObject({ isTest: false });
   const lock = await db.collection('booking_slot_locks')
     .doc(`${tenantId}__barber-a__2099-09-05`)
     .get();

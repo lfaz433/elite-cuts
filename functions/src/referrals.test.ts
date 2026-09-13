@@ -1184,6 +1184,7 @@ describe('referral domain', () => {
 
     await expect(getMyReferralWorkspace('inviter-a', { scope: { type: 'client' }, limit: 10 }, firestore)).resolves.toEqual({
       contractVersion: 3,
+      state: 'ready',
       scope: { type: 'client' },
       summary: {
         ownerType: 'client', currentCode: { code: 'FRIEND', programId: 'program-a', status: 'active' },
@@ -1193,6 +1194,23 @@ describe('referral domain', () => {
       },
       history: { role: 'inviter', items: [], truncated: false },
     });
+  });
+
+  test('returns migrationRequired without querying owner history when the global V3 gate is absent', async () => {
+    const { getMyReferralWorkspace } = loadModule();
+    const { firestore, queryLog } = firestoreState({
+      users: { client: { uid: 'client' } }, memberships: {}, freelancerProfiles: {},
+      referralMarketingSummaries: { overview: emptyMarketingSummary() },
+      referralOwnerSummaries: { 'client__client': ownerSummary('client', 'client', { codeCount: 9 }) },
+      referralOwnerHistory: { forged: { ownerKey: 'client__client', ownerId: 'client', ownerType: 'client', role: 'inviter' } },
+    }, { seedReferralProjection: false });
+
+    await expect(getMyReferralWorkspace('client', { scope: { type: 'client' } }, firestore)).resolves.toEqual({
+      contractVersion: 3, state: 'migrationRequired', scope: { type: 'client' },
+      summary: expect.objectContaining({ ownerType: 'client', state: 'unavailable', codeCount: 0 }),
+      history: { role: 'inviter', items: [], truncated: false },
+    });
+    expect(queryLog.some(query => query.collectionName === 'referralOwnerHistory')).toBe(false);
   });
 
   test('paginates a single owner history with an opaque continuation token', async () => {
@@ -1291,6 +1309,26 @@ describe('referral domain', () => {
     await expect(processReferralBookingCompletion('free', firestore, new Date('2026-09-12T12:00:00Z')))
       .resolves.toEqual({ created: false });
     expect(state.referralRewards).toEqual({});
+  });
+
+  test('missing isTest cannot earn or suppress a later explicit non-test booking', async () => {
+    const { processReferralBookingCompletion } = loadModule();
+    const { firestore, state } = firestoreState({
+      bookings: {
+        legacy: { clientId: 'new-client', status: 'completed', paymentStatus: 'paid', pricePaidMinor: 2500, completedAt: '2026-09-10T10:00:00.000Z' },
+        canonical: { clientId: 'new-client', status: 'completed', isTest: false, paymentStatus: 'paid', pricePaidMinor: 2500, completedAt: '2026-09-11T10:00:00.000Z' },
+      },
+      referralPrograms: { 'program-a': activeProgram },
+      referralCodes: { FRIEND: { code: 'FRIEND', programId: 'program-a', ownerId: 'inviter-a', ownerType: 'client', status: 'active' } },
+      referralAttributions: { 'new-client': { code: 'FRIEND', programId: 'program-a', inviterId: 'inviter-a', expiresAt: '2026-09-20T00:00:00.000Z' } },
+      referralRewards: {}, auditEvents: {},
+    });
+
+    await expect(processReferralBookingCompletion('legacy', firestore, new Date('2026-09-12T12:00:00Z'), trustedReferralCompletion('legacy-event')))
+      .resolves.toEqual({ created: false });
+    await expect(processReferralBookingCompletion('canonical', firestore, new Date('2026-09-12T12:00:00Z'), trustedReferralCompletion('canonical-event', '2026-09-11T10:00:00.000Z')))
+      .resolves.toEqual({ created: true });
+    expect(state.referralRewards[REWARD_NEW_CLIENT]).toMatchObject({ bookingId: 'canonical' });
   });
 
   test('does not approve a reward tied to a free booking', async () => {
@@ -2026,6 +2064,7 @@ describe('referral domain', () => {
   test('declares every V3 compound query index and wires the Firebase manifest', () => {
     const indexes = JSON.parse(readFileSync(resolve(__dirname, '..', '..', 'firestore.indexes.json'), 'utf8'));
     const firebase = JSON.parse(readFileSync(resolve(__dirname, '..', '..', 'firebase.json'), 'utf8'));
+    const functionsPackage = JSON.parse(readFileSync(resolve(__dirname, '..', 'package.json'), 'utf8'));
     const signature = index => `${index.collectionGroup}:${index.fields.map(field => `${field.fieldPath}:${field.order}`).join(',')}`;
     const actual = new Set(indexes.indexes.map(signature));
     const expected = [
@@ -2041,6 +2080,8 @@ describe('referral domain', () => {
       ...[null, 'code', 'programId', 'rewardId', 'action'].map(filter => `referralAudit:summaryVersion:ASCENDING,summaryEpoch:ASCENDING,${filter ? `${filter}:ASCENDING,` : ''}createdAt:DESCENDING,__name__:DESCENDING`),
     ];
     expect(firebase.firestore.indexes).toBe('firestore.indexes.json');
+    expect(functionsPackage.scripts['deploy:staging']).toContain('firestore:rules,firestore:indexes,functions --project staging');
+    expect(functionsPackage.scripts['deploy:production']).toContain('firestore:rules,firestore:indexes,functions --project production');
     expect([...actual].sort()).toEqual(expected.sort());
   });
 
