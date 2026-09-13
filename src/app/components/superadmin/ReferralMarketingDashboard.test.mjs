@@ -23,6 +23,10 @@ function loadDashboard() {
   return loaded.exports;
 }
 
+function page(items, nextPageToken) {
+  return { items, ...(nextPageToken ? { nextPageToken } : {}), truncated: Boolean(nextPageToken) };
+}
+
 function overviewFixture() {
   const pendingReward = {
     id: 'reward-1', programId: 'program-1', bookingId: 'booking-1', inviterId: 'inviter-1',
@@ -31,35 +35,53 @@ function overviewFixture() {
     fraudFlag: { status: 'flagged', reason: 'Identités concordantes' },
   };
   return {
-    contractVersion: 2,
-    programs: [{
+    contractVersion: 3,
+    state: 'ready',
+    summaryEpoch: 'referral-v3',
+    telemetry: { state: 'verified', validatedVisits: 15, capped: false },
+    programs: page([{
       id: 'program-1', status: 'active', countryCodes: ['FR', 'BE'], currency: 'EUR',
       inviterCreditMinor: 500, invitedDiscountMinor: 300,
       startsAt: '2026-09-01T00:00:00.000Z', endsAt: '2026-12-31T23:59:59.999Z',
-    }],
+    }], 'program-cursor'),
     funnel: {
       codes: 20, validatedVisits: 15, attributions: 10, attributedSignups: 10,
       rewards: 8, eligibleFirstBookings: 8, pending: 3, pendingRewards: 3,
-      approved: 4, approvedRewards: 4, rejected: 1,
+      approved: 3, approvedRewards: 3, rejected: 1, cancelled: 1,
     },
     approvedCreditTotals: [{ currency: 'EUR', amountMinor: 4_200 }, { currency: 'USD', amountMinor: 900 }],
-    topReferrers: [{
+    topReferrers: { items: [{
       inviterId: 'same-id', inviterOwnerType: 'brand', referrals: 4, rewards: 3,
       approvedCreditTotals: [{ currency: 'EUR', amountMinor: 1_000 }],
-    }],
-    pendingRewards: [pendingReward],
-    flaggedRewards: [pendingReward],
-    auditTrail: [{
+    }], truncated: true },
+    pendingRewards: page([pendingReward], 'pending-cursor'),
+    flaggedRewards: page([structuredClone(pendingReward)], 'flagged-cursor'),
+    auditTrail: page([{
       id: 'audit-1', action: 'REFERRAL_REWARD_FLAGGED', programId: 'program-1', rewardId: 'reward-1',
       code: 'ABC-123', actorUid: 'admin-1', reason: 'Identités concordantes',
       createdAt: '2026-09-10T08:35:00.000Z',
-    }],
+    }], 'audit-cursor'),
   };
 }
 
-function detachFlaggedReward(fixture) {
-  fixture.flaggedRewards = [structuredClone(fixture.flaggedRewards[0])];
-  return fixture;
+function migrationFixture() {
+  return {
+    contractVersion: 3,
+    state: 'migrationRequired',
+    summaryEpoch: 'referral-v3',
+    telemetry: { state: 'unavailable', validatedVisits: 0, capped: false },
+    programs: page([]),
+    funnel: {
+      codes: 0, validatedVisits: 0, attributions: 0, attributedSignups: 0,
+      rewards: 0, eligibleFirstBookings: 0, pending: 0, pendingRewards: 0,
+      approved: 0, approvedRewards: 0, rejected: 0, cancelled: 0,
+    },
+    approvedCreditTotals: [],
+    topReferrers: page([]),
+    pendingRewards: page([]),
+    flaggedRewards: page([]),
+    auditTrail: page([]),
+  };
 }
 
 test('calculates referral funnel conversion rates from real counts', () => {
@@ -68,120 +90,197 @@ test('calculates referral funnel conversion rates from real counts', () => {
   assert.equal(funnelRate(1, 0), 0);
 });
 
-test('reports the validated visit count without inferring telemetry availability', () => {
+test('describes unavailable telemetry without presenting zero as a verified count', () => {
   const { telemetryText } = loadDashboard();
-  assert.equal(telemetryText(0), '0 visite(s) validée(s)');
+  assert.equal(telemetryText({ state: 'unavailable', validatedVisits: 0, capped: false }), 'Télémétrie indisponible');
+  assert.equal(telemetryText({ state: 'verified', validatedVisits: 0, capped: false }), '0 visite(s) validée(s)');
+  assert.match(telemetryText({ state: 'verified', validatedVisits: 1_000_000, capped: true }), /plafond atteint/i);
 });
 
-test('parses every nested value in the exact v2 overview contract', () => {
+test('parses every nested value in the exact V3 overview contract', () => {
   const { parseReferralMarketingOverview, referrerKey } = loadDashboard();
   const overview = parseReferralMarketingOverview(overviewFixture());
-
-  assert.equal(overview.contractVersion, 2);
-  assert.deepEqual(overview.programs[0].countryCodes, ['FR', 'BE']);
-  assert.equal(overview.funnel.approvedRewards, 4);
+  assert.equal(overview.contractVersion, 3);
+  assert.equal(overview.state, 'ready');
+  assert.equal(overview.summaryEpoch, 'referral-v3');
+  assert.deepEqual(overview.programs.items[0].countryCodes, ['FR', 'BE']);
+  assert.equal(overview.programs.nextPageToken, 'program-cursor');
+  assert.equal(overview.funnel.cancelled, 1);
   assert.equal(overview.approvedCreditTotals[1].currency, 'USD');
-  assert.equal(referrerKey(overview.topReferrers[0]), 'brand:same-id');
-  assert.equal(overview.pendingRewards[0].fraudFlag.reason, 'Identités concordantes');
-  assert.equal(overview.flaggedRewards[0].fraudFlag.status, 'flagged');
-  assert.equal(overview.auditTrail[0].actorUid, 'admin-1');
+  assert.equal(referrerKey(overview.topReferrers.items[0]), 'brand:same-id');
+  assert.equal(overview.pendingRewards.items[0].fraudFlag.reason, 'Identités concordantes');
+  assert.equal(overview.flaggedRewards.items[0].fraudFlag.status, 'flagged');
+  assert.equal(overview.auditTrail.items[0].actorUid, 'admin-1');
 });
 
-test('rejects an incompatible contract version', () => {
-  const { parseReferralMarketingOverview } = loadDashboard();
-  assert.equal(parseReferralMarketingOverview({ ...overviewFixture(), contractVersion: 1 }), null);
+test('accepts only the canonical empty migration-required envelope', () => {
+  const { parseReferralMarketingOverview, canInitializeReferralOverview } = loadDashboard();
+  const migration = parseReferralMarketingOverview(migrationFixture());
+  assert.equal(migration.state, 'migrationRequired');
+  assert.equal(canInitializeReferralOverview(migration), true);
+  assert.equal(canInitializeReferralOverview(parseReferralMarketingOverview(overviewFixture())), false);
+  const fabricatedMetrics = migrationFixture();
+  fabricatedMetrics.funnel.codes = 1;
+  assert.equal(parseReferralMarketingOverview(fabricatedMetrics), null);
+  const fabricatedPage = migrationFixture();
+  fabricatedPage.auditTrail = page([{ id: 'audit-1', action: 'REFERRAL_REWARD_APPROVED' }]);
+  assert.equal(parseReferralMarketingOverview(fabricatedPage), null);
 });
 
-test('rejects malformed currencies and unsafe numeric values', () => {
+test('rejects an incompatible version, epoch, state, or telemetry contract', () => {
   const { parseReferralMarketingOverview } = loadDashboard();
-  const malformedCurrency = overviewFixture();
-  malformedCurrency.approvedCreditTotals[0].currency = 'EURO';
-  assert.equal(parseReferralMarketingOverview(malformedCurrency), null);
+  for (const mutate of [
+    value => { value.contractVersion = 2; },
+    value => { value.summaryEpoch = 'legacy'; },
+    value => { value.state = 'initializing'; },
+    value => { value.telemetry.state = 'unknown'; },
+    value => { value.telemetry.validatedVisits = 14; },
+    value => { value.telemetry.capped = true; },
+  ]) {
+    const malformed = overviewFixture();
+    mutate(malformed);
+    assert.equal(parseReferralMarketingOverview(malformed), null);
+  }
+});
 
-  const malformedAmount = overviewFixture();
-  malformedAmount.pendingRewards[0].inviterCreditMinor = Number.NaN;
-  assert.equal(parseReferralMarketingOverview(malformedAmount), null);
+test('rejects malformed page metadata and never treats a partial collection as complete', () => {
+  const { parseReferralMarketingOverview } = loadDashboard();
+  for (const mutate of [
+    value => { value.programs = { items: value.programs.items, truncated: true }; },
+    value => { value.pendingRewards = { items: value.pendingRewards.items, nextPageToken: 'cursor', truncated: false }; },
+    value => { value.auditTrail.nextPageToken = 'bad/token'; },
+    value => { value.topReferrers.nextPageToken = 'ranking-is-not-pageable'; },
+    value => { value.topReferrers.items = Array.from({ length: 11 }, (_, index) => ({
+      inviterId: `owner-${index}`, inviterOwnerType: 'client', referrals: 1, rewards: 0, approvedCreditTotals: [],
+    })); },
+  ]) {
+    const malformed = overviewFixture();
+    mutate(malformed);
+    assert.equal(parseReferralMarketingOverview(malformed), null);
+  }
+});
+
+test('allows independently paged flagged rewards without requiring them in the pending page', () => {
+  const { parseReferralMarketingOverview } = loadDashboard();
+  const independentPages = overviewFixture();
+  independentPages.pendingRewards = page([], 'pending-cursor');
+  assert.ok(parseReferralMarketingOverview(independentPages));
+});
+
+test('rejects malformed currencies, unsafe numeric values, aliases, and duplicate row identities', () => {
+  const { parseReferralMarketingOverview } = loadDashboard();
+  for (const mutate of [
+    value => { value.approvedCreditTotals[0].currency = 'EURO'; },
+    value => { value.pendingRewards.items[0].inviterCreditMinor = Number.NaN; },
+    value => { value.funnel.approvedRewards = value.funnel.approved + 1; },
+    value => { value.funnel.cancelled = value.funnel.cancelled + 1; },
+    value => { value.programs.items.push(structuredClone(value.programs.items[0])); },
+  ]) {
+    const malformed = overviewFixture();
+    mutate(malformed);
+    assert.equal(parseReferralMarketingOverview(malformed), null);
+  }
 });
 
 test('rejects malformed nested fraud flags rather than exposing them to rendering', () => {
   const { parseReferralMarketingOverview } = loadDashboard();
   const malformed = overviewFixture();
-  malformed.pendingRewards[0].fraudFlag = { status: 'flagged', reason: 42 };
+  malformed.pendingRewards.items[0].fraudFlag = { status: 'flagged', reason: 42 };
   assert.equal(parseReferralMarketingOverview(malformed), null);
-
   const missingFlag = overviewFixture();
-  missingFlag.flaggedRewards[0].fraudFlag = { status: 'cleared', reason: 'Déjà traité' };
+  missingFlag.flaggedRewards.items[0].fraudFlag = { status: 'cleared', reason: 'Déjà traité' };
   assert.equal(parseReferralMarketingOverview(missingFlag), null);
 });
 
-test('rejects inconsistent pending and flagged reward collections', () => {
-  const { parseReferralMarketingOverview } = loadDashboard();
-  const missingFlaggedEntry = overviewFixture();
-  missingFlaggedEntry.flaggedRewards = [];
-  assert.equal(parseReferralMarketingOverview(missingFlaggedEntry), null);
-
-  const unknownFlaggedEntry = overviewFixture();
-  unknownFlaggedEntry.pendingRewards = [];
-  assert.equal(parseReferralMarketingOverview(unknownFlaggedEntry), null);
-});
-
-test('rejects blank, untrimmed, and oversized fraud flag reasons', () => {
-  const { parseReferralMarketingOverview } = loadDashboard();
-  for (const reason of ['   ', ' motif avec espaces ', 'x'.repeat(501)]) {
-    const malformed = overviewFixture();
-    malformed.pendingRewards[0].fraudFlag.reason = reason;
-    assert.equal(parseReferralMarketingOverview(malformed), null, `accepted invalid flag reason: ${reason.length}`);
-  }
-});
-
-test('rejects a flagged row whose identity or program references differ from pending', () => {
-  const { parseReferralMarketingOverview } = loadDashboard();
-  for (const [label, mutate] of [
-    ['inviter', reward => { reward.inviterId = 'another-inviter'; }],
-    ['invitee', reward => { reward.invitedUserId = 'another-invitee'; }],
-    ['program', reward => { reward.programId = 'another-program'; }],
-    ['booking', reward => { reward.bookingId = 'another-booking'; }],
-  ]) {
-    const malformed = detachFlaggedReward(overviewFixture());
-    mutate(malformed.flaggedRewards[0]);
-    assert.equal(parseReferralMarketingOverview(malformed), null, `accepted mismatched ${label}`);
-  }
-});
-
-test('rejects a flagged row whose amount, currency, date, or reason differs from pending', () => {
-  const { parseReferralMarketingOverview } = loadDashboard();
-  for (const [label, mutate] of [
-    ['inviter amount', reward => { reward.inviterCreditMinor = 700; }],
-    ['invitee amount', reward => { reward.invitedDiscountMinor = 100; }],
-    ['currency', reward => { reward.currency = 'USD'; }],
-    ['date', reward => { reward.createdAt = '2026-09-11T08:30:00.000Z'; }],
-    ['reason', reward => { reward.fraudFlag.reason = 'Autre motif'; }],
-  ]) {
-    const malformed = detachFlaggedReward(overviewFixture());
-    mutate(malformed.flaggedRewards[0]);
-    assert.equal(parseReferralMarketingOverview(malformed), null, `accepted mismatched ${label}`);
-  }
-});
-
-test('rejects malformed optional audit data, dates, and oversized audit results', () => {
+test('rejects malformed optional audit data, dates, and oversized audit pages', () => {
   const { parseReferralMarketingOverview } = loadDashboard();
   const malformedDate = overviewFixture();
-  malformedDate.auditTrail[0].createdAt = 'yesterday-ish';
+  malformedDate.auditTrail.items[0].createdAt = 'yesterday-ish';
   assert.equal(parseReferralMarketingOverview(malformedDate), null);
-
   const malformedActor = overviewFixture();
-  malformedActor.auditTrail[0].actorUid = 17;
+  malformedActor.auditTrail.items[0].actorUid = 17;
   assert.equal(parseReferralMarketingOverview(malformedActor), null);
-
-  const oversizedReason = overviewFixture();
-  oversizedReason.auditTrail[0].reason = 'x'.repeat(501);
-  assert.equal(parseReferralMarketingOverview(oversizedReason), null);
-
   const tooManyAuditEntries = overviewFixture();
-  tooManyAuditEntries.auditTrail = Array.from({ length: 51 }, (_, index) => ({
+  tooManyAuditEntries.auditTrail = page(Array.from({ length: 51 }, (_, index) => ({
     id: `audit-${index}`, action: 'REFERRAL_REWARD_APPROVED',
-  }));
+  })));
   assert.equal(parseReferralMarketingOverview(tooManyAuditEntries), null);
+});
+
+test('builds a cursor request for exactly the requested collection and active audit filter', () => {
+  const { overviewPageRequest } = loadDashboard();
+  assert.deepEqual(
+    overviewPageRequest('programs', 'program-cursor', { code: 'ABC-123' }),
+    { programLimit: 10, pendingLimit: 10, flaggedLimit: 10, auditLimit: 20, code: 'ABC-123', programPageToken: 'program-cursor' },
+  );
+  assert.deepEqual(
+    overviewPageRequest('auditTrail', 'audit-cursor', { action: 'REFERRAL_REWARD_APPROVED' }),
+    { programLimit: 10, pendingLimit: 10, flaggedLimit: 10, auditLimit: 20, action: 'REFERRAL_REWARD_APPROVED', auditPageToken: 'audit-cursor' },
+  );
+  assert.throws(() => overviewPageRequest('topReferrers', 'cursor', {}), /not pageable/i);
+});
+
+test('appends a valid cursor page without replacing summaries or other loaded pages', () => {
+  const { mergeOverviewPage } = loadDashboard();
+  const current = overviewFixture();
+  const incoming = overviewFixture();
+  incoming.programs = page([{
+    id: 'program-2', status: 'paused', countryCodes: ['FR'], currency: 'EUR',
+    inviterCreditMinor: 700, invitedDiscountMinor: 200,
+    startsAt: '2026-09-01T00:00:00.000Z', endsAt: '2026-12-31T23:59:59.999Z',
+  }]);
+  incoming.pendingRewards = page([]);
+  const merged = mergeOverviewPage(current, incoming, 'programs');
+  assert.deepEqual(merged.programs.items.map(item => item.id), ['program-1', 'program-2']);
+  assert.equal(merged.programs.truncated, false);
+  assert.equal(merged.pendingRewards.items[0].id, 'reward-1');
+  assert.equal(merged.funnel.codes, 20);
+  const duplicate = overviewFixture();
+  duplicate.programs = page([structuredClone(current.programs.items[0])]);
+  assert.equal(mergeOverviewPage(current, duplicate, 'programs'), null);
+});
+
+test('promotes a migration-required response received during pagination instead of merging placeholders', () => {
+  const { mergeOverviewPage } = loadDashboard();
+  const merged = mergeOverviewPage(overviewFixture(), migrationFixture(), 'auditTrail');
+  assert.equal(merged.state, 'migrationRequired');
+  assert.equal(merged.auditTrail.items.length, 0);
+});
+
+test('parses only the exact server-authorized initializer result', () => {
+  const { parseReferralMarketingInitializerResult } = loadDashboard();
+  assert.deepEqual(parseReferralMarketingInitializerResult({ initialized: true, alreadyInitialized: false }), {
+    initialized: true, alreadyInitialized: false,
+  });
+  assert.deepEqual(parseReferralMarketingInitializerResult({ initialized: true, alreadyInitialized: true }), {
+    initialized: true, alreadyInitialized: true,
+  });
+  assert.equal(parseReferralMarketingInitializerResult({ initialized: false, alreadyInitialized: false }), null);
+  assert.equal(parseReferralMarketingInitializerResult({ initialized: true }), null);
+  assert.equal(parseReferralMarketingInitializerResult({ initialized: true, alreadyInitialized: false, seeded: true }), null);
+});
+
+test('invalidates stale overview and cursor work while allowing independent page requests', () => {
+  const { createReferralDashboardRequestCoordinator } = loadDashboard();
+  const coordinator = createReferralDashboardRequestCoordinator();
+  const refresh = coordinator.begin('overview', true);
+  const pending = coordinator.begin('pendingRewards');
+  const audit = coordinator.begin('auditTrail');
+  assert.equal(refresh(), true);
+  assert.equal(pending(), true);
+  assert.equal(audit(), true);
+  const replacementPending = coordinator.begin('pendingRewards');
+  assert.equal(pending(), false);
+  assert.equal(replacementPending(), true);
+  assert.equal(audit(), true);
+  const initializer = coordinator.begin('initializer', true);
+  assert.equal(refresh(), false);
+  assert.equal(replacementPending(), false);
+  assert.equal(audit(), false);
+  assert.equal(initializer(), true);
+  coordinator.cancel();
+  assert.equal(initializer(), false);
+  assert.equal(coordinator.begin('overview', true)(), false);
 });
 
 test('keeps money and date formatting safe even when called defensively with bad data', () => {
@@ -198,24 +297,9 @@ test('returns localized actionable errors for missing and oversized action reaso
   assert.equal(validateActionReason('clear', 'Contrôle terminé'), null);
 });
 
-test('invalidates stale overview work when a newer request begins or the component cancels', () => {
-  const { createLatestRequestCoordinator } = loadDashboard();
-  const coordinator = createLatestRequestCoordinator();
-  const first = coordinator.begin();
-  const second = coordinator.begin();
-
-  assert.equal(first(), false);
-  assert.equal(second(), true);
-  coordinator.cancel();
-  assert.equal(second(), false);
-  const lateRequest = coordinator.begin();
-  assert.equal(lateRequest(), false);
-});
-
 test('keeps reward A locked while reward B starts and settles independently', () => {
   const { createRewardActionTracker } = loadDashboard();
   const tracker = createRewardActionTracker();
-
   assert.equal(tracker.begin('reward-a'), true);
   assert.equal(tracker.begin('reward-b'), true);
   assert.equal(tracker.has('reward-a'), true);

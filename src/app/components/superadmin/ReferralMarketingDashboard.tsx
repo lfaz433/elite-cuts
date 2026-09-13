@@ -19,7 +19,10 @@ type Owner = 'client' | 'freelancer' | 'brand';
 type ProgramStatus = 'draft' | 'active' | 'paused' | 'archived';
 type ReviewAction = 'approve' | 'reject' | 'flag' | 'clear';
 type AuditFilterKind = 'code' | 'programId' | 'rewardId' | 'action';
+type PageKind = 'programs' | 'pendingRewards' | 'flaggedRewards' | 'auditTrail';
+type RequestKind = 'overview' | 'initializer' | PageKind;
 type Credit = { currency: string; amountMinor: number };
+type Telemetry = { state: 'verified' | 'unavailable'; validatedVisits: number; capped: boolean };
 type FraudFlag = { status: 'flagged' | 'cleared'; reason: string };
 type Program = {
   id: string;
@@ -55,9 +58,25 @@ type Audit = {
   createdAt?: string;
 };
 
+type OverviewPage<T> = {
+  items: T[];
+  nextPageToken?: string;
+  truncated: boolean;
+};
+type TopReferrer = {
+  inviterId: string;
+  inviterOwnerType: Owner;
+  referrals: number;
+  rewards: number;
+  approvedCreditTotals: Credit[];
+};
+
 export type ReferralMarketingOverview = {
-  contractVersion: 2;
-  programs: Program[];
+  contractVersion: 3;
+  state: 'ready' | 'migrationRequired';
+  summaryEpoch: 'referral-v3';
+  telemetry: Telemetry;
+  programs: OverviewPage<Program>;
   funnel: {
     codes: number;
     validatedVisits: number;
@@ -70,21 +89,17 @@ export type ReferralMarketingOverview = {
     approved: number;
     approvedRewards: number;
     rejected: number;
+    cancelled: number;
   };
   approvedCreditTotals: Credit[];
-  topReferrers: Array<{
-    inviterId: string;
-    inviterOwnerType: Owner;
-    referrals: number;
-    rewards: number;
-    approvedCreditTotals: Credit[];
-  }>;
-  pendingRewards: Reward[];
-  flaggedRewards: Array<Reward & { fraudFlag: { status: 'flagged'; reason: string } }>;
-  auditTrail: Audit[];
+  topReferrers: OverviewPage<TopReferrer>;
+  pendingRewards: OverviewPage<Reward>;
+  flaggedRewards: OverviewPage<Reward & { fraudFlag: { status: 'flagged'; reason: string } }>;
+  auditTrail: OverviewPage<Audit>;
 };
 
 const overviewCall = httpsCallable<Record<string, unknown>, unknown>(functions, 'getReferralMarketingOverview');
+const initializeCall = httpsCallable<Record<string, never>, unknown>(functions, 'initializeReferralMarketingV3');
 const createProgramCall = httpsCallable<Record<string, unknown>, unknown>(functions, 'createReferralProgram');
 const reviewCall = httpsCallable<
   { rewardId: string; decision: 'approve' | 'reject'; reason?: string },
@@ -103,6 +118,9 @@ const ACTION_PATTERN = /^REFERRAL_[A-Z_]{3,64}$/;
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const MAX_REASON_LENGTH = 500;
 const MAX_AUDIT_RESULTS = 50;
+const MAX_OVERVIEW_RESULTS = 20;
+const TOP_REFERRER_RESULTS = 10;
+const OVERVIEW_REQUEST = { programLimit: 10, pendingLimit: 10, flaggedLimit: 10, auditLimit: 20 } as const;
 
 function object(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -266,9 +284,55 @@ function parseAudit(value: unknown): Audit | null {
   };
 }
 
+function parseTopReferrer(value: unknown): TopReferrer | null {
+  const candidate = object(value);
+  const inviterOwnerType = candidate?.inviterOwnerType;
+  const referrals = candidate && nonNegativeInteger(candidate.referrals);
+  const rewards = candidate && nonNegativeInteger(candidate.rewards);
+  const approvedCreditTotals = candidate && parseCredits(candidate.approvedCreditTotals);
+  if (
+    !candidate
+    || typeof candidate.inviterId !== 'string'
+    || !DOCUMENT_ID_PATTERN.test(candidate.inviterId)
+    || (inviterOwnerType !== 'client' && inviterOwnerType !== 'freelancer' && inviterOwnerType !== 'brand')
+    || referrals === null
+    || rewards === null
+    || !approvedCreditTotals
+  ) return null;
+  return { inviterId: candidate.inviterId, inviterOwnerType, referrals, rewards, approvedCreditTotals };
+}
+
+function parseOverviewPage<T>(
+  value: unknown,
+  parseItem: (item: unknown) => T | null,
+  maximum: number,
+  pageable: boolean,
+): OverviewPage<T> | null {
+  const candidate = object(value);
+  if (!candidate || !Array.isArray(candidate.items) || candidate.items.length > maximum
+    || typeof candidate.truncated !== 'boolean') return null;
+  const hasToken = candidate.nextPageToken !== undefined;
+  if (hasToken && (typeof candidate.nextPageToken !== 'string'
+    || !DOCUMENT_ID_PATTERN.test(candidate.nextPageToken))) return null;
+  if (!pageable && hasToken) return null;
+  if (pageable && candidate.truncated !== hasToken) return null;
+  const items = candidate.items.map(parseItem);
+  if (items.some(item => item === null)) return null;
+  return {
+    items: items as T[],
+    ...(hasToken ? { nextPageToken: candidate.nextPageToken as string } : {}),
+    truncated: candidate.truncated,
+  };
+}
+
+function uniqueBy<T>(items: T[], key: (item: T) => string): boolean {
+  return new Set(items.map(key)).size === items.length;
+}
+
 export function parseReferralMarketingOverview(value: unknown): ReferralMarketingOverview | null {
   const candidate = object(value);
   const funnel = candidate && object(candidate.funnel);
+  const telemetry = candidate && object(candidate.telemetry);
   const funnelKeys = [
     'codes',
     'validatedVisits',
@@ -281,97 +345,88 @@ export function parseReferralMarketingOverview(value: unknown): ReferralMarketin
     'approved',
     'approvedRewards',
     'rejected',
+    'cancelled',
   ] as const;
   if (
     !candidate
-    || candidate.contractVersion !== 2
+    || candidate.contractVersion !== 3
+    || (candidate.state !== 'ready' && candidate.state !== 'migrationRequired')
+    || candidate.summaryEpoch !== 'referral-v3'
+    || !telemetry
+    || (telemetry.state !== 'verified' && telemetry.state !== 'unavailable')
+    || nonNegativeInteger(telemetry.validatedVisits) === null
+    || typeof telemetry.capped !== 'boolean'
     || !funnel
     || funnelKeys.some(key => nonNegativeInteger(funnel[key]) === null)
-    || !Array.isArray(candidate.programs)
-    || !Array.isArray(candidate.topReferrers)
-    || candidate.topReferrers.length > 10
-    || !Array.isArray(candidate.pendingRewards)
-    || !Array.isArray(candidate.flaggedRewards)
-    || !Array.isArray(candidate.auditTrail)
-    || candidate.auditTrail.length > MAX_AUDIT_RESULTS
   ) return null;
 
-  const programs = candidate.programs.map(parseProgram);
+  const programs = parseOverviewPage(candidate.programs, parseProgram, MAX_OVERVIEW_RESULTS, true);
   const approvedCreditTotals = parseCredits(candidate.approvedCreditTotals);
-  const pendingRewards = candidate.pendingRewards.map(parseReward);
-  const flaggedRewards = candidate.flaggedRewards.map(parseReward);
-  const auditTrail = candidate.auditTrail.map(parseAudit);
-  const topReferrers = candidate.topReferrers.map(value => {
-    const referrer = object(value);
-    const inviterOwnerType = referrer?.inviterOwnerType;
-    const referrals = referrer && nonNegativeInteger(referrer.referrals);
-    const rewards = referrer && nonNegativeInteger(referrer.rewards);
-    const totals = referrer && parseCredits(referrer.approvedCreditTotals);
-    if (
-      !referrer
-      || !nonEmptyString(referrer.inviterId)
-      || (inviterOwnerType !== 'client' && inviterOwnerType !== 'freelancer' && inviterOwnerType !== 'brand')
-      || referrals === null
-      || rewards === null
-      || !totals
-    ) return null;
-    return {
-      inviterId: referrer.inviterId,
-      inviterOwnerType,
-      referrals,
-      rewards,
-      approvedCreditTotals: totals,
-    };
-  });
+  const topReferrers = parseOverviewPage(candidate.topReferrers, parseTopReferrer, TOP_REFERRER_RESULTS, false);
+  const pendingRewards = parseOverviewPage(candidate.pendingRewards, parseReward, MAX_OVERVIEW_RESULTS, true);
+  const flaggedRewards = parseOverviewPage(candidate.flaggedRewards, parseReward, MAX_OVERVIEW_RESULTS, true);
+  const auditTrail = parseOverviewPage(candidate.auditTrail, parseAudit, MAX_AUDIT_RESULTS, true);
 
   if (
     !approvedCreditTotals
-    || programs.some(item => !item)
-    || topReferrers.some(item => !item)
-    || pendingRewards.some(item => !item)
-    || flaggedRewards.some(item => !item || item.fraudFlag?.status !== 'flagged')
-    || auditTrail.some(item => !item)
+    || !programs
+    || !topReferrers
+    || !pendingRewards
+    || !flaggedRewards
+    || !auditTrail
+    || flaggedRewards.items.some(item => item.fraudFlag?.status !== 'flagged')
   ) return null;
 
-  const typedTopReferrers = topReferrers as ReferralMarketingOverview['topReferrers'];
-  const typedPendingRewards = pendingRewards as Reward[];
-  const typedFlaggedRewards = flaggedRewards as ReferralMarketingOverview['flaggedRewards'];
   const typedFunnel = Object.fromEntries(
     funnelKeys.map(key => [key, nonNegativeInteger(funnel[key])]),
   ) as ReferralMarketingOverview['funnel'];
-  const flaggedPendingIds = new Set(
-    typedPendingRewards.filter(item => item.fraudFlag?.status === 'flagged').map(item => item.id),
-  );
-  const flaggedCollectionIds = new Set(typedFlaggedRewards.map(item => item.id));
-  const pendingRewardsById = new Map(typedPendingRewards.map(item => [item.id, item]));
+  const typedTelemetry: Telemetry = {
+    state: telemetry.state as Telemetry['state'],
+    validatedVisits: telemetry.validatedVisits as number,
+    capped: telemetry.capped,
+  };
   if (
-    new Set((programs as Program[]).map(item => item.id)).size !== programs.length
-    || new Set(typedTopReferrers.map(referrerKey)).size !== typedTopReferrers.length
-    || new Set(typedPendingRewards.map(item => item.id)).size !== pendingRewards.length
-    || new Set(typedFlaggedRewards.map(item => item.id)).size !== flaggedRewards.length
-    || new Set((auditTrail as Audit[]).map(item => item.id)).size !== auditTrail.length
-    || flaggedPendingIds.size !== flaggedCollectionIds.size
-    || [...flaggedPendingIds].some(id => !flaggedCollectionIds.has(id))
-    || typedFlaggedRewards.some(item => {
-      const pending = pendingRewardsById.get(item.id);
-      return !pending || !rewardsAreCanonicalMatches(pending, item);
-    })
+    !uniqueBy(programs.items, item => item.id)
+    || !uniqueBy(topReferrers.items, referrerKey)
+    || !uniqueBy(pendingRewards.items, item => item.id)
+    || !uniqueBy(flaggedRewards.items, item => item.id)
+    || !uniqueBy(auditTrail.items, item => item.id)
+    || typedFunnel.attributedSignups !== typedFunnel.attributions
+    || typedFunnel.eligibleFirstBookings !== typedFunnel.rewards
+    || typedFunnel.pendingRewards !== typedFunnel.pending
+    || typedFunnel.approvedRewards !== typedFunnel.approved
+    || typedFunnel.rewards !== typedFunnel.pending + typedFunnel.approved
+      + typedFunnel.rejected + typedFunnel.cancelled
+    || typedTelemetry.validatedVisits !== typedFunnel.validatedVisits
+    || typedTelemetry.capped !== (typedTelemetry.validatedVisits >= 1_000_000)
+    || (typedTelemetry.state === 'unavailable' && typedTelemetry.validatedVisits !== 0)
   ) return null;
 
-  return {
-    contractVersion: 2,
-    programs: programs as Program[],
+  const parsed: ReferralMarketingOverview = {
+    contractVersion: 3,
+    state: candidate.state,
+    summaryEpoch: 'referral-v3',
+    telemetry: typedTelemetry,
+    programs,
     funnel: typedFunnel,
     approvedCreditTotals,
-    topReferrers: typedTopReferrers,
-    pendingRewards: typedPendingRewards,
-    flaggedRewards: typedFlaggedRewards,
-    auditTrail: auditTrail as Audit[],
+    topReferrers,
+    pendingRewards,
+    flaggedRewards: flaggedRewards as ReferralMarketingOverview['flaggedRewards'],
+    auditTrail,
   };
+  if (parsed.state === 'migrationRequired') {
+    const noCounts = funnelKeys.every(key => parsed.funnel[key] === 0);
+    const emptyPages = [parsed.programs, parsed.topReferrers, parsed.pendingRewards, parsed.flaggedRewards, parsed.auditTrail]
+      .every(page => page.items.length === 0 && !page.truncated && page.nextPageToken === undefined);
+    if (!noCounts || !emptyPages || parsed.approvedCreditTotals.length !== 0
+      || parsed.telemetry.state !== 'unavailable' || parsed.telemetry.capped) return null;
+  }
+  return parsed;
 }
 
 export function referrerKey(
-  referrer: Pick<ReferralMarketingOverview['topReferrers'][number], 'inviterId' | 'inviterOwnerType'>,
+  referrer: Pick<TopReferrer, 'inviterId' | 'inviterOwnerType'>,
 ): string {
   return `${referrer.inviterOwnerType}:${referrer.inviterId}`;
 }
@@ -380,8 +435,10 @@ export function funnelRate(numerator: number, denominator: number): number {
   return denominator > 0 ? Math.round((numerator / denominator) * 100) : 0;
 }
 
-export function telemetryText(count: number): string {
-  return `${count} visite(s) validée(s)`;
+export function telemetryText(telemetry: Telemetry | number): string {
+  if (typeof telemetry === 'number') return `${telemetry} visite(s) validée(s)`;
+  if (telemetry.state === 'unavailable') return 'Télémétrie indisponible';
+  return `${telemetry.validatedVisits} visite(s) validée(s)${telemetry.capped ? ' · plafond atteint' : ''}`;
 }
 
 export function formatMoney(credit: Credit): string {
@@ -447,6 +504,106 @@ export function createLatestRequestCoordinator(): {
       return active;
     },
   };
+}
+
+export function createReferralDashboardRequestCoordinator(): {
+  begin: (kind: RequestKind, supersedeAll?: boolean) => () => boolean;
+  cancel: () => void;
+  isActive: () => boolean;
+} {
+  let active = true;
+  let generation = 0;
+  const versions = new Map<RequestKind, number>();
+  return {
+    begin(kind, supersedeAll = false) {
+      if (!active) return () => false;
+      if (supersedeAll) {
+        generation += 1;
+        versions.clear();
+      }
+      const requestGeneration = generation;
+      const requestVersion = (versions.get(kind) ?? 0) + 1;
+      versions.set(kind, requestVersion);
+      return () => active
+        && generation === requestGeneration
+        && versions.get(kind) === requestVersion;
+    },
+    cancel() {
+      active = false;
+      generation += 1;
+      versions.clear();
+    },
+    isActive() {
+      return active;
+    },
+  };
+}
+
+export function parseReferralMarketingInitializerResult(
+  value: unknown,
+): { initialized: true; alreadyInitialized: boolean } | null {
+  const candidate = object(value);
+  if (!candidate || Object.keys(candidate).length !== 2 || candidate.initialized !== true
+    || typeof candidate.alreadyInitialized !== 'boolean') return null;
+  return { initialized: true, alreadyInitialized: candidate.alreadyInitialized };
+}
+
+export function canInitializeReferralOverview(
+  overview: ReferralMarketingOverview | null,
+): boolean {
+  return overview?.state === 'migrationRequired';
+}
+
+export function overviewPageRequest(
+  kind: PageKind,
+  pageToken: string,
+  auditFilter: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!DOCUMENT_ID_PATTERN.test(pageToken)) throw new Error('Referral overview cursor is invalid');
+  const request: Record<string, unknown> = { ...OVERVIEW_REQUEST, ...auditFilter };
+  if (kind === 'programs') request.programPageToken = pageToken;
+  else if (kind === 'pendingRewards') request.pendingPageToken = pageToken;
+  else if (kind === 'flaggedRewards') request.flaggedPageToken = pageToken;
+  else if (kind === 'auditTrail') request.auditPageToken = pageToken;
+  else throw new Error('Referral overview collection is not pageable');
+  return request;
+}
+
+function appendPage<T>(
+  current: OverviewPage<T>,
+  incoming: OverviewPage<T>,
+  key: (item: T) => string,
+): OverviewPage<T> | null {
+  const currentKeys = new Set(current.items.map(key));
+  if (incoming.items.some(item => currentKeys.has(key(item)))) return null;
+  return {
+    items: [...current.items, ...incoming.items],
+    ...(incoming.nextPageToken ? { nextPageToken: incoming.nextPageToken } : {}),
+    truncated: incoming.truncated,
+  };
+}
+
+export function mergeOverviewPage(
+  current: ReferralMarketingOverview,
+  incoming: ReferralMarketingOverview,
+  kind: PageKind,
+): ReferralMarketingOverview | null {
+  if (incoming.state === 'migrationRequired') return incoming;
+  if (current.state !== 'ready') return incoming;
+  if (kind === 'programs') {
+    const programs = appendPage(current.programs, incoming.programs, item => item.id);
+    return programs ? { ...current, programs } : null;
+  }
+  if (kind === 'pendingRewards') {
+    const pendingRewards = appendPage(current.pendingRewards, incoming.pendingRewards, item => item.id);
+    return pendingRewards ? { ...current, pendingRewards } : null;
+  }
+  if (kind === 'flaggedRewards') {
+    const flaggedRewards = appendPage(current.flaggedRewards, incoming.flaggedRewards, item => item.id);
+    return flaggedRewards ? { ...current, flaggedRewards } : null;
+  }
+  const auditTrail = appendPage(current.auditTrail, incoming.auditTrail, item => item.id);
+  return auditTrail ? { ...current, auditTrail } : null;
 }
 
 export function createRewardActionTracker(): {
@@ -523,49 +680,131 @@ export default function ReferralMarketingDashboard() {
   const [startsAt, setStartsAt] = useState(todayWithOffset(0));
   const [endsAt, setEndsAt] = useState(todayWithOffset(365));
   const [savingProgram, setSavingProgram] = useState(false);
+  const [initializing, setInitializing] = useState(false);
+  const [initializationStatus, setInitializationStatus] = useState<string | null>(null);
+  const [initializationError, setInitializationError] = useState<string | null>(null);
+  const [pageLoading, setPageLoading] = useState<Partial<Record<PageKind, boolean>>>({});
+  const [pageErrors, setPageErrors] = useState<Partial<Record<PageKind, string>>>({});
   const [actingRewardIds, setActingRewardIds] = useState<Set<string>>(() => new Set());
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
-  const requestCoordinator = useRef(createLatestRequestCoordinator());
+  const requestCoordinator = useRef(createReferralDashboardRequestCoordinator());
   const rewardActionTracker = useRef(createRewardActionTracker());
   const activeFilter = useRef<Record<string, unknown>>({});
 
   const selectedProgram = useMemo(
-    () => overview?.programs.find(program => program.id === selectedProgramId) ?? null,
+    () => overview?.programs.items.find(program => program.id === selectedProgramId) ?? null,
     [overview, selectedProgramId],
   );
 
   const loadOverview = async (filter: Record<string, unknown> = activeFilter.current) => {
     if (!requestCoordinator.current.isActive()) return;
-    const isCurrent = requestCoordinator.current.begin();
+    const isCurrent = requestCoordinator.current.begin('overview', true);
     if (!isCurrent()) return;
     setLoading(true);
     setLoadError(null);
+    setInitializationStatus(null);
+    setInitializationError(null);
+    setPageErrors({});
+    setPageLoading({});
     try {
-      const result = await overviewCall({ limit: 20, ...filter });
+      const result = await overviewCall({ ...OVERVIEW_REQUEST, ...filter });
       const nextOverview = parseReferralMarketingOverview(result.data);
-      if (!nextOverview) throw new Error('Invalid referral marketing overview v2');
+      if (!nextOverview) throw new Error('Invalid referral marketing overview V3');
       if (!isCurrent()) return;
       setOverview(nextOverview);
     } catch (reason) {
       if (!isCurrent()) return;
       console.error('Unable to load referral marketing overview', reason);
-      setLoadError('Données indisponibles ou contrat v2 incompatible. Actualisez ou vérifiez vos droits Super Admin.');
+      setLoadError('Données indisponibles ou contrat V3 incompatible. Actualisez ou vérifiez vos droits Super Admin.');
     } finally {
       if (isCurrent()) setLoading(false);
     }
   };
 
   useEffect(() => {
-    const coordinator = createLatestRequestCoordinator();
+    const coordinator = createReferralDashboardRequestCoordinator();
     requestCoordinator.current = coordinator;
     void loadOverview();
     return () => coordinator.cancel();
   }, []);
 
+  const initializeOverview = async () => {
+    if (!canInitializeReferralOverview(overview) || initializing) return;
+    const confirmed = window.confirm(
+      'Initialiser la projection V3 uniquement si cet environnement ne contient encore aucune donnée de parrainage ? '
+      + 'Si un historique existe, le serveur refusera et une migration réconciliée restera obligatoire.',
+    );
+    if (!confirmed) return;
+    const isCurrent = requestCoordinator.current.begin('initializer', true);
+    if (!isCurrent()) return;
+    setInitializing(true);
+    setInitializationError(null);
+    setInitializationStatus('Vérification serveur de l’environnement en cours…');
+    try {
+      const result = await initializeCall({});
+      const parsed = parseReferralMarketingInitializerResult(result.data);
+      if (!parsed) throw new Error('Invalid referral marketing initializer response');
+      if (!isCurrent()) return;
+      setInitializationStatus(parsed.alreadyInitialized
+        ? 'La projection V3 était déjà initialisée. Rechargement des données vérifiées…'
+        : 'Projection V3 vide initialisée par le serveur. Rechargement des données vérifiées…');
+      setInitializing(false);
+      toast.success(parsed.alreadyInitialized
+        ? 'Projection V3 déjà initialisée.'
+        : 'Projection V3 initialisée pour cet environnement vide.');
+      await loadOverview();
+    } catch (reason) {
+      if (!isCurrent()) return;
+      console.error('Unable to initialize referral marketing projection', reason);
+      setInitializationStatus(null);
+      setInitializationError(
+        'Initialisation refusée ou indisponible. Si des données existent, utilisez uniquement la migration Admin SDK réconciliée et validée.',
+      );
+    } finally {
+      if (isCurrent()) setInitializing(false);
+    }
+  };
+
+  const loadMorePage = async (kind: PageKind) => {
+    if (!overview || overview.state !== 'ready') return;
+    const currentPage = overview[kind];
+    const pageToken = currentPage.nextPageToken;
+    if (!currentPage.truncated || !pageToken || pageLoading[kind]) return;
+    const isCurrent = requestCoordinator.current.begin(kind);
+    if (!isCurrent()) return;
+    setPageLoading(current => ({ ...current, [kind]: true }));
+    setPageErrors(current => ({ ...current, [kind]: undefined }));
+    try {
+      const result = await overviewCall(overviewPageRequest(kind, pageToken, activeFilter.current));
+      const incoming = parseReferralMarketingOverview(result.data);
+      if (!incoming) throw new Error('Invalid referral marketing overview cursor page');
+      if (!isCurrent()) return;
+      if (incoming.state === 'migrationRequired') {
+        setOverview(incoming);
+        setPageLoading({});
+        setPageErrors({});
+        requestCoordinator.current.begin('overview', true);
+        return;
+      }
+      const preview = mergeOverviewPage(overview, incoming, kind);
+      if (!preview) throw new Error('Referral overview cursor page overlaps loaded rows');
+      setOverview(current => current ? mergeOverviewPage(current, incoming, kind) ?? current : incoming);
+    } catch (reason) {
+      if (!isCurrent()) return;
+      console.error(`Unable to load more referral ${kind}`, reason);
+      setPageErrors(current => ({
+        ...current,
+        [kind]: 'Impossible de charger la suite. Les résultats déjà affichés restent partiels.',
+      }));
+    } finally {
+      if (isCurrent()) setPageLoading(current => ({ ...current, [kind]: false }));
+    }
+  };
+
   const selectProgram = (programId: string) => {
     setSelectedProgramId(programId);
-    const program = overview?.programs.find(item => item.id === programId);
+    const program = overview?.programs.items.find(item => item.id === programId);
     if (!program) {
       setProgramStatus('active');
       setCountryCodes('FR');
@@ -700,25 +939,28 @@ export default function ReferralMarketingDashboard() {
     void loadOverview(filter);
   };
 
-  const funnelMetrics = overview ? [
+  const funnelMetrics: Array<{ label: string; value: number | string; detail: string }> = overview ? [
     { label: 'Codes', value: overview.funnel.codes, detail: 'Codes réservés' },
-    { label: 'Visites validées', value: overview.funnel.validatedVisits, detail: telemetryText(overview.funnel.validatedVisits) },
+    {
+      label: 'Visites validées',
+      value: overview.telemetry.state === 'verified' ? overview.telemetry.validatedVisits : '—',
+      detail: telemetryText(overview.telemetry),
+    },
     { label: 'Attributions', value: overview.funnel.attributions, detail: `${funnelRate(overview.funnel.attributions, overview.funnel.codes)} % des codes` },
-    { label: 'Inscriptions attribuées', value: overview.funnel.attributedSignups, detail: 'Compteur v2 publié' },
+    { label: 'Inscriptions attribuées', value: overview.funnel.attributedSignups, detail: 'Projection V3 vérifiée' },
     { label: 'Récompenses', value: overview.funnel.rewards, detail: 'Dossiers créés' },
-    { label: '1ers RDV éligibles', value: overview.funnel.eligibleFirstBookings, detail: 'Compteur v2 publié' },
+    { label: '1ers RDV éligibles', value: overview.funnel.eligibleFirstBookings, detail: 'Projection V3 vérifiée' },
     { label: 'En attente', value: overview.funnel.pending, detail: 'Statut récompense' },
-    { label: 'Crédits en attente', value: overview.funnel.pendingRewards, detail: 'Alias v2 explicite' },
+    { label: 'Crédits en attente', value: overview.funnel.pendingRewards, detail: 'Alias V3 vérifié' },
     { label: 'Approuvés', value: overview.funnel.approved, detail: 'Statut récompense' },
-    { label: 'Crédits approuvés', value: overview.funnel.approvedRewards, detail: 'Alias v2 explicite' },
+    { label: 'Crédits approuvés', value: overview.funnel.approvedRewards, detail: 'Alias V3 vérifié' },
     { label: 'Refusés', value: overview.funnel.rejected, detail: 'Statut récompense' },
+    { label: 'Annulés', value: overview.funnel.cancelled, detail: 'Statut récompense' },
   ] : [];
 
-  const flaggedIds = useMemo(
-    () => new Set(overview?.flaggedRewards.map(reward => reward.id) ?? []),
-    [overview],
-  );
-  const standardPendingRewards = overview?.pendingRewards.filter(reward => !flaggedIds.has(reward.id)) ?? [];
+  const standardPendingRewards = overview?.pendingRewards.items.filter(
+    reward => reward.fraudFlag?.status !== 'flagged',
+  ) ?? [];
 
   const renderReward = (
     reward: Reward,
@@ -803,13 +1045,38 @@ export default function ReferralMarketingDashboard() {
     </article>
   );
 
+  const renderPageFooter = (kind: PageKind, page: OverviewPage<unknown>) => (
+    <div className="mt-4 flex flex-col gap-2 border-t border-white/10 pt-4 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <p className="text-xs text-white/45">
+          {page.items.length} résultat(s) chargé(s).
+          {page.truncated
+            ? ' Cette liste est partielle.'
+            : ' Cette réponse ne signale aucune page suivante ; actualisez pour vérifier les mutations récentes.'}
+        </p>
+        {pageErrors[kind] && <p role="alert" className="mt-1 text-xs font-semibold text-rose-200">{pageErrors[kind]}</p>}
+      </div>
+      {page.truncated && (
+        <button
+          type="button"
+          disabled={pageLoading[kind]}
+          onClick={() => void loadMorePage(kind)}
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/15 px-3 py-2 text-sm font-bold text-white/75 disabled:opacity-50"
+        >
+          <RefreshCw className={pageLoading[kind] ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
+          {pageLoading[kind] ? 'Chargement…' : 'Charger la suite'}
+        </button>
+      )}
+    </div>
+  );
+
   return (
     <section className="space-y-6">
       <div className="rounded-2xl border border-[#D4AF37]/25 bg-gradient-to-r from-[#201b0a] to-[#111] p-6">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
             <h2 className="text-2xl font-black">Marketing &amp; parrainage</h2>
-            <p className="mt-1 text-sm text-white/60">Contrat v2, programmes, funnel et revue manuelle traçable.</p>
+            <p className="mt-1 text-sm text-white/60">Projection V3, pages bornées et revue manuelle traçable.</p>
           </div>
           <button
             type="button"
@@ -843,13 +1110,41 @@ export default function ReferralMarketingDashboard() {
         <div className="rounded-2xl border border-dashed border-white/15 p-6 text-sm text-white/55">
           Aucune donnée de parrainage validée n’est disponible.
         </div>
+      ) : overview.state === 'migrationRequired' ? (
+        <div className="rounded-2xl border border-amber-300/30 bg-amber-300/[0.08] p-6" role="status">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-6 w-6 shrink-0 text-amber-300" />
+            <div>
+              <h3 className="text-lg font-black text-amber-100">Projection V3 à initialiser ou à migrer</h3>
+              <p className="mt-2 text-sm leading-6 text-amber-50/80">
+                Le serveur n’a publié aucune projection V3 vérifiée. Les zéros techniques de cette réponse ne sont pas
+                affichés comme des métriques réelles, et les actions métier restent masquées.
+              </p>
+              <p className="mt-2 text-sm leading-6 text-amber-50/70">
+                L’initialiseur ci-dessous est autorisé uniquement pour un environnement vide. S’il détecte le moindre
+                historique, il refuse sans conversion : une migration Admin SDK réconciliée et revue est alors requise.
+              </p>
+              {initializationStatus && <p className="mt-3 text-sm font-bold text-sky-100">{initializationStatus}</p>}
+              {initializationError && <p role="alert" className="mt-3 text-sm font-bold text-rose-200">{initializationError}</p>}
+              <button
+                type="button"
+                disabled={initializing}
+                onClick={() => void initializeOverview()}
+                className="mt-4 inline-flex items-center gap-2 rounded-xl bg-amber-300 px-4 py-2.5 text-sm font-black text-black disabled:opacity-50"
+              >
+                <ShieldAlert className="h-4 w-4" />
+                {initializing ? 'Vérification et initialisation…' : 'Initialiser un environnement vide'}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : (
         <>
           <div className="rounded-2xl border border-sky-300/20 bg-sky-300/[0.06] px-4 py-3">
             <p className="text-xs font-bold uppercase tracking-wider text-sky-100/70">Télémétrie agrégée</p>
             <p className="mt-1 text-sm text-sky-50">
-              Compteur publié : {telemetryText(overview.funnel.validatedVisits)}. Le contrat v2 ne publie
-              aucun indicateur activé/désactivé ; zéro est donc affiché comme un compte réel.
+              {telemetryText(overview.telemetry)}. Une télémétrie indisponible reste explicitement inconnue ;
+              elle n’est jamais transformée en zéro observé.
             </p>
           </div>
 
@@ -873,7 +1168,7 @@ export default function ReferralMarketingDashboard() {
                 Programme
                 <select value={selectedProgramId} onChange={event => selectProgram(event.target.value)} className="mt-1.5 w-full rounded-xl border border-white/15 bg-black/40 px-3 py-2 text-white">
                   <option value="">Nouveau programme</option>
-                  {overview.programs.map(program => (
+                  {overview.programs.items.map(program => (
                     <option key={program.id} value={program.id}>{program.id} · {statusLabels[program.status]}</option>
                   ))}
                 </select>
@@ -925,9 +1220,9 @@ export default function ReferralMarketingDashboard() {
 
             <div className="space-y-6">
               <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
-                <h3 className="text-lg font-black">Programmes publiés</h3>
+                <h3 className="text-lg font-black">Programmes chargés</h3>
                 <div className="mt-4 space-y-3">
-                  {overview.programs.map(program => (
+                  {overview.programs.items.map(program => (
                     <article key={program.id} className="rounded-xl border border-white/10 bg-black/20 p-3">
                       <div className="flex items-center justify-between gap-3">
                         <p className="font-black text-white">{program.id}</p>
@@ -941,8 +1236,9 @@ export default function ReferralMarketingDashboard() {
                       <p className="mt-1 text-xs text-white/40">{formatDate(program.startsAt)} → {formatDate(program.endsAt)}</p>
                     </article>
                   ))}
-                  {overview.programs.length === 0 && <p className="rounded-xl border border-dashed border-white/15 p-4 text-sm text-white/50">Aucun programme publié.</p>}
+                  {overview.programs.items.length === 0 && <p className="rounded-xl border border-dashed border-white/15 p-4 text-sm text-white/50">Aucun programme dans cette page.</p>}
                 </div>
+                {renderPageFooter('programs', overview.programs)}
               </section>
 
               <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
@@ -955,52 +1251,61 @@ export default function ReferralMarketingDashboard() {
 
           <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
             <h3 className="text-lg font-black">Meilleurs prescripteurs</h3>
-            <p className="mt-1 text-sm text-white/55">Identité typée, attributions, récompenses et crédits approuvés par devise.</p>
+            <p className="mt-1 text-sm text-white/55">
+              Identité typée, attributions, récompenses et crédits approuvés par devise. Classement fixe : top 10.
+            </p>
             <div className="mt-4 grid gap-3 lg:grid-cols-2">
-              {overview.topReferrers.map((referrer, index) => (
+              {overview.topReferrers.items.map((referrer, index) => (
                 <article key={referrerKey(referrer)} className="rounded-xl border border-white/10 bg-black/20 p-4">
                   <p className="font-black text-white">#{index + 1} · {ownerLabels[referrer.inviterOwnerType]} · {referrer.inviterId}</p>
                   <p className="mt-1 text-sm text-white/55">{referrer.referrals} attribution(s) · {referrer.rewards} récompense(s)</p>
                   <p className="mt-2 text-sm font-bold text-[#f5dfa0]">{creditList(referrer.approvedCreditTotals)}</p>
                 </article>
               ))}
-              {overview.topReferrers.length === 0 && <p className="rounded-xl border border-dashed border-white/15 p-4 text-sm text-white/50">Aucun prescripteur à classer.</p>}
+              {overview.topReferrers.items.length === 0 && <p className="rounded-xl border border-dashed border-white/15 p-4 text-sm text-white/50">Aucun prescripteur à classer.</p>}
             </div>
+            {overview.topReferrers.truncated && (
+              <p className="mt-4 text-xs font-semibold text-amber-200">
+                Le serveur signale d’autres prescripteurs ; ce classement reste volontairement limité au top 10.
+              </p>
+            )}
           </section>
 
           <section className="rounded-2xl border border-amber-300/20 bg-amber-300/[0.03] p-6">
             <div className="flex items-center gap-2">
               <ShieldAlert className="h-5 w-5 text-amber-300" />
               <div>
-                <h3 className="text-lg font-black">Signalements actifs · {overview.flaggedRewards.length}</h3>
+                <h3 className="text-lg font-black">Signalements actifs chargés · {overview.flaggedRewards.items.length}</h3>
                 <p className="text-sm text-white/55">L’approbation reste bloquée jusqu’au retrait motivé du signalement.</p>
               </div>
             </div>
             <div className="mt-5 space-y-4">
-              {overview.flaggedRewards.map(reward => renderReward(reward, true))}
-              {overview.flaggedRewards.length === 0 && <p className="rounded-xl border border-dashed border-white/15 p-5 text-sm text-white/50">Aucun crédit signalé.</p>}
+              {overview.flaggedRewards.items.map(reward => renderReward(reward, true))}
+              {overview.flaggedRewards.items.length === 0 && <p className="rounded-xl border border-dashed border-white/15 p-5 text-sm text-white/50">Aucun crédit signalé dans cette page.</p>}
             </div>
+            {renderPageFooter('flaggedRewards', overview.flaggedRewards)}
           </section>
 
           <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
             <div className="flex items-center gap-2">
               <Clock3 className="h-5 w-5 text-[#D4AF37]" />
               <div>
-                <h3 className="text-lg font-black">File de revue manuelle · {overview.pendingRewards.length}</h3>
+                <h3 className="text-lg font-black">File de revue chargée · {overview.pendingRewards.items.length}</h3>
                 <p className="text-sm text-white/55">Les éléments signalés apparaissent dans la section prioritaire ci-dessus.</p>
               </div>
             </div>
             <div className="mt-5 space-y-4">
               {standardPendingRewards.map(reward => renderReward(reward, false))}
-              {standardPendingRewards.length === 0 && <p className="rounded-xl border border-dashed border-white/15 p-5 text-sm text-white/50">Aucun autre crédit ne nécessite de revue.</p>}
+              {standardPendingRewards.length === 0 && <p className="rounded-xl border border-dashed border-white/15 p-5 text-sm text-white/50">Aucun autre crédit dans cette page.</p>}
             </div>
+            {renderPageFooter('pendingRewards', overview.pendingRewards)}
           </section>
 
           <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <h3 className="text-lg font-black">Journal d’audit borné</h3>
-                <p className="mt-1 text-sm text-white/55">Jusqu’à 20 entrées par requête (maximum contractuel : 50).</p>
+                <p className="mt-1 text-sm text-white/55">20 entrées par page (maximum contractuel configurable : 50).</p>
               </div>
               <form onSubmit={submitAuditSearch} className="flex w-full flex-col gap-2 sm:flex-row lg:w-auto">
                 <select value={filterKind} onChange={event => setFilterKind(event.target.value as AuditFilterKind)} className="rounded-xl border border-white/15 bg-black/40 px-3 py-2 text-sm text-white">
@@ -1013,7 +1318,7 @@ export default function ReferralMarketingDashboard() {
               </form>
             </div>
             <div className="mt-5 space-y-3">
-              {overview.auditTrail.map(entry => (
+              {overview.auditTrail.items.map(entry => (
                 <article key={entry.id} className="rounded-xl border border-white/10 bg-black/20 p-4">
                   <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
                     <p className="font-black text-white">{entry.action}</p>
@@ -1031,8 +1336,9 @@ export default function ReferralMarketingDashboard() {
                   </p>
                 </article>
               ))}
-              {overview.auditTrail.length === 0 && <p className="rounded-xl border border-dashed border-white/15 p-5 text-sm text-white/50">Aucune entrée ne correspond à cette requête.</p>}
+              {overview.auditTrail.items.length === 0 && <p className="rounded-xl border border-dashed border-white/15 p-5 text-sm text-white/50">Aucune entrée dans cette page.</p>}
             </div>
+            {renderPageFooter('auditTrail', overview.auditTrail)}
           </section>
 
           {loading && overview && (
