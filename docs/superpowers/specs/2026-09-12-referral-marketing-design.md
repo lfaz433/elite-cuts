@@ -116,7 +116,7 @@ Client invitee attribution/credits are represented only in that client's `invite
 
 The summary is the server-written `referralOwnerSummaries/{ownerType}__{ownerId}` projection (`schemaVersion: 1`, `summaryEpoch: 'referral-v3'`) and is updated in the transaction that creates a code/attribution/reward or reviews/flags a canonical reward. Its typed path and duplicated owner fields must agree. Its `currentCode` is a pointer, not browser authority. Missing, malformed, or wrong-epoch projections return `state: 'unavailable'` and no raw-record fallback; this quarantines unsupported pre-v3/legacy data rather than silently claiming zero balances.
 
-History is queried only from the bounded server-written `referralOwnerHistory` projection for the exact typed owner and role, ordered newest-first and fetched as `limit + 1`. `truncated` and `nextPageToken` therefore describe the real page boundary. The callable source-validates at most 20 returned reward rows against their deterministic evidence, booking, attribution, code, program, and—when approved—deterministic ledger leg. Orphaned ledgers, malformed aliases, and invalid source links are omitted. No user request scans raw reward/ledger collections, fans out across brands, or fetches a silently arbitrary 100-row window. This is a deliberate breaking staging contract; V2 workspace consumers must not infer or synthesize V3 data.
+History is queried only from the bounded server-written `referralOwnerHistory` projection for the exact typed owner and role, ordered newest-first and fetched as `limit + 1`. `truncated` and `nextPageToken` therefore describe the real page boundary. The callable source-validates at most 20 returned reward rows against their deterministic evidence, booking, attribution, code, program, and—when approved—deterministic ledger leg. Orphaned ledgers, malformed aliases, and invalid source links are omitted. No user request scans raw reward/ledger collections, fans out across brands, or fetches a silently arbitrary 100-row window. This is a deliberate breaking staging contract; pre-V3 workspace consumers must not infer or synthesize V3 data.
 
 ## Super Admin marketing dashboard
 
@@ -131,51 +131,65 @@ The dashboard contains:
 
 The initial dashboard uses the current premium dark-and-gold Elite Cuts design. It must show explicit empty states and never show invented financial totals as live data.
 
-`getReferralMarketingOverview` is Super Admin-only. Its machine contract is the exported TypeScript `ReferralMarketingOverview` below; a UI must reject an unsupported `contractVersion` rather than infer missing fields.
+`getReferralMarketingOverview` is Super Admin-only. Its machine contract is version 3 and the dashboard parser rejects any other version, epoch, field shape, unsafe count, duplicate typed/currency key, or inconsistent alias total rather than inferring missing data.
 
 ```ts
 type ReferralOwnerType = 'client' | 'freelancer' | 'brand';
 
-interface PublicReferralVisitResult {
-  code: string;
-  status: 'active';
-  recorded: boolean;
-}
+type ReferralCreditTotal = {
+  currency: string;    // unique ISO-4217 key within its containing array
+  amountMinor: number; // non-negative safe integer
+};
 
-interface ReferralMarketingOverview {
-  contractVersion: 2;
-  programs: Array<{
-    id: string; status: 'draft' | 'active' | 'paused' | 'archived';
-    countryCodes: string[]; currency: string; inviterCreditMinor: number;
-    invitedDiscountMinor: number; startsAt: string; endsAt: string;
-  }>;
-  funnel: {
-    codes: number; validatedVisits: number; attributions: number;
-    attributedSignups: number; rewards: number; eligibleFirstBookings: number;
-    pending: number; pendingRewards: number; approved: number;
-    approvedRewards: number; rejected: number;
-  };
-  approvedCreditTotals: Array<{ currency: string; amountMinor: number }>;
-  topReferrers: Array<{
-    inviterId: string; inviterOwnerType: ReferralOwnerType; referrals: number;
-    rewards: number; approvedCreditTotals: Array<{ currency: string; amountMinor: number }>;
-  }>;
-  pendingRewards: ReferralPendingReward[];
-  flaggedRewards: Array<ReferralPendingReward & { fraudFlag: { status: 'flagged'; reason: string } }>;
-  auditTrail: ReferralAuditEntry[];
-}
+type ReferralOverviewPage<T> = {
+  items: T[];
+  nextPageToken?: string;
+  truncated: boolean;
+};
 
-interface ReferralPendingReward {
-  id: string; programId: string; bookingId: string; inviterId: string;
-  invitedUserId: string; inviterCreditMinor: number; invitedDiscountMinor: number;
-  currency: string; status: 'pending'; createdAt?: string;
+type ReferralProgramOverview = {
+  id: string;
+  status: 'draft' | 'active' | 'paused' | 'archived';
+  countryCodes: string[];
+  currency: string;
+  inviterCreditMinor: number;
+  invitedDiscountMinor: number;
+  startsAt: string;
+  endsAt: string;
+};
+
+type ReferralPendingRewardOverview = {
+  id: string;
+  programId: string;
+  bookingId: string;
+  inviterId: string;
+  invitedUserId: string;
+  inviterCreditMinor: number;
+  invitedDiscountMinor: number;
+  currency: string;
+  status: 'pending';
+  createdAt?: string;
   fraudFlag?: { status: 'flagged' | 'cleared'; reason: string };
-}
+};
 
-interface ReferralAuditEntry {
-  id: string; action: string; programId?: string; rewardId?: string; code?: string;
-  actorUid?: string; reason?: string; createdAt?: string;
-}
+type ReferralAuditEntry = {
+  id: string;
+  action: string;
+  programId?: string;
+  rewardId?: string;
+  code?: string;
+  actorUid?: string;
+  reason?: string;
+  createdAt?: string;
+};
+
+type ReferralTopReferrer = {
+  inviterId: string;
+  inviterOwnerType: ReferralOwnerType;
+  referrals: number;
+  rewards: number;
+  approvedCreditTotals: ReferralCreditTotal[];
+};
 
 type ReferralAuditFilter =
   | { limit?: number; code?: never; programId?: never; rewardId?: never; action?: never }
@@ -183,9 +197,80 @@ type ReferralAuditFilter =
   | { programId: string; limit?: number; code?: never; rewardId?: never; action?: never }
   | { rewardId: string; limit?: number; code?: never; programId?: never; action?: never }
   | { action: string; limit?: number; code?: never; programId?: never; rewardId?: never };
+
+type ReferralMarketingOverviewRequest = ReferralAuditFilter & {
+  programLimit?: number;
+  programPageToken?: string;
+  pendingLimit?: number;
+  pendingPageToken?: string;
+  flaggedLimit?: number;
+  flaggedPageToken?: string;
+  auditLimit?: number;
+  auditPageToken?: string;
+};
+
+type ReferralMarketingInitializerResult = {
+  initialized: true;
+  alreadyInitialized: boolean;
+};
+
+interface ReferralMarketingOverview {
+  contractVersion: 3;
+  state: 'ready' | 'migrationRequired';
+  summaryEpoch: 'referral-v3';
+  telemetry: {
+    state: 'verified' | 'unavailable';
+    validatedVisits: number;
+    capped: boolean;
+  };
+  programs: ReferralOverviewPage<ReferralProgramOverview>;
+  funnel: {
+    codes: number;
+    validatedVisits: number;
+    attributions: number;
+    attributedSignups: number;
+    rewards: number;
+    eligibleFirstBookings: number;
+    pending: number;
+    pendingRewards: number;
+    approved: number;
+    approvedRewards: number;
+    rejected: number;
+    cancelled: number;
+  };
+  approvedCreditTotals: ReferralCreditTotal[];
+  topReferrers: {
+    items: ReferralTopReferrer[]; // at most the fixed top 10
+    nextPageToken?: never;        // deliberately not pageable
+    truncated: boolean;
+  };
+  pendingRewards: ReferralOverviewPage<ReferralPendingRewardOverview>;
+  flaggedRewards: ReferralOverviewPage<
+    ReferralPendingRewardOverview & { fraudFlag: { status: 'flagged'; reason: string } }
+  >;
+  auditTrail: ReferralOverviewPage<ReferralAuditEntry>;
+}
 ```
 
-All returned date/timestamp fields are ISO-8601 UTC strings; no Firestore `Timestamp` objects are returned. `funnel.validatedVisits` is the private App-Check-gated aggregate count; it is non-unique and never affects reward or credit totals. The overview-level `approvedCreditTotals` includes only canonical approved credit-ledger legs (both inviter and invited-client legs), grouped solely by currency. The overview excludes any reward that does not have the deterministic reward ID and complete duplicated typed identity/evidence fields generated by the server, so its funnel counts, pending/flagged queues, and top-referrer reward counts cannot be mixed with a corrupt ledger owner. Each typed `topReferrers` row independently derives only its own inviter-credit totals from the same canonical ledger source, also grouped by currency; it has no currency-less amount. `flaggedRewards` is the manual-review queue and contains only rows with `fraudFlag.status === 'flagged'` and a required reason. `auditTrail` is privileged: actor UID and reason are returned only to Super Admin callers. The filter accepts at most one of `code` (normalized code), `programId` (document ID), `rewardId` (document ID), or `action` (referral action), with integer `limit` 1–50; an unfiltered trail is newest-first, and a filtered query runs directly against referral-only audit storage. The contract never merges client, freelancer, or brand namespaces sharing the same string ID.
+Every response contains the complete envelope above. `summaryEpoch` is exactly `referral-v3`; the underlying marketing summary, program summaries, referrer summaries, canonical rows, and gate use schema/summary version `1`. `state: 'ready'` is returned only when both `referralMarketingState/v3` and `referralMarketingSummaries/overview` exist and validate. The gate must contain `{ schemaVersion: 1, summaryEpoch: 'referral-v3', status: 'initialized-empty' | 'reconciled' }`; a shallow overview document without that trusted gate is never sufficient.
+
+If the gate or overview is missing, malformed, or from another epoch, the result is the safe `migrationRequired` envelope: every funnel count is zero, `approvedCreditTotals` is empty, all five page objects contain empty `items`, no continuation token, and `truncated: false`, while telemetry is exactly `{ state: 'unavailable', validatedVisits: 0, capped: false }`. The reader performs no raw historic fallback and does not merge any pre-V3 program, code, attribution, reward, ledger, telemetry, audit, or owner projection. The dashboard parser also rejects any non-empty or non-zero `migrationRequired` result.
+
+For a ready envelope, platform counts and currency totals come from the server-maintained `referralMarketingSummaries/overview` projection. Program creation/configuration/status changes, code creation, attribution, eligible pending-reward issuance, approval/rejection/cancellation, and flag/clear actions update every affected platform, program, typed-referrer, and typed-owner summary in the same transaction as the canonical write; retries therefore do not double-count. The funnel aliases are intentionally equal: `attributedSignups === attributions`, `eligibleFirstBookings === rewards`, `pendingRewards === pending`, and `approvedRewards === approved`. It must also hold that `rewards === pending + approved + rejected + cancelled`. `cancelled` is a terminal non-credit reward count: cancellation moves one canonical reward from pending to cancelled and creates no ledger or approved currency amount. The current dashboard exposes no cancellation control or cancelled-detail page, but it must preserve this counter in the V3 funnel invariant. Pending and flagged pages contain only `status: 'pending'` rows.
+
+`approvedCreditTotals` contains the sum of both approved reward legs, grouped into unique ISO-currency rows and ordered by currency. A typed top-referrer row is keyed by the complete `{ inviterOwnerType, inviterId }` namespace; its `referrals` and `rewards` come from that typed referrer summary and its currency rows contain only that referrer's approved inviter leg. Client, freelancer, and brand identifiers that share the same string never merge. Counts and currency deltas are accepted into projections only through evidence-validated, atomic server transitions; the V3 reader does not scan or trust arbitrary reward or ledger rows to reconstruct totals.
+
+Telemetry remains isolated from financial state. `telemetry.validatedVisits` and `funnel.validatedVisits` are always equal. A missing `referralTelemetry/overview` document is a verified zero; a valid version-1 `referral-v3` document yields its non-negative `validatedVisitCount`; a malformed or wrong-epoch telemetry document yields `{ state: 'unavailable', validatedVisits: 0, capped: false }` while the overall envelope may remain `ready`. `capped` is exactly whether the verified count has reached the 1,000,000 platform cap. Visits are non-unique App-Check-validated calls and never change attribution, reward, or credit values.
+
+Programs, pending rewards, flagged rewards, and audit history are cursor-pageable. Program, pending, and flagged limits default to 10 and accept safe integers from 1 through 20. Audit defaults to 20 and accepts 1 through 50; `limit` is retained only as an audit-limit alias, and if both `limit` and `auditLimit` are supplied they must be equal. Programs order by `updatedAt` descending then document ID descending; pending, flagged, and audit rows order by `createdAt` descending then document ID descending. Each query fetches `limit + 1` and returns `nextPageToken` if and only if `truncated` is true. The token is the last returned source document ID, must be treated by callers as opaque, and is validated against the corresponding collection, epoch/state, and—where applicable—the active audit filter before `startAfter`. Pending and flagged items are source-validated against their deterministic reward/evidence chain before display; invalid rows are omitted rather than trusted.
+
+The request rejects unknown fields. Its audit selector accepts no filter or exactly one of normalized 3–32-character `code`, `programId`, `rewardId`, or `action`; document IDs/tokens must match `[A-Za-z0-9_-]{1,256}` and actions must match `REFERRAL_[A-Z_]{3,64}`. The filter is an exact indexed equality predicate and remains present on every continuation request. Unfiltered and filtered audit pages are newest-first and may expose privileged `actorUid` and `reason` only to the authenticated Super Admin. `programPageToken`, `pendingPageToken`, `flaggedPageToken`, and `auditPageToken` independently continue their named page; every response still returns all envelope fields. Top referrers are different: the server always requests 11 ranked rows, returns at most the first 10 ordered by attribution count, reward count, and typed summary ID, sets `truncated` when an eleventh exists, and never returns a continuation token. There is no top-referrer limit/token request field, and the dashboard parser rejects a top-referrer token.
+
+All returned date/timestamp fields are ISO-8601 UTC strings; no Firestore `Timestamp` objects are returned. `flaggedRewards` is the subset of pending review rows whose `fraudFlag` is exactly `{ status: 'flagged', reason }`. Audit, pending, flagged, program, and ranking items use only the fields shown in the DTO above.
+
+`initializeReferralMarketingV3` is a Super Admin-only, empty-payload callable; there is no seed object or manual zero-summary path. In one idempotent transaction it verifies the gate and overview, then uses bounded `limit(1)` existence queries over every referral canonical/projection collection plus referral ledger kinds and referral-prefixed generic audit rows. Only an environment with no gate, no overview, and no referral history may receive a zero summary plus the `status: 'initialized-empty'` gate. The exact result is `{ initialized: true, alreadyInitialized: false }`; repeating against the same valid gate and overview returns `{ initialized: true, alreadyInitialized: true }`. An invalid partial gate/summary, any prewritten overview, or any historic referral row fails with `failed-precondition` and leaves the reader in `migrationRequired`.
+
+An environment with history must instead use a separately reviewed, server-authorized Admin SDK reconciliation workflow. That workflow validates and backfills every canonical V3 marker and evidence-backed projection, verifies typed counts and currency partitions, and atomically writes the reconciled overview with the exact version-1 `referral-v3` gate whose status is `reconciled`. The runtime initializer cannot reconcile, override, or bless legacy data. Empty staging initializes only after the exact indexes and Functions are deployed and indexes are ready; no production or staging operator writes the overview by hand.
 
 `setReferralRewardFlag` is Super Admin-only. It requires a non-empty reason and can flag or clear only a pending reward, records a referral audit row, and does not create, approve, reject, or alter a credit. A flagged reward cannot be approved or issue a ledger until a Super Admin explicitly clears the flag with a reason. Flagged rewards remain in the manual review queue; this MVP has no automatic approval path.
 
