@@ -511,6 +511,27 @@ describe('referral domain', () => {
     expect(state.referralRewards).toEqual({});
   });
 
+  test('refuses approval when attribution expiry is tampered to precede the trusted completion event', async () => {
+    const { processReferralBookingCompletion, reviewReferralReward } = loadModule();
+    const { firestore, state } = firestoreState({
+      users: { 'admin-a': { role: 'superadmin' } },
+      bookings: { paid: { clientId: 'new-client', status: 'completed', isTest: false, paymentStatus: 'paid', pricePaidMinor: 2500, completedAt: '2026-09-12T10:00:00.000Z' } },
+      referralPrograms: { 'program-a': activeProgram },
+      referralCodes: { FRIEND: { code: 'FRIEND', programId: 'program-a', ownerId: 'inviter-a', ownerType: 'client', status: 'active' } },
+      referralAttributions: { 'new-client': { code: 'FRIEND', programId: 'program-a', inviterId: 'inviter-a', expiresAt: '2026-09-12T11:00:00.000Z' } },
+      referralRewards: {}, creditLedgers: {}, auditEvents: {},
+    });
+    await expect(processReferralBookingCompletion(
+      'paid', firestore, new Date('2026-09-12T12:00:00.000Z'), trustedReferralCompletion('event-paid', '2026-09-12T10:30:00.000Z'),
+    )).resolves.toEqual({ created: true });
+    state.referralAttributions['new-client'].expiresAt = '2026-09-12T10:15:00.000Z';
+
+    await expect(reviewReferralReward('admin-a', {
+      rewardId: 'program-a__new-client', decision: 'approve',
+    }, firestore)).rejects.toMatchObject({ code: 'failed-precondition' });
+    expect(state.creditLedgers).toEqual({});
+  });
+
   test('does not create a pending reward without trusted trigger completion evidence', async () => {
     const { processReferralBookingCompletion } = loadModule();
     const { firestore, state } = firestoreState({
@@ -629,7 +650,7 @@ describe('referral domain', () => {
       bookings: { 'booking-a': { clientId: 'new-client', status: 'completed', isTest: false, paymentStatus: 'paid', pricePaidMinor: 2500, completedAt: '2026-09-12T10:00:00.000Z' } },
       referralPrograms: { 'program-a': activeProgram },
       referralCodes: { FRIEND: { code: 'FRIEND', programId: 'program-a', ownerId: 'inviter-a', ownerType: 'client', status: 'active' } },
-      referralAttributions: { 'new-client': { programId: 'program-a', code: 'FRIEND', inviterId: 'inviter-a' } },
+      referralAttributions: { 'new-client': { programId: 'program-a', code: 'FRIEND', inviterId: 'inviter-a', expiresAt: '2026-09-20T00:00:00.000Z' } },
       referralBookingEvidence: {
         'booking-a': {
           rewardId: 'program-a__new-client', programId: 'program-a', bookingId: 'booking-a', code: 'FRIEND',
@@ -895,12 +916,65 @@ describe('referral domain', () => {
       client: {
         ownerType: 'client',
         codes: [{ code: 'FRIEND', ownerType: 'client', programId: 'program-a', status: 'active' }],
-        attribution: { code: 'OTHER', programId: 'program-b', expiresAt: '2026-09-20T00:00:00.000Z' },
-        inviterRewards: [{ id: 'own', ownerType: 'client', role: 'inviter', amountMinor: 500, currency: 'EUR', status: 'approved' }],
+        inviterRewards: [],
         inviteeRewards: [],
       },
       freelancer: { ownerType: 'freelancer', codes: [], inviterRewards: [] },
     });
+  });
+
+  test('renders only source-validated canonical client and brand rewards with matching ledgers', async () => {
+    const { processReferralBookingCompletion, reviewReferralReward, getMyReferralWorkspace } = loadModule();
+    const { firestore, state } = firestoreState({
+      users: { 'admin-a': { role: 'superadmin' } },
+      memberships: { 'brand-a__principal__brand-admin': { userId: 'brand-admin', brandId: 'brand-a', role: 'principal_admin', status: 'active' } },
+      brands: { 'brand-a': { name: 'A' } },
+      referralPrograms: { 'program-a': activeProgram },
+      referralCodes: {
+        CLIENTA: { code: 'CLIENTA', programId: 'program-a', ownerId: 'client-a', ownerType: 'client', status: 'active' },
+        BRANDA: { code: 'BRANDA', programId: 'program-a', ownerId: 'brand-a', ownerType: 'brand', status: 'active' },
+      },
+      referralAttributions: {
+        'client-y': { code: 'CLIENTA', programId: 'program-a', inviterId: 'client-a', inviterOwnerType: 'client', expiresAt: '2026-09-20T00:00:00.000Z' },
+        'client-z': { code: 'BRANDA', programId: 'program-a', inviterId: 'brand-a', inviterOwnerType: 'brand', expiresAt: '2026-09-20T00:00:00.000Z' },
+      },
+      bookings: {
+        'booking-y': { clientId: 'client-y', status: 'completed', isTest: false, paymentStatus: 'paid', pricePaidMinor: 2500, completedAt: '2026-09-12T10:00:00.000Z' },
+        'booking-z': { clientId: 'client-z', status: 'completed', isTest: false, paymentStatus: 'paid', pricePaidMinor: 2500, completedAt: '2026-09-12T10:00:00.000Z' },
+      },
+      referralRewards: {}, creditLedgers: {}, auditEvents: {},
+    });
+    const now = new Date('2026-09-12T12:00:00.000Z');
+    await expect(processReferralBookingCompletion('booking-y', firestore, now, trustedReferralCompletion('event-y'))).resolves.toEqual({ created: true });
+    await expect(processReferralBookingCompletion('booking-z', firestore, now, trustedReferralCompletion('event-z'))).resolves.toEqual({ created: true });
+    await expect(reviewReferralReward('admin-a', { rewardId: 'program-a__client-y', decision: 'approve' }, firestore)).resolves.toEqual({ rewardId: 'program-a__client-y', status: 'approved' });
+    await expect(reviewReferralReward('admin-a', { rewardId: 'program-a__client-z', decision: 'approve' }, firestore)).resolves.toEqual({ rewardId: 'program-a__client-z', status: 'approved' });
+    state.referralRewards['program-a__client-malformed'] = {
+      ...state.referralRewards['program-a__client-y'], rewardId: 'program-a__client-malformed', bookingId: 'booking-malformed',
+      invitedUserId: 'client-malformed', invitedOwnerId: 'client-malformed', inviterId: 'other-client',
+    };
+    state.creditLedgers['program-a__client-malformed__inviter'] = {
+      ...state.creditLedgers['program-a__client-y__inviter'], rewardId: 'program-a__client-malformed',
+    };
+    state.referralRewards['program-a__client-brand-malformed'] = {
+      ...state.referralRewards['program-a__client-z'], rewardId: 'program-a__client-brand-malformed', bookingId: 'booking-brand-malformed',
+      invitedUserId: 'client-brand-malformed', invitedOwnerId: 'client-brand-malformed', inviterId: 'other-brand',
+    };
+    state.creditLedgers['program-a__client-brand-malformed__inviter'] = {
+      ...state.creditLedgers['program-a__client-z__inviter'], rewardId: 'program-a__client-brand-malformed',
+    };
+
+    const clientWorkspace = await getMyReferralWorkspace('client-a', {}, firestore);
+    expect(clientWorkspace.client.inviterRewards).toEqual([
+      { id: 'program-a__client-y', ownerType: 'client', role: 'inviter', amountMinor: 500, currency: 'EUR', status: 'approved' },
+    ]);
+    const brandWorkspace = await getMyReferralWorkspace('brand-admin', {}, firestore);
+    expect(brandWorkspace.brandWorkspaces).toMatchObject([{
+      brandId: 'brand-a',
+      rewards: [{ id: 'program-a__client-z', ownerType: 'brand', role: 'inviter', amountMinor: 500, status: 'approved' }],
+      creditTotals: [{ currency: 'EUR', approvedMinor: 500, pendingMinor: 0 }],
+    }]);
+    expect(brandWorkspace.brandWorkspaces[0].rewards).toHaveLength(1);
   });
 
   test('does not create a reward for a completed booking settled at zero', async () => {
@@ -962,8 +1036,8 @@ describe('referral domain', () => {
         ownerType: 'brand',
         brandId: 'brand-a',
         codes: [{ code: 'BRANDA', ownerType: 'brand', programId: 'program-a', status: 'active' }],
-        rewards: [{ id: 'a', ownerType: 'brand', role: 'inviter', amountMinor: 500, currency: 'EUR', status: 'approved' }],
-        creditTotals: [{ currency: 'EUR', approvedMinor: 500, pendingMinor: 0 }],
+        rewards: [],
+        creditTotals: [],
       }],
     });
   });
@@ -1187,21 +1261,20 @@ describe('referral domain', () => {
       client: {
         ownerType: 'client',
         codes: [{ code: 'CLIENTA', ownerType: 'client', programId: 'program-a', status: 'active' }],
-        attribution: { code: 'OTHER', programId: 'program-a', inviterOwnerType: 'client', expiresAt: '2026-09-20T00:00:00.000Z' },
-        inviterRewards: [{ id: 'clientInviter', ownerType: 'client', role: 'inviter', amountMinor: 100, currency: 'EUR', status: 'approved' }],
-        inviteeRewards: [{ id: 'clientInvitee', ownerType: 'client', role: 'invited', amountMinor: 50, currency: 'EUR', status: 'approved' }],
+        inviterRewards: [],
+        inviteeRewards: [],
       },
       freelancer: {
         ownerType: 'freelancer',
         codes: [{ code: 'FREELANCEA', ownerType: 'freelancer', programId: 'program-a', status: 'active' }],
-        inviterRewards: [{ id: 'freelancerInviter', ownerType: 'freelancer', role: 'inviter', amountMinor: 200, currency: 'EUR', status: 'approved' }],
+        inviterRewards: [],
       },
       brandWorkspaces: [{
         ownerType: 'brand',
         brandId: 'brand-a',
         codes: [{ code: 'BRANDA', ownerType: 'brand', programId: 'program-a', status: 'active' }],
-        rewards: [{ id: 'brandInviter', ownerType: 'brand', role: 'inviter', amountMinor: 300, currency: 'EUR', status: 'approved' }],
-        creditTotals: [{ currency: 'EUR', approvedMinor: 300, pendingMinor: 0 }],
+        rewards: [],
+        creditTotals: [],
       }],
     });
   });
@@ -1231,7 +1304,7 @@ describe('referral domain', () => {
       client: {
         ownerType: 'client',
         codes: [{ code: 'CLIENTX', ownerType: 'client', programId: 'program-a', status: 'active' }],
-        inviterRewards: [{ id: 'clientInviter', ownerType: 'client', role: 'inviter', amountMinor: 500, currency: 'EUR', status: 'approved' }],
+        inviterRewards: [],
         inviteeRewards: [],
       },
       freelancer: { ownerType: 'freelancer', codes: [], inviterRewards: [] },
@@ -1243,8 +1316,8 @@ describe('referral domain', () => {
         ownerType: 'brand',
         brandId: 'X',
         codes: [{ code: 'BRANDX', ownerType: 'brand', programId: 'program-a', status: 'active' }],
-        rewards: [{ id: 'brandInviter', ownerType: 'brand', role: 'inviter', amountMinor: 700, currency: 'EUR', status: 'approved' }],
-        creditTotals: [{ currency: 'EUR', approvedMinor: 700, pendingMinor: 0 }],
+        rewards: [],
+        creditTotals: [],
       }],
     });
   });

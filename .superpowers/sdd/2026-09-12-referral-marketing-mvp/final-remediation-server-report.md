@@ -316,3 +316,19 @@ npm --prefix functions run build
 ```
 
 Result: referral domain tests passed (64), booking lifecycle tests passed (22), and Functions TypeScript build passed.
+
+## Final consistency follow-up: approval expiry and canonical workspace projection
+
+`reviewReferralReward` now compares `referralAttributions.expiresAt` against the reward’s persisted trusted trigger timestamp during approval revalidation. A reward whose attribution has been tampered to expire before the recorded completion event fails closed, remains pending, and creates no ledgers.
+
+`getMyReferralWorkspace` now uses bounded (100 per owner namespace, with at most 20 authorized brands) source-validated reward sets rather than projecting any document that merely claims an owner alias. Each candidate must pass deterministic reward/evidence validation; then the workspace verifies the private booking evidence, positive-paid booking completion, attribution (including event-time expiry), referral code identity, and program source. Approved records also require an exact deterministic matching ledger leg before display or totals. The same validation is applied to client inviter/invitee, freelancer, and each independently authorized brand workspace. The workspace’s attribution display now also requires matching code/program sources. Historical canonical rewards retain their stored qualification terms after later program edits, while malformed aliases, orphan ledgers, and invalid source links are excluded.
+
+Verification for this follow-up:
+
+```bash
+npm --prefix functions exec jest -- src/referrals.test.ts --runInBand
+npm --prefix functions exec jest -- src/bookings.test.ts --runInBand
+npm --prefix functions run build
+```
+
+Result: referral domain tests passed (66), booking lifecycle tests passed (22), and Functions TypeScript build passed.
