@@ -3,56 +3,69 @@ import { functions, referralAppCheckEnabled } from '../firebase';
 
 export interface ReferralCode {
   code: string;
-  ownerType: string;
+  ownerType: ReferralSurface;
   programId: string;
   status: string;
 }
 
-export interface ReferralReward {
+export type ReferralRewardStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
+
+export interface ReferralWorkspaceHistoryItem {
   id: string;
   ownerType: ReferralSurface;
-  role: 'inviter' | 'invited';
+  role: 'inviter' | 'invitee';
   amountMinor: number;
   currency: string;
-  status: string;
+  status: ReferralRewardStatus;
+  createdAt?: string;
 }
 
-export interface ReferralWorkspace {
-  client: ReferralClientWorkspace;
-  freelancer: ReferralFreelancerWorkspace;
-  brandWorkspaces?: ReferralBrandWorkspace[];
-}
-
-export interface ReferralClientWorkspace {
-  ownerType: 'client';
-  codes: ReferralCode[];
-  attribution?: {
-    code: string;
-    programId: string;
-  };
-  inviterRewards: ReferralReward[];
-  inviteeRewards: ReferralReward[];
-}
-
-export interface ReferralFreelancerWorkspace {
-  ownerType: 'freelancer';
-  codes: ReferralCode[];
-  inviterRewards: ReferralReward[];
-}
-
-export interface ReferralBrandWorkspace {
-  ownerType: 'brand';
-  brandId: string;
-  codes: ReferralCode[];
-  rewards: ReferralReward[];
-  creditTotals: ReferralCreditTotal[];
-}
-
-export interface ReferralCreditTotal {
+export interface ReferralWorkspaceCreditTotal {
   currency: string;
   approvedMinor: number;
   pendingMinor: number;
 }
+
+export interface ReferralWorkspaceRoleSummary {
+  pendingCount: number;
+  approvedCount: number;
+  rejectedCount: number;
+  cancelledCount: number;
+  flaggedPendingCount: number;
+  creditTotals: ReferralWorkspaceCreditTotal[];
+}
+
+export interface ReferralWorkspaceSummary {
+  ownerType: ReferralSurface;
+  state: 'verified' | 'unavailable';
+  codeCount: number;
+  attributionCount: number;
+  currentCode?: { code: string; programId: string; status: string };
+  inviter: ReferralWorkspaceRoleSummary;
+  invitee: ReferralWorkspaceRoleSummary;
+}
+
+export interface ReferralWorkspace {
+  contractVersion: 3;
+  state: 'ready' | 'migrationRequired';
+  scope: ReferralCodeScope;
+  summary: ReferralWorkspaceSummary;
+  attribution?: {
+    code: string;
+    programId: string;
+    inviterOwnerType: ReferralSurface;
+    expiresAt: string;
+  };
+  history: {
+    role: 'inviter' | 'invitee';
+    items: ReferralWorkspaceHistoryItem[];
+    nextPageToken?: string;
+    truncated: boolean;
+  };
+}
+
+export type ReferralReward = ReferralWorkspaceHistoryItem;
+export type ReferralCreditTotal = ReferralWorkspaceCreditTotal;
 
 export interface CreatedReferralCode {
   code: string;
@@ -73,12 +86,12 @@ export type ReferralCodeScope =
   | { type: 'freelancer' }
   | { type: 'brand'; brandId: string };
 
-export interface ReferralWorkspaceScope {
-  codes: ReferralCode[];
-  rewards: ReferralReward[];
-  attribution?: ReferralClientWorkspace['attribution'];
-  creditTotals?: ReferralCreditTotal[];
-}
+type ReferralWorkspacePageOptions = { limit?: number; pageToken?: string };
+export type ReferralWorkspaceRequest = ReferralWorkspacePageOptions & (
+  | { scope: { type: 'client' }; role?: 'inviter' | 'invitee' }
+  | { scope: { type: 'freelancer' }; role?: 'inviter' }
+  | { scope: { type: 'brand'; brandId: string }; role?: 'inviter' }
+);
 
 export interface StoredReferralAttribution {
   code: string;
@@ -93,7 +106,7 @@ export class ReferralStorageUnavailableError extends Error {
   }
 }
 
-const getMyReferralWorkspaceCall = httpsCallable<Record<string, never>, unknown>(
+const getMyReferralWorkspaceCall = httpsCallable<ReferralWorkspaceRequest, unknown>(
   functions,
   'getMyReferralWorkspace',
 );
@@ -108,6 +121,7 @@ const recordReferralVisitCall = httpsCallable<{ code: string }, unknown>(
 export const REFERRAL_ATTRIBUTION_STORAGE_KEY = 'barberboard.referral-attribution';
 export const REFERRAL_ATTRIBUTION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const REFERRAL_CODE_PATTERN = /^[A-Z0-9][A-Z0-9-]{2,31}$/;
+const REFERRAL_DOCUMENT_ID_PATTERN = /^[A-Za-z0-9_-]{1,256}$/;
 
 function record(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -115,137 +129,238 @@ function record(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function parseCode(value: unknown, expectedOwnerType: ReferralSurface): ReferralCode | null {
+function isSurface(value: unknown): value is ReferralSurface {
+  return value === 'client' || value === 'freelancer' || value === 'brand';
+}
+
+function isNonNegativeSafeInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
+function sameReferralScope(left: ReferralCodeScope, right: ReferralCodeScope): boolean {
+  return left.type === right.type && (left.type !== 'brand' || right.type === 'brand' && left.brandId === right.brandId);
+}
+
+function parseResponseScope(value: unknown, expected: ReferralCodeScope): ReferralCodeScope | null {
   const candidate = record(value);
-  if (
-    !candidate
-    || typeof candidate.code !== 'string'
-    || candidate.ownerType !== expectedOwnerType
-    || typeof candidate.programId !== 'string'
-    || typeof candidate.status !== 'string'
-  ) return null;
-  return {
-    code: candidate.code,
-    ownerType: expectedOwnerType,
-    programId: candidate.programId,
-    status: candidate.status,
-  };
+  if (!candidate || candidate.type !== expected.type) return null;
+  if (expected.type === 'brand') {
+    return typeof candidate.brandId === 'string' && candidate.brandId === expected.brandId
+      ? { type: 'brand', brandId: candidate.brandId }
+      : null;
+  }
+  return candidate.brandId === undefined ? { type: expected.type } : null;
 }
 
-function parseReward(
-  value: unknown,
-  expectedOwnerType: ReferralSurface,
-  expectedRole: ReferralReward['role'],
-): ReferralReward | null {
-  const candidate = record(value);
-  if (
-    !candidate
-    || typeof candidate.id !== 'string'
-    || candidate.ownerType !== expectedOwnerType
-    || candidate.role !== expectedRole
-    || typeof candidate.amountMinor !== 'number'
-    || !Number.isInteger(candidate.amountMinor)
-    || candidate.amountMinor < 0
-    || typeof candidate.currency !== 'string'
-    || typeof candidate.status !== 'string'
-  ) return null;
-  return {
-    id: candidate.id,
-    ownerType: expectedOwnerType,
-    role: expectedRole,
-    amountMinor: candidate.amountMinor,
-    currency: candidate.currency,
-    status: candidate.status,
-  };
-}
-
-function parseCodes(value: unknown, expectedOwnerType: ReferralSurface): ReferralCode[] | null {
+function parseCreditTotals(value: unknown): ReferralWorkspaceCreditTotal[] | null {
   if (!Array.isArray(value)) return null;
-  return value.map(code => parseCode(code, expectedOwnerType)).filter((code): code is ReferralCode => code !== null);
-}
-
-function parseRewards(
-  value: unknown,
-  expectedOwnerType: ReferralSurface,
-  expectedRole: ReferralReward['role'],
-): ReferralReward[] | null {
-  if (!Array.isArray(value)) return null;
-  return value.map(reward => parseReward(reward, expectedOwnerType, expectedRole))
-    .filter((reward): reward is ReferralReward => reward !== null);
-}
-
-function parseCreditTotals(value: unknown): ReferralCreditTotal[] | null {
-  if (!Array.isArray(value)) return null;
-  return value.flatMap(value => {
+  const totals = value.map(value => {
     const total = record(value);
     if (
       !total
-      || typeof total.currency !== 'string'
-      || !Number.isSafeInteger(total.approvedMinor)
-      || !Number.isSafeInteger(total.pendingMinor)
-      || total.approvedMinor < 0
-      || total.pendingMinor < 0
-    ) return [];
-    return [{ currency: total.currency, approvedMinor: total.approvedMinor, pendingMinor: total.pendingMinor }];
+      || typeof total.currency !== 'string' || !/^[A-Z]{3}$/.test(total.currency)
+      || !isNonNegativeSafeInteger(total.approvedMinor)
+      || !isNonNegativeSafeInteger(total.pendingMinor)
+    ) return null;
+    if (!Number.isSafeInteger(total.approvedMinor + total.pendingMinor)) return null;
+    return { currency: total.currency, approvedMinor: total.approvedMinor, pendingMinor: total.pendingMinor };
   });
+  if (totals.some(total => total === null)) return null;
+  const parsed = totals as ReferralWorkspaceCreditTotal[];
+  return new Set(parsed.map(total => total.currency)).size === parsed.length ? parsed : null;
 }
 
-function parseReferralWorkspace(value: unknown): ReferralWorkspace | null {
+function parseRoleSummary(value: unknown): ReferralWorkspaceRoleSummary | null {
   const candidate = record(value);
-  const client = record(candidate?.client);
-  const freelancer = record(candidate?.freelancer);
-  if (!candidate || !client || !freelancer || client.ownerType !== 'client' || freelancer.ownerType !== 'freelancer') return null;
-  const attributionRecord = record(client.attribution);
-  const attribution = attributionRecord
-    && typeof attributionRecord.code === 'string'
-    && typeof attributionRecord.programId === 'string'
-    ? { code: attributionRecord.code, programId: attributionRecord.programId }
-    : undefined;
-  const clientCodes = parseCodes(client.codes, 'client');
-  const clientInviterRewards = parseRewards(client.inviterRewards, 'client', 'inviter');
-  const clientInviteeRewards = parseRewards(client.inviteeRewards, 'client', 'invited');
-  const freelancerCodes = parseCodes(freelancer.codes, 'freelancer');
-  const freelancerInviterRewards = parseRewards(freelancer.inviterRewards, 'freelancer', 'inviter');
-  if (!clientCodes || !clientInviterRewards || !clientInviteeRewards || !freelancerCodes || !freelancerInviterRewards) return null;
-  const brandWorkspaces = Array.isArray(candidate.brandWorkspaces)
-    ? candidate.brandWorkspaces.map(value => {
-      const workspace = record(value);
-      if (!workspace || workspace.ownerType !== 'brand' || typeof workspace.brandId !== 'string') return null;
-      const codes = parseCodes(workspace.codes, 'brand');
-      const rewards = parseRewards(workspace.rewards, 'brand', 'inviter');
-      const creditTotals = parseCreditTotals(workspace.creditTotals);
-      if (!codes || !rewards || !creditTotals) return null;
-      return {
-        ownerType: 'brand' as const,
-        brandId: workspace.brandId,
-        codes,
-        rewards,
-        creditTotals,
-      };
-    }).filter((workspace): workspace is ReferralBrandWorkspace => workspace !== null)
-    : undefined;
+  if (!candidate) return null;
+  const creditTotals = parseCreditTotals(candidate.creditTotals);
+  if (!creditTotals || !isNonNegativeSafeInteger(candidate.pendingCount)
+    || !isNonNegativeSafeInteger(candidate.approvedCount)
+    || !isNonNegativeSafeInteger(candidate.rejectedCount)
+    || !isNonNegativeSafeInteger(candidate.cancelledCount)
+    || !isNonNegativeSafeInteger(candidate.flaggedPendingCount)) return null;
   return {
-    client: {
-      ownerType: 'client',
-      codes: clientCodes,
-      ...(attribution ? { attribution } : {}),
-      inviterRewards: clientInviterRewards,
-      inviteeRewards: clientInviteeRewards,
-    },
-    freelancer: {
-      ownerType: 'freelancer',
-      codes: freelancerCodes,
-      inviterRewards: freelancerInviterRewards,
-    },
-    ...(brandWorkspaces && brandWorkspaces.length > 0 ? { brandWorkspaces } : {}),
+    pendingCount: candidate.pendingCount,
+    approvedCount: candidate.approvedCount,
+    rejectedCount: candidate.rejectedCount,
+    cancelledCount: candidate.cancelledCount,
+    flaggedPendingCount: candidate.flaggedPendingCount,
+    creditTotals,
   };
 }
 
-export async function getMyReferralWorkspace(): Promise<ReferralWorkspace> {
-  const result = await getMyReferralWorkspaceCall({});
-  const workspace = parseReferralWorkspace(result.data);
+function parseSummary(value: unknown, ownerType: ReferralSurface): ReferralWorkspaceSummary | null {
+  const candidate = record(value);
+  if (!candidate || candidate.ownerType !== ownerType
+    || (candidate.state !== 'verified' && candidate.state !== 'unavailable')
+    || !isNonNegativeSafeInteger(candidate.codeCount)
+    || !isNonNegativeSafeInteger(candidate.attributionCount)) return null;
+  const inviter = parseRoleSummary(candidate.inviter);
+  const invitee = parseRoleSummary(candidate.invitee);
+  if (!inviter || !invitee) return null;
+  const current = candidate.currentCode === undefined ? undefined : record(candidate.currentCode);
+  const currentCode = current && typeof current.code === 'string' && current.code.length > 0
+    && typeof current.programId === 'string' && current.programId.length > 0
+    && typeof current.status === 'string' && current.status.length > 0
+    ? { code: current.code, programId: current.programId, status: current.status }
+    : undefined;
+  if (candidate.currentCode !== undefined && !currentCode || candidate.state === 'unavailable' && currentCode) return null;
+  if (candidate.state === 'unavailable' && (
+    candidate.codeCount !== 0 || candidate.attributionCount !== 0
+    || [inviter, invitee].some(role => role.pendingCount !== 0 || role.approvedCount !== 0
+      || role.rejectedCount !== 0 || role.cancelledCount !== 0 || role.flaggedPendingCount !== 0
+      || role.creditTotals.length !== 0)
+  )) return null;
+  return {
+    ownerType,
+    state: candidate.state,
+    codeCount: candidate.codeCount,
+    attributionCount: candidate.attributionCount,
+    inviter,
+    invitee,
+    ...(currentCode ? { currentCode } : {}),
+  };
+}
+
+function parseHistoryItem(
+  value: unknown,
+  ownerType: ReferralSurface,
+  role: 'inviter' | 'invitee',
+): ReferralWorkspaceHistoryItem | null {
+  const candidate = record(value);
+  if (!candidate || typeof candidate.id !== 'string' || candidate.id.length === 0
+    || candidate.ownerType !== ownerType || candidate.role !== role
+    || !isNonNegativeSafeInteger(candidate.amountMinor)
+    || typeof candidate.currency !== 'string' || !/^[A-Z]{3}$/.test(candidate.currency)
+    || !['pending', 'approved', 'rejected', 'cancelled'].includes(String(candidate.status))
+    || candidate.createdAt !== undefined && (typeof candidate.createdAt !== 'string'
+      || Number.isNaN(Date.parse(candidate.createdAt)))) return null;
+  return {
+    id: candidate.id,
+    ownerType,
+    role,
+    amountMinor: candidate.amountMinor,
+    currency: candidate.currency,
+    status: candidate.status as ReferralRewardStatus,
+    ...(candidate.createdAt === undefined ? {} : { createdAt: candidate.createdAt }),
+  };
+}
+
+function parseReferralWorkspace(value: unknown, request: ReferralWorkspaceRequest): ReferralWorkspace | null {
+  const candidate = record(value);
+  const scope = parseResponseScope(candidate?.scope, request.scope);
+  if (!candidate || candidate.contractVersion !== 3
+    || (candidate.state !== 'ready' && candidate.state !== 'migrationRequired')
+    || !scope) return null;
+  const summary = parseSummary(candidate.summary, scope.type);
+  const expectedRole = request.role ?? 'inviter';
+  const history = record(candidate.history);
+  const pageLimit = request.limit ?? 10;
+  if (!summary || !history || history.role !== expectedRole || !Array.isArray(history.items)
+    || typeof history.truncated !== 'boolean'
+    || history.nextPageToken !== undefined && (typeof history.nextPageToken !== 'string'
+      || !REFERRAL_DOCUMENT_ID_PATTERN.test(history.nextPageToken))
+    || history.truncated !== (typeof history.nextPageToken === 'string')) return null;
+  const items = history.items.map(item => parseHistoryItem(item, scope.type, expectedRole));
+  if (items.some(item => item === null) || items.length > pageLimit) return null;
+  const attributionRecord = candidate.attribution === undefined ? undefined : record(candidate.attribution);
+  const attribution = attributionRecord && typeof attributionRecord.code === 'string' && attributionRecord.code.length > 0
+    && typeof attributionRecord.programId === 'string' && attributionRecord.programId.length > 0
+    && isSurface(attributionRecord.inviterOwnerType)
+    && typeof attributionRecord.expiresAt === 'string' && !Number.isNaN(Date.parse(attributionRecord.expiresAt))
+    ? {
+      code: attributionRecord.code,
+      programId: attributionRecord.programId,
+      inviterOwnerType: attributionRecord.inviterOwnerType,
+      expiresAt: attributionRecord.expiresAt,
+    } : undefined;
+  if (candidate.attribution !== undefined && !attribution || scope.type !== 'client' && attribution) return null;
+  if (candidate.state === 'migrationRequired' && (summary.state !== 'unavailable' || attribution
+    || items.length > 0 || history.truncated || history.nextPageToken !== undefined)) return null;
+  return {
+    contractVersion: 3,
+    state: candidate.state,
+    scope,
+    summary,
+    ...(attribution ? { attribution } : {}),
+    history: {
+      role: expectedRole,
+      items: items as ReferralWorkspaceHistoryItem[],
+      ...(history.nextPageToken === undefined ? {} : { nextPageToken: history.nextPageToken }),
+      truncated: history.truncated,
+    },
+  };
+}
+
+export async function getMyReferralWorkspace(request: ReferralWorkspaceRequest): Promise<ReferralWorkspace> {
+  const input = record(request);
+  const scope = record(input?.scope);
+  const validKeys = input && Object.keys(input).every(key => ['scope', 'role', 'limit', 'pageToken'].includes(key));
+  const validScope = scope && (scope.type === 'brand'
+    ? Object.keys(scope).every(key => ['type', 'brandId'].includes(key)) && typeof scope.brandId === 'string' && scope.brandId.length > 0
+    : (scope.type === 'client' || scope.type === 'freelancer') && Object.keys(scope).length === 1);
+  const role = input?.role ?? 'inviter';
+  if (!input || !validKeys || !validScope || (role !== 'inviter' && role !== 'invitee')
+    || scope?.type !== 'client' && role === 'invitee'
+    || input.limit !== undefined && (!Number.isSafeInteger(input.limit) || (input.limit as number) < 1 || (input.limit as number) > 20)
+    || input.pageToken !== undefined && (typeof input.pageToken !== 'string'
+      || !REFERRAL_DOCUMENT_ID_PATTERN.test(input.pageToken))) {
+    throw new Error('The referral workspace request is invalid');
+  }
+  const result = await getMyReferralWorkspaceCall(request);
+  const workspace = parseReferralWorkspace(result.data, request);
   if (!workspace) throw new Error('The referral service returned an invalid workspace');
   return workspace;
+}
+
+export function appendReferralWorkspaceHistory(
+  current: ReferralWorkspace,
+  next: ReferralWorkspace,
+): ReferralWorkspace {
+  if (!sameReferralScope(current.scope, next.scope) || current.history.role !== next.history.role) {
+    throw new Error('Referral workspace page has a different scope or role');
+  }
+  if (next.state !== 'ready' || next.summary.state !== 'verified') return next;
+  return {
+    ...next,
+    history: { ...next.history, items: [...current.history.items, ...next.history.items] },
+  };
+}
+
+export function referralWorkspaceMatchesSelection(
+  workspace: ReferralWorkspace,
+  scope: ReferralCodeScope,
+  role: 'inviter' | 'invitee',
+): boolean {
+  return referralWorkspaceSelectionMatches(workspace.scope, workspace.history.role, scope, role);
+}
+
+export function referralWorkspaceSelectionMatches(
+  leftScope: ReferralCodeScope,
+  leftRole: 'inviter' | 'invitee',
+  rightScope: ReferralCodeScope,
+  rightRole: 'inviter' | 'invitee',
+): boolean {
+  return sameReferralScope(leftScope, rightScope) && leftRole === rightRole;
+}
+
+export function referralWorkspaceCanShare(
+  workspace: ReferralWorkspace | null,
+  scope: ReferralCodeScope,
+  role: 'inviter' | 'invitee',
+  code: string,
+): boolean {
+  return workspace?.state === 'ready'
+    && workspace.summary.state === 'verified'
+    && workspace.summary.currentCode?.code === code
+    && workspace.summary.currentCode.status === 'active'
+    && referralWorkspaceMatchesSelection(workspace, scope, role);
+}
+
+export function referralCreditSummary(
+  totals: ReferralWorkspaceCreditTotal[],
+): Array<ReferralWorkspaceCreditTotal & { amountMinor: number }> {
+  return totals.map(total => ({ ...total, amountMinor: total.approvedMinor + total.pendingMinor }));
 }
 
 export async function createMyReferralCode(scope: ReferralCodeScope): Promise<CreatedReferralCode> {
@@ -254,7 +369,7 @@ export async function createMyReferralCode(scope: ReferralCodeScope): Promise<Cr
   if (
     !candidate
     || typeof candidate.code !== 'string'
-    || (candidate.ownerType !== 'client' && candidate.ownerType !== 'freelancer' && candidate.ownerType !== 'brand')
+    || candidate.ownerType !== scope.type
     || typeof candidate.programId !== 'string'
     || typeof candidate.reused !== 'boolean'
   ) throw new Error('The referral service returned an invalid code');
@@ -302,27 +417,6 @@ export async function recordVerifiedReferralVisit(code: string): Promise<boolean
   } catch {
     return false;
   }
-}
-
-export function referralWorkspaceForScope(
-  workspace: ReferralWorkspace,
-  surface: ReferralSurface,
-  brandId?: string | null,
-): ReferralWorkspaceScope {
-  if (surface === 'brand') {
-    const brandWorkspace = workspace.brandWorkspaces?.find(brand => brand.brandId === brandId);
-    return brandWorkspace
-      ? { codes: brandWorkspace.codes, rewards: brandWorkspace.rewards, creditTotals: brandWorkspace.creditTotals }
-      : { codes: [], rewards: [] };
-  }
-  if (surface === 'client') {
-    return {
-      codes: workspace.client.codes,
-      rewards: [...workspace.client.inviterRewards, ...workspace.client.inviteeRewards],
-      ...(workspace.client.attribution ? { attribution: workspace.client.attribution } : {}),
-    };
-  }
-  return { codes: workspace.freelancer.codes, rewards: workspace.freelancer.inviterRewards };
 }
 
 export function referralCodeScopeForSurface(
