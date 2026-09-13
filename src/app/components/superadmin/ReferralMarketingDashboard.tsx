@@ -63,6 +63,11 @@ type OverviewPage<T> = {
   nextPageToken?: string;
   truncated: boolean;
 };
+type FixedOverviewPage<T> = {
+  items: T[];
+  nextPageToken?: never;
+  truncated: boolean;
+};
 type TopReferrer = {
   inviterId: string;
   inviterOwnerType: Owner;
@@ -92,7 +97,7 @@ export type ReferralMarketingOverview = {
     cancelled: number;
   };
   approvedCreditTotals: Credit[];
-  topReferrers: OverviewPage<TopReferrer>;
+  topReferrers: FixedOverviewPage<TopReferrer>;
   pendingRewards: OverviewPage<Reward>;
   flaggedRewards: OverviewPage<Reward & { fraudFlag: { status: 'flagged'; reason: string } }>;
   auditTrail: OverviewPage<Audit>;
@@ -306,18 +311,33 @@ function parseOverviewPage<T>(
   value: unknown,
   parseItem: (item: unknown) => T | null,
   maximum: number,
+  pageable: true,
+): OverviewPage<T> | null;
+function parseOverviewPage<T>(
+  value: unknown,
+  parseItem: (item: unknown) => T | null,
+  maximum: number,
+  pageable: false,
+): FixedOverviewPage<T> | null;
+function parseOverviewPage<T>(
+  value: unknown,
+  parseItem: (item: unknown) => T | null,
+  maximum: number,
   pageable: boolean,
-): OverviewPage<T> | null {
+): OverviewPage<T> | FixedOverviewPage<T> | null {
   const candidate = object(value);
   if (!candidate || !Array.isArray(candidate.items) || candidate.items.length > maximum
     || typeof candidate.truncated !== 'boolean') return null;
   const hasToken = candidate.nextPageToken !== undefined;
   if (hasToken && (typeof candidate.nextPageToken !== 'string'
     || !DOCUMENT_ID_PATTERN.test(candidate.nextPageToken))) return null;
-  if (!pageable && hasToken) return null;
-  if (pageable && candidate.truncated !== hasToken) return null;
   const items = candidate.items.map(parseItem);
   if (items.some(item => item === null)) return null;
+  if (!pageable) {
+    if (hasToken) return null;
+    return { items: items as T[], truncated: candidate.truncated };
+  }
+  if (candidate.truncated !== hasToken) return null;
   return {
     items: items as T[],
     ...(hasToken ? { nextPageToken: candidate.nextPageToken as string } : {}),

@@ -48,7 +48,7 @@ If `referralMarketingState/v3` or `referralMarketingSummaries/overview` is missi
 
 Referral eligibility now requires `booking.isTest === false`, exactly matching both bounded earlier-booking queries. The authoritative `bookings` writer persists `isTest: false` for every new normal/staff booking, and Firestore rules keep the field immutable. Missing legacy values fail closed and cannot earn or suppress a later canonical positive-paid booking.
 
-The existing SuperAdmin UI parser still accepts only contract version 2, so it rejects the V3 payload instead of rendering inferred fields. No UI file was changed.
+The SuperAdmin UI parser accepts only contract version 3 with the exact `referral-v3` epoch and rejects incompatible payloads instead of rendering inferred fields.
 
 ## Initialization and migration gate
 
@@ -120,3 +120,52 @@ booking persists `isTest: false`, and browser updates cannot add or change the
 server-owned field.
 
 The referral tests explicitly exercise no-scan query spying, callback retry idempotency, typed client/brand ID separation, EUR/USD partitioning, program pause/reactivation, telemetry caps, approval/rejection/flag transitions, stable continuation pages, legacy migration safety, empty-first/repeat initialization, shallow global/owner-summary rejection, exact index/deploy-script coverage, missing-`isTest` fail-closed behavior, free/paid ordering, fixed top-ten semantics, maximum-length hashed reward creation/review/history pagination, and protected client authorization paths.
+
+## V3 static contract review — round 1
+
+The server export now narrows `ReferralMarketingOverview.summaryEpoch` from
+`string` to the literal `'referral-v3'`. Both the server and dashboard exports
+use a dedicated fixed-page type for `topReferrers` whose
+`nextPageToken?: never` member makes a ranking cursor a compile-time error.
+The dashboard page parser has literal-boolean overloads: pageable collections
+retain `nextPageToken?: string`, while the fixed top-ten branch returns the
+non-pageable type without a cast. Runtime parsing and response behavior are
+unchanged.
+
+TDD red evidence:
+
+- `npm --prefix functions run build` exited `2` with two `TS2578` errors,
+  proving the server's arbitrary epoch and top-referrer token were still
+  accepted by the old export.
+- `node --test src/app/components/superadmin/ReferralMarketingDashboard.test.mjs`
+  reported 21 tests, 20 passed and 1 failed. The new real TypeScript consumer
+  fixture produced `TS2578` for the unused forbidden-token expectation,
+  proving the client export was still pageable. Its invalid-epoch expectation
+  was already consumed because the client epoch was already literal.
+
+Green verification:
+
+```text
+npm --prefix functions run build
+> build
+> tsc
+exit 0
+
+node --test src/app/components/superadmin/ReferralMarketingDashboard.test.mjs
+1..21
+# tests 21
+# pass 21
+# fail 0
+# duration_ms 2668.777375
+
+npm run build
+✓ 2836 modules transformed.
+✓ built in 6.02s
+exit 0
+```
+
+The compile-time probes remain in `functions/src/referrals.contract.test.ts`
+and `ReferralMarketingDashboard.contract.test.ts`; removing either literal
+epoch or fixed-page guarantee makes the corresponding build/test fail. The
+implementation and this report are included under commit subject
+`fix: align referral V3 static contracts`. No Firebase deployment was run.

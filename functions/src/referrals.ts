@@ -135,6 +135,12 @@ export interface ReferralOverviewPage<T> {
   truncated: boolean;
 }
 
+export interface ReferralFixedOverviewPage<T> {
+  items: T[];
+  nextPageToken?: never;
+  truncated: boolean;
+}
+
 export type ReferralAuditFilter =
   | { limit?: number; code?: never; programId?: never; rewardId?: never; action?: never }
   | { code: string; limit?: number; programId?: never; rewardId?: never; action?: never }
@@ -156,7 +162,7 @@ export type ReferralMarketingOverviewRequest = ReferralAuditFilter & {
 export interface ReferralMarketingOverview {
   contractVersion: 3;
   state: 'ready' | 'migrationRequired';
-  summaryEpoch: string;
+  summaryEpoch: 'referral-v3';
   telemetry: { state: 'verified' | 'unavailable'; validatedVisits: number; capped: boolean };
   programs: ReferralOverviewPage<ReferralProgramOverview>;
   funnel: {
@@ -174,7 +180,7 @@ export interface ReferralMarketingOverview {
     cancelled: number;
   };
   approvedCreditTotals: ReferralCreditTotal[];
-  topReferrers: ReferralOverviewPage<ReferralTopReferrer>;
+  topReferrers: ReferralFixedOverviewPage<ReferralTopReferrer>;
   pendingRewards: ReferralOverviewPage<ReferralPendingRewardOverview>;
   flaggedRewards: ReferralOverviewPage<ReferralPendingRewardOverview & { fraudFlag: { status: 'flagged'; reason: string } }>;
   auditTrail: ReferralOverviewPage<ReferralAuditEntry>;
@@ -2476,7 +2482,7 @@ export async function getReferralMarketingOverview(
       approved: 0, approvedRewards: 0, rejected: 0, cancelled: 0,
     },
     approvedCreditTotals: [],
-    topReferrers: emptyPage(),
+    topReferrers: { items: [], truncated: false },
     pendingRewards: emptyPage(),
     flaggedRewards: emptyPage(),
     auditTrail: emptyPage(),

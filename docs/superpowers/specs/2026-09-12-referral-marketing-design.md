@@ -147,6 +147,12 @@ type ReferralOverviewPage<T> = {
   truncated: boolean;
 };
 
+type ReferralFixedOverviewPage<T> = {
+  items: T[];
+  nextPageToken?: never;
+  truncated: boolean;
+};
+
 type ReferralProgramOverview = {
   id: string;
   status: 'draft' | 'active' | 'paused' | 'archived';
@@ -239,11 +245,7 @@ interface ReferralMarketingOverview {
     cancelled: number;
   };
   approvedCreditTotals: ReferralCreditTotal[];
-  topReferrers: {
-    items: ReferralTopReferrer[]; // at most the fixed top 10
-    nextPageToken?: never;        // deliberately not pageable
-    truncated: boolean;
-  };
+  topReferrers: ReferralFixedOverviewPage<ReferralTopReferrer>; // at most the fixed top 10
   pendingRewards: ReferralOverviewPage<ReferralPendingRewardOverview>;
   flaggedRewards: ReferralOverviewPage<
     ReferralPendingRewardOverview & { fraudFlag: { status: 'flagged'; reason: string } }

@@ -23,6 +23,27 @@ function loadDashboard() {
   return loaded.exports;
 }
 
+test('exports a literal V3 epoch and non-pageable top-referrer contract', () => {
+  const filename = resolve(import.meta.dirname, 'ReferralMarketingDashboard.contract.test.ts');
+  const program = ts.createProgram([filename], {
+    noEmit: true,
+    strict: true,
+    skipLibCheck: true,
+    jsx: ts.JsxEmit.ReactJSX,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    target: ts.ScriptTarget.ES2022,
+    allowSyntheticDefaultImports: true,
+    esModuleInterop: true,
+    types: ['vite/client'],
+  });
+  const diagnostics = ts.getPreEmitDiagnostics(program).map(diagnostic => ({
+    code: diagnostic.code,
+    message: ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'),
+  }));
+  assert.deepEqual(diagnostics, []);
+});
+
 function page(items, nextPageToken) {
   return { items, ...(nextPageToken ? { nextPageToken } : {}), truncated: Boolean(nextPageToken) };
 }
