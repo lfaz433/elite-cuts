@@ -332,3 +332,21 @@ npm --prefix functions run build
 ```
 
 Result: referral domain tests passed (66), booking lifecycle tests passed (22), and Functions TypeScript build passed.
+
+## Scalability contract follow-up: scoped referral workspace V3
+
+`getMyReferralWorkspace` is now the explicit **contractVersion: 3** surface. Each request selects exactly one authorized scope (`client`, `freelancer`, or an exact `brandId`), one role page, and a 1–20 item limit. Brand authorization uses direct active principal/salon-admin membership queries for the selected brand, so any number of inactive or worker memberships cannot hide a valid administrator. The callable no longer enumerates brands or fetches raw code/reward/ledger windows for unrelated scopes.
+
+The response exact-reads `referralOwnerSummaries/{ownerType}__{ownerId}` and pages only `referralOwnerHistory` records for that same typed owner and role. Pages use `limit + 1`, return explicit `truncated` plus an opaque `nextPageToken`, and source-validate at most 20 canonical reward/evidence chains. Approved rows also exact-read their deterministic ledger leg. Legacy/unversioned data has no raw-scan fallback: only a matching server-written `{ schemaVersion: 1, summaryEpoch: 'referral-v3' }` projection is `state: 'verified'`; otherwise the response is explicitly `state: 'unavailable'` with no inferred balances.
+
+Trusted create-code, attribution, completion, approval, review, and flag transactions now maintain typed owner summaries and history projections in the same transaction as the source mutation. Counters and monetary maps remain partitioned by role and currency; a client ID equal to a brand ID addresses distinct documents and cannot cross-project data. The V3 DTO is exported from `functions/src/referrals.ts` and documented in the referral design spec for the UI follow-up.
+
+Verification for this follow-up:
+
+```bash
+npm --prefix functions exec jest -- src/referrals.test.ts --runInBand
+npm --prefix functions run build
+git diff --check -- functions/src/referrals.ts functions/src/referrals.test.ts docs/superpowers/specs/2026-09-12-referral-marketing-design.md
+```
+
+Result: referral domain tests passed (67), Functions TypeScript build passed, and the scoped changed-file diff check passed.

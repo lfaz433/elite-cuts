@@ -12,6 +12,56 @@ type ReferralCodeScope =
   | { type: 'freelancer' }
   | { type: 'brand'; brandId: string };
 
+export type ReferralWorkspaceScope = ReferralCodeScope;
+
+export interface ReferralWorkspaceCreditTotal {
+  currency: string;
+  pendingMinor: number;
+  approvedMinor: number;
+}
+
+export interface ReferralWorkspaceRoleSummary {
+  pendingCount: number;
+  approvedCount: number;
+  rejectedCount: number;
+  cancelledCount: number;
+  flaggedPendingCount: number;
+  creditTotals: ReferralWorkspaceCreditTotal[];
+}
+
+export interface ReferralWorkspaceSummary {
+  ownerType: OwnerType;
+  currentCode?: { code: string; programId: string; status: string };
+  codeCount: number;
+  attributionCount: number;
+  inviter: ReferralWorkspaceRoleSummary;
+  invitee: ReferralWorkspaceRoleSummary;
+  state: 'verified' | 'unavailable';
+}
+
+export interface ReferralWorkspaceHistoryItem {
+  id: string;
+  ownerType: OwnerType;
+  role: 'inviter' | 'invitee';
+  amountMinor: number;
+  currency: string;
+  status: RewardStatus;
+  createdAt?: string;
+}
+
+export interface ReferralWorkspaceV3 {
+  contractVersion: 3;
+  scope: ReferralWorkspaceScope;
+  summary: ReferralWorkspaceSummary;
+  attribution?: { code: string; programId: string; inviterOwnerType: OwnerType; expiresAt: string };
+  history: {
+    role: 'inviter' | 'invitee';
+    items: ReferralWorkspaceHistoryItem[];
+    nextPageToken?: string;
+    truncated: boolean;
+  };
+}
+
 export interface ReferralCompletionEvidence {
   version: 1;
   eventId: string;
@@ -114,14 +164,18 @@ const COUNTRY_PATTERN = /^[A-Z]{2}$/;
 const CURRENCY_PATTERN = /^[A-Z]{3}$/;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const ACTIVE_PROGRAM_STATE_ID = 'active';
-const MAX_BRAND_WORKSPACES = 20;
 const MAX_CODE_GENERATION_ATTEMPTS = 8;
 const MAX_REFERRAL_AUDIT_RESULTS = 50;
 const DEFAULT_REFERRAL_AUDIT_RESULTS = 20;
 const MAX_VALIDATED_VISITS_PER_CODE = 10_000;
 const MAX_VALIDATED_VISITS_TOTAL = 1_000_000;
 const REFERRAL_ELIGIBILITY_EVIDENCE_VERSION = 1;
-const MAX_WORKSPACE_REWARD_RECORDS = 100;
+const MAX_WORKSPACE_HISTORY_RESULTS = 20;
+const DEFAULT_WORKSPACE_HISTORY_RESULTS = 10;
+const REFERRAL_OWNER_SUMMARY_SCHEMA_VERSION = 1;
+// Fresh staging rollout marker. Rows without this exact server-selected epoch are
+// quarantined rather than being interpreted as a zero-valued legacy workspace.
+const REFERRAL_SUMMARY_EPOCH = 'referral-v3';
 
 export const referralVisitCallableOptions = {
   enforceAppCheck: true,
@@ -410,6 +464,31 @@ function referralCodeScope(value: unknown): ReferralCodeScope {
   error('invalid-argument', 'Referral code scope is invalid');
 }
 
+function referralWorkspaceInput(value: unknown): {
+  scope: ReferralWorkspaceScope;
+  role: 'inviter' | 'invitee';
+  limit: number;
+  pageToken?: string;
+} {
+  const input = record(value, ['scope', 'role', 'limit', 'pageToken'], 'Referral workspace input is invalid');
+  const scope = referralCodeScope({ scope: input.scope });
+  const role = input.role === undefined ? 'inviter' : input.role;
+  if (role !== 'inviter' && role !== 'invitee') error('invalid-argument', 'Referral workspace role is invalid');
+  if (scope.type !== 'client' && role === 'invitee') {
+    error('invalid-argument', 'Only the client workspace has invitee history');
+  }
+  const limit = input.limit === undefined ? DEFAULT_WORKSPACE_HISTORY_RESULTS : input.limit;
+  if (!Number.isSafeInteger(limit) || (limit as number) < 1 || (limit as number) > MAX_WORKSPACE_HISTORY_RESULTS) {
+    error('invalid-argument', 'Referral workspace limit is invalid');
+  }
+  return {
+    scope,
+    role,
+    limit: limit as number,
+    ...(input.pageToken === undefined ? {} : { pageToken: documentId(input.pageToken, 'pageToken') }),
+  };
+}
+
 function referralCodeLookup(value: unknown): { code: string; countryCode: string } {
   const input = record(value, ['code', 'countryCode'], 'Referral code lookup is invalid');
   return {
@@ -636,19 +715,15 @@ export async function reserveReferralCode(
       code, programId, ownerType: ownerType as OwnerType, ownerId, status: 'active',
       createdBy: uid, createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
+    await updateOwnerSummary(transaction, firestore, ownerType as OwnerType, ownerId, summary => {
+      summary.codeCount += 1;
+      summary.currentCode = { code, programId, status: 'active' };
+    });
     transaction.create(referralAuditRef, {
       action: 'REFERRAL_CODE_CREATED', actorUid: uid, programId, code, createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
   });
   return { code };
-}
-
-function brandIdsFromMemberships(uid: string, memberships: Array<{ data(): RecordValue }>): string[] {
-  return [...new Set(memberships
-    .map(snapshot => snapshot.data())
-    .filter(membership => isBrandAdminMembership(membership, uid))
-    .map(membership => membership.brandId as string))]
-    .sort();
 }
 
 export async function createMyReferralCode(
@@ -751,6 +826,10 @@ export async function createMyReferralCode(
         createdBy: uid,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
+      await updateOwnerSummary(transaction, firestore, ownerType, ownerId, summary => {
+        summary.codeCount += 1;
+        summary.currentCode = { code: candidate, programId, status: 'active' };
+      });
       transaction.create(referralAuditRef, {
         action: 'REFERRAL_CODE_CREATED', actorUid: uid, programId, code: candidate,
         ownerId, ownerType, createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -824,6 +903,9 @@ export async function attributeReferral(
       countryCode,
       expiresAt: new Date(currentTime.getTime() + 30 * DAY_MS).toISOString(),
       recordedAt: now,
+    });
+    await updateOwnerSummary(transaction, firestore, 'client', uid, summary => {
+      summary.attributionCount += 1;
     });
     transaction.create(referralAuditRef, {
       action: 'REFERRAL_ATTRIBUTED', actorUid: uid, programId: referralCode.programId, code,
@@ -922,6 +1004,16 @@ export async function processReferralBookingCompletion(
       createdAt: now,
       updatedAt: now,
     });
+    await Promise.all([
+      updateOwnerSummary(transaction, firestore, inviterOwnerType, attribution.inviterId as string, summary => {
+        adjustOwnerSummaryRole(summary, 'inviter', 'pending', qualification.inviterCreditMinor, qualification.currency, 1);
+      }),
+      updateOwnerSummary(transaction, firestore, 'client', booking.clientId as string, summary => {
+        adjustOwnerSummaryRole(summary, 'invitee', 'pending', qualification.invitedDiscountMinor, qualification.currency, 1);
+      }),
+      writeOwnerHistoryProjection(transaction, firestore, inviterOwnerType, attribution.inviterId as string, 'inviter', rewardRef.id),
+      writeOwnerHistoryProjection(transaction, firestore, 'client', booking.clientId as string, 'invitee', rewardRef.id),
+    ]);
     transaction.create(referralAuditRef, {
       action: 'REFERRAL_REWARD_PENDING', programId: attribution.programId, rewardId: rewardRef.id,
       code: attribution.code, inviterId: attribution.inviterId, inviterOwnerType, createdAt: now,
@@ -1057,6 +1149,8 @@ export async function reviewReferralReward(
         invitedDiscountMinor: qualification.invitedDiscountMinor,
       };
       }
+    const summaryQualification = trustedQualificationFromEvidence(reward);
+    const canMoveExistingSummary = summaryQualification !== null && canonicalReferralRewardForOverview(rewardId, reward);
     const now = admin.firestore.FieldValue.serverTimestamp();
     transaction.update(rewardRef, {
       status, reviewedBy: uid, reviewedAt: now, updatedAt: now,
@@ -1079,6 +1173,27 @@ export async function reviewReferralReward(
         rewardId, ownerId: approvedReward.invitedUserId, ownerType: 'client', amountMinor: approvedReward.invitedDiscountMinor,
         currency: approvedReward.currency, kind: 'referral_invited_discount', status: 'approved', createdAt: now,
       });
+      await Promise.all([
+        updateOwnerSummary(transaction, firestore, approvedReward.inviterOwnerType, approvedReward.inviterId, summary => {
+          adjustOwnerSummaryRole(summary, 'inviter', 'pending', approvedReward.inviterCreditMinor, approvedReward.currency, -1);
+          adjustOwnerSummaryRole(summary, 'inviter', 'approved', approvedReward.inviterCreditMinor, approvedReward.currency, 1);
+        }),
+        updateOwnerSummary(transaction, firestore, 'client', approvedReward.invitedUserId, summary => {
+          adjustOwnerSummaryRole(summary, 'invitee', 'pending', approvedReward.invitedDiscountMinor, approvedReward.currency, -1);
+          adjustOwnerSummaryRole(summary, 'invitee', 'approved', approvedReward.invitedDiscountMinor, approvedReward.currency, 1);
+        }),
+      ]);
+    } else if (canMoveExistingSummary && summaryQualification) {
+      await Promise.all([
+        updateOwnerSummary(transaction, firestore, summaryQualification.inviterOwnerType, summaryQualification.inviterId, summary => {
+          adjustOwnerSummaryRole(summary, 'inviter', 'pending', summaryQualification.inviterCreditMinor, summaryQualification.currency, -1);
+          adjustOwnerSummaryRole(summary, 'inviter', status, summaryQualification.inviterCreditMinor, summaryQualification.currency, 1);
+        }, false),
+        updateOwnerSummary(transaction, firestore, 'client', summaryQualification.invitedUserId, summary => {
+          adjustOwnerSummaryRole(summary, 'invitee', 'pending', summaryQualification.invitedDiscountMinor, summaryQualification.currency, -1);
+          adjustOwnerSummaryRole(summary, 'invitee', status, summaryQualification.invitedDiscountMinor, summaryQualification.currency, 1);
+        }, false),
+      ]);
     }
     transaction.create(auditRef, {
       action: `REFERRAL_REWARD_${status.toUpperCase()}`, actorUid: uid, rewardId, createdAt: now,
@@ -1112,6 +1227,9 @@ export async function setReferralRewardFlag(
     const reward = rewardSnapshot.data() as RecordValue | undefined;
     if (!rewardSnapshot.exists || !reward) error('not-found', 'Referral reward not found');
     if (reward.status !== 'pending') error('failed-precondition', 'Only pending referral rewards can be flagged');
+    const summaryQualification = trustedQualificationFromEvidence(reward);
+    const canUpdateSummary = summaryQualification !== null && canonicalReferralRewardForOverview(input.rewardId, reward);
+    const wasFlagged = (reward.fraudFlag as RecordValue | undefined)?.status === 'flagged';
     const now = admin.firestore.FieldValue.serverTimestamp();
     transaction.update(rewardRef, {
       fraudFlag: {
@@ -1122,6 +1240,19 @@ export async function setReferralRewardFlag(
       },
       updatedAt: now,
     });
+    if (canUpdateSummary && summaryQualification && wasFlagged !== input.flagged) {
+      const delta: 1 | -1 = input.flagged ? 1 : -1;
+      await Promise.all([
+        updateOwnerSummary(transaction, firestore, summaryQualification.inviterOwnerType, summaryQualification.inviterId, summary => {
+          const details = summary.inviter as RecordValue;
+          details.flaggedPendingCount = Math.max(0, (details.flaggedPendingCount as number) + delta);
+        }, false),
+        updateOwnerSummary(transaction, firestore, 'client', summaryQualification.invitedUserId, summary => {
+          const details = summary.invitee as RecordValue;
+          details.flaggedPendingCount = Math.max(0, (details.flaggedPendingCount as number) + delta);
+        }, false),
+      ]);
+    }
     transaction.create(auditRef, {
       action: input.flagged ? 'REFERRAL_REWARD_FLAGGED' : 'REFERRAL_REWARD_FLAG_CLEARED',
       actorUid: uid,
@@ -1141,13 +1272,6 @@ export async function setReferralRewardFlag(
     });
   });
   return { rewardId: input.rewardId, flagged: input.flagged };
-}
-
-function safeCodeForWorkspace(code: RecordValue): RecordValue | null {
-  return typeof code.code === 'string' && CODE_PATTERN.test(code.code)
-    && typeof code.ownerType === 'string' && typeof code.programId === 'string' && typeof code.status === 'string'
-    ? { code: code.code, ownerType: code.ownerType, programId: code.programId, status: code.status }
-    : null;
 }
 
 function hasCanonicalReferralQualificationSources(
@@ -1210,63 +1334,6 @@ async function sourceValidatedWorkspaceRewards(
   return new Map(validated.flatMap(item => item ? [[item.rewardId, item.reward] as [string, RecordValue]] : []));
 }
 
-function safeRewardsForOwner(
-  snapshots: Array<{ id: string; data(): RecordValue }>,
-  validatedRewards: Map<string, RecordValue>,
-  approvedLedgerRewardIds: Set<string>,
-  ownerId: string,
-  ownerTypeValue: OwnerType,
-  role: 'inviter' | 'invited',
-): RecordValue[] {
-  const byId = new Map<string, RecordValue>();
-  for (const snapshot of snapshots) {
-    const reward = validatedRewards.get(snapshot.id);
-    if (reward) byId.set(snapshot.id, reward);
-  }
-  return [...byId.entries()].flatMap(([id, reward]) => {
-    const ownsReward = role === 'inviter'
-      ? reward.inviterOwnerId === ownerId && reward.inviterOwnerType === ownerTypeValue
-      : reward.invitedOwnerId === ownerId && reward.invitedOwnerType === ownerTypeValue;
-    const amountMinor = role === 'inviter' ? reward.inviterCreditMinor : reward.invitedDiscountMinor;
-    return typeof amountMinor === 'number' && Number.isSafeInteger(amountMinor) && amountMinor >= 0
-      && (reward.status !== 'approved' || approvedLedgerRewardIds.has(id))
-      && ownsReward && typeof reward.currency === 'string' && CURRENCY_PATTERN.test(reward.currency) && typeof reward.status === 'string'
-      ? [{ id, ownerType: ownerTypeValue, role, amountMinor, currency: reward.currency, status: reward.status }]
-      : [];
-  }).sort((left, right) => String(left.id).localeCompare(String(right.id)));
-}
-
-function creditTotals(rewards: RecordValue[], ledgers: CanonicalApprovedCreditLedger[]): RecordValue[] {
-  const totals = new Map<string, { approvedMinor: number; pendingMinor: number }>();
-  for (const reward of rewards) {
-    if (reward.status !== 'pending' || typeof reward.currency !== 'string') continue;
-    const total = totals.get(reward.currency) ?? { approvedMinor: 0, pendingMinor: 0 };
-    total.pendingMinor += reward.amountMinor as number;
-    totals.set(reward.currency, total);
-  }
-  for (const ledger of ledgers) {
-    const total = totals.get(ledger.currency) ?? { approvedMinor: 0, pendingMinor: 0 };
-    total.approvedMinor += ledger.amountMinor as number;
-    totals.set(ledger.currency, total);
-  }
-  return [...totals.entries()].map(([currency, total]) => ({ currency, ...total }))
-    .sort((left, right) => String(left.currency).localeCompare(String(right.currency)));
-}
-
-async function authorizedBrandIds(uid: string, firestore: Firestore): Promise<string[]> {
-  const memberships = firestore.collection('memberships').where('userId', '==', uid).where('status', '==', 'active');
-  const [principals, salonAdmins] = await Promise.all([
-    memberships.where('role', '==', 'principal_admin').limit(MAX_BRAND_WORKSPACES + 1).get(),
-    memberships.where('role', '==', 'salon_admin').limit(MAX_BRAND_WORKSPACES + 1).get(),
-  ]);
-  const matchingMemberships = [...principals.docs, ...salonAdmins.docs] as Array<{ data(): RecordValue }>;
-  const ids = brandIdsFromMemberships(uid, matchingMemberships);
-  if (ids.length > MAX_BRAND_WORKSPACES) error('resource-exhausted', 'Too many brands to load safely');
-  if (ids.length > MAX_BRAND_WORKSPACES) error('resource-exhausted', 'Too many brands to load safely');
-  const brands = await Promise.all(ids.map(brandId => firestore.collection('brands').doc(brandId).get()));
-  return ids.filter((_, index) => brands[index].exists);
-}
-
 async function sourceValidatedWorkspaceAttribution(
   attribution: RecordValue | undefined,
   firestore: Firestore,
@@ -1297,101 +1364,275 @@ async function sourceValidatedWorkspaceAttribution(
   };
 }
 
+function ownerSummaryId(ownerTypeValue: OwnerType, ownerId: string): string {
+  return `${ownerTypeValue}__${ownerId}`;
+}
+
+type ReferralOwnerSummaryRecord = {
+  schemaVersion: number;
+  summaryEpoch: string;
+  ownerType: OwnerType;
+  ownerId: string;
+  codeCount: number;
+  attributionCount: number;
+  inviter: RecordValue;
+  invitee: RecordValue;
+  currentCode?: RecordValue;
+};
+
+function newOwnerSummary(ownerTypeValue: OwnerType, ownerId: string): ReferralOwnerSummaryRecord {
+  const role = (): RecordValue => ({
+    pendingCount: 0, approvedCount: 0, rejectedCount: 0, cancelledCount: 0, flaggedPendingCount: 0, creditTotalsByCurrency: {},
+  });
+  return {
+    schemaVersion: REFERRAL_OWNER_SUMMARY_SCHEMA_VERSION, summaryEpoch: REFERRAL_SUMMARY_EPOCH, ownerType: ownerTypeValue, ownerId,
+    codeCount: 0, attributionCount: 0, inviter: role(), invitee: role(),
+  };
+}
+
+function writableOwnerSummary(value: RecordValue | undefined, ownerTypeValue: OwnerType, ownerId: string): ReferralOwnerSummaryRecord | null {
+  if (!value) return newOwnerSummary(ownerTypeValue, ownerId);
+  const safe = safeWorkspaceSummary(value, ownerTypeValue, ownerId);
+  if (safe.state !== 'verified') return null;
+  const copyRole = (role: ReferralWorkspaceRoleSummary): RecordValue => ({
+    pendingCount: role.pendingCount, approvedCount: role.approvedCount, rejectedCount: role.rejectedCount,
+    cancelledCount: role.cancelledCount, flaggedPendingCount: role.flaggedPendingCount,
+    creditTotalsByCurrency: Object.fromEntries(role.creditTotals.map(total => [total.currency, {
+      pendingMinor: total.pendingMinor, approvedMinor: total.approvedMinor,
+    }])),
+  });
+  return {
+    schemaVersion: REFERRAL_OWNER_SUMMARY_SCHEMA_VERSION, summaryEpoch: REFERRAL_SUMMARY_EPOCH, ownerType: ownerTypeValue, ownerId,
+    codeCount: safe.codeCount, attributionCount: safe.attributionCount,
+    inviter: copyRole(safe.inviter), invitee: copyRole(safe.invitee),
+    ...(safe.currentCode ? { currentCode: safe.currentCode } : {}),
+  };
+}
+
+async function updateOwnerSummary(
+  transaction: admin.firestore.Transaction,
+  firestore: Firestore,
+  ownerTypeValue: OwnerType,
+  ownerId: string,
+  update: (summary: ReferralOwnerSummaryRecord) => void,
+  createIfMissing = true,
+): Promise<void> {
+  const ref = firestore.collection('referralOwnerSummaries').doc(ownerSummaryId(ownerTypeValue, ownerId));
+  const existing = await transaction.get(ref);
+  if (!existing.exists && !createIfMissing) return;
+  const summary = writableOwnerSummary(existing.data() as RecordValue | undefined, ownerTypeValue, ownerId);
+  if (!summary) error('failed-precondition', 'Referral owner summary is invalid');
+  update(summary);
+  transaction.set(ref, { ...summary, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+}
+
+function adjustOwnerSummaryRole(
+  summary: ReferralOwnerSummaryRecord,
+  role: 'inviter' | 'invitee',
+  status: RewardStatus,
+  amountMinor: number,
+  currency: string,
+  direction: 1 | -1,
+): void {
+  const details = summary[role] as RecordValue;
+  const countField = `${status}Count`;
+  details[countField] = Math.max(0, (details[countField] as number) + direction);
+  if (status === 'pending' || status === 'approved') {
+    const totals = details.creditTotalsByCurrency as RecordValue;
+    const total = (totals[currency] as RecordValue | undefined) ?? { pendingMinor: 0, approvedMinor: 0 };
+    const amountField = status === 'pending' ? 'pendingMinor' : 'approvedMinor';
+    total[amountField] = Math.max(0, (total[amountField] as number) + direction * amountMinor);
+    totals[currency] = total;
+  }
+}
+
+async function writeOwnerHistoryProjection(
+  transaction: admin.firestore.Transaction,
+  firestore: Firestore,
+  ownerTypeValue: OwnerType,
+  ownerId: string,
+  role: 'inviter' | 'invitee',
+  rewardId: string,
+): Promise<void> {
+  const ownerKey = ownerSummaryId(ownerTypeValue, ownerId);
+  const ref = firestore.collection('referralOwnerHistory').doc(`${ownerKey}__${rewardId}__${role}`);
+  transaction.set(ref, {
+    ownerKey, ownerType: ownerTypeValue, ownerId, role, rewardId,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(), updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+}
+
+function emptyWorkspaceRoleSummary(): ReferralWorkspaceRoleSummary {
+  return { pendingCount: 0, approvedCount: 0, rejectedCount: 0, cancelledCount: 0, flaggedPendingCount: 0, creditTotals: [] };
+}
+
+function unavailableWorkspaceSummary(ownerTypeValue: OwnerType): ReferralWorkspaceSummary {
+  return {
+    ownerType: ownerTypeValue, codeCount: 0, attributionCount: 0,
+    inviter: emptyWorkspaceRoleSummary(), invitee: emptyWorkspaceRoleSummary(), state: 'unavailable',
+  };
+}
+
+function safeWorkspaceRoleSummary(value: unknown): ReferralWorkspaceRoleSummary | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const input = value as RecordValue;
+  const fields = ['pendingCount', 'approvedCount', 'rejectedCount', 'cancelledCount', 'flaggedPendingCount'];
+  if (fields.some(field => !Number.isSafeInteger(input[field]) || (input[field] as number) < 0)) return null;
+  const totals = input.creditTotalsByCurrency;
+  if (!totals || typeof totals !== 'object' || Array.isArray(totals)) return null;
+  const creditTotals = Object.entries(totals as RecordValue).flatMap(([currency, total]) => {
+    if (!CURRENCY_PATTERN.test(currency) || !total || typeof total !== 'object' || Array.isArray(total)) return [];
+    const row = total as RecordValue;
+    return Number.isSafeInteger(row.pendingMinor) && (row.pendingMinor as number) >= 0
+      && Number.isSafeInteger(row.approvedMinor) && (row.approvedMinor as number) >= 0
+      ? [{ currency, pendingMinor: row.pendingMinor as number, approvedMinor: row.approvedMinor as number }]
+      : [];
+  });
+  if (creditTotals.length !== Object.keys(totals as RecordValue).length) return null;
+  return { ...Object.fromEntries(fields.map(field => [field, input[field] as number])) as Omit<ReferralWorkspaceRoleSummary, 'creditTotals'>, creditTotals };
+}
+
+function safeWorkspaceSummary(value: RecordValue | undefined, ownerTypeValue: OwnerType, ownerId: string): ReferralWorkspaceSummary {
+  if (
+    !value || value.schemaVersion !== REFERRAL_OWNER_SUMMARY_SCHEMA_VERSION || value.summaryEpoch !== REFERRAL_SUMMARY_EPOCH
+    || value.ownerType !== ownerTypeValue || value.ownerId !== ownerId
+    || !Number.isSafeInteger(value.codeCount) || (value.codeCount as number) < 0
+    || !Number.isSafeInteger(value.attributionCount) || (value.attributionCount as number) < 0
+  ) return unavailableWorkspaceSummary(ownerTypeValue);
+  const inviter = safeWorkspaceRoleSummary(value.inviter);
+  const invitee = safeWorkspaceRoleSummary(value.invitee);
+  if (!inviter || !invitee) return unavailableWorkspaceSummary(ownerTypeValue);
+  const currentCode = value.currentCode;
+  const safeCode = currentCode && typeof currentCode === 'object' && !Array.isArray(currentCode)
+    ? currentCode as RecordValue : undefined;
+  const currentCodeValue = safeCode && typeof safeCode.code === 'string' && CODE_PATTERN.test(safeCode.code)
+    && typeof safeCode.programId === 'string' && DOCUMENT_ID_PATTERN.test(safeCode.programId)
+    && typeof safeCode.status === 'string'
+    ? { code: safeCode.code, programId: safeCode.programId, status: safeCode.status } : undefined;
+  return {
+    ownerType: ownerTypeValue, codeCount: value.codeCount as number, attributionCount: value.attributionCount as number,
+    inviter, invitee, state: 'verified', ...(currentCodeValue ? { currentCode: currentCodeValue } : {}),
+  };
+}
+
+async function authorizeWorkspaceScope(
+  uid: string,
+  scope: ReferralWorkspaceScope,
+  firestore: Firestore,
+): Promise<{ ownerType: OwnerType; ownerId: string }> {
+  const userSnapshot = await firestore.collection('users').doc(uid).get();
+  const profile = userSnapshot.data() as RecordValue | undefined;
+  if (!userSnapshot.exists || !hasCanonicalUserIdentity(profile, uid) || profile?.platformAdmin === true || profile?.role === 'superadmin') {
+    error('permission-denied', 'This account cannot access referral workspaces');
+  }
+  if (scope.type === 'brand') {
+    const activeBrandMemberships = firestore.collection('memberships')
+      .where('userId', '==', uid).where('brandId', '==', scope.brandId).where('status', '==', 'active');
+    const [principal, salonAdmin, brand] = await Promise.all([
+      activeBrandMemberships.where('role', '==', 'principal_admin').limit(1).get(),
+      activeBrandMemberships.where('role', '==', 'salon_admin').limit(1).get(),
+      firestore.collection('brands').doc(scope.brandId).get(),
+    ]);
+    if (!brand.exists || (principal.empty && salonAdmin.empty)) {
+      error('permission-denied', 'Brand referral workspace scope is not authorized');
+    }
+    return { ownerType: 'brand', ownerId: scope.brandId };
+  }
+  const [freelancerSnapshot, activeMemberships] = await Promise.all([
+    firestore.collection('freelancerProfiles').doc(uid).get(),
+    firestore.collection('memberships').where('userId', '==', uid).where('status', '==', 'active').limit(1).get(),
+  ]);
+  if (activeMemberships.empty !== true) error('permission-denied', 'Staff accounts cannot access personal referral workspaces');
+  if (scope.type === 'client') {
+    if (!isEligiblePersonalReferralIdentity(profile, uid, ['client']) || freelancerSnapshot.exists) {
+      error('permission-denied', 'Client referral workspace scope is not authorized');
+    }
+    return { ownerType: 'client', ownerId: uid };
+  }
+  if (
+    !isEligiblePersonalReferralIdentity(profile, uid, ['client', 'freelancer'])
+    || !freelancerSnapshot.exists
+    || !hasCanonicalUserIdentity(freelancerSnapshot.data() as RecordValue | undefined, uid)
+  ) error('permission-denied', 'Freelancer referral workspace scope is not authorized');
+  return { ownerType: 'freelancer', ownerId: uid };
+}
+
 export async function getMyReferralWorkspace(
   caller: string | null,
   value: unknown,
   firestore: Firestore = admin.firestore(),
-): Promise<RecordValue> {
+): Promise<ReferralWorkspaceV3> {
   const uid = callerUid(caller);
-  record(value, [], 'Referral workspace scope is derived from the authenticated account');
-  const [clientCodes, freelancerCodes, attributionSnapshot, clientInviterRewards, freelancerInviterRewards, invitedRewards, clientLedgers, freelancerLedgers, brandIds] = await Promise.all([
-    firestore.collection('referralCodes').where('ownerId', '==', uid).where('ownerType', '==', 'client').limit(MAX_WORKSPACE_REWARD_RECORDS).get(),
-    firestore.collection('referralCodes').where('ownerId', '==', uid).where('ownerType', '==', 'freelancer').limit(MAX_WORKSPACE_REWARD_RECORDS).get(),
-    firestore.collection('referralAttributions').doc(uid).get(),
-    firestore.collection('referralRewards').where('inviterOwnerId', '==', uid).where('inviterOwnerType', '==', 'client').limit(MAX_WORKSPACE_REWARD_RECORDS).get(),
-    firestore.collection('referralRewards').where('inviterOwnerId', '==', uid).where('inviterOwnerType', '==', 'freelancer').limit(MAX_WORKSPACE_REWARD_RECORDS).get(),
-    firestore.collection('referralRewards').where('invitedOwnerId', '==', uid).where('invitedOwnerType', '==', 'client').limit(MAX_WORKSPACE_REWARD_RECORDS).get(),
-    firestore.collection('creditLedgers').where('ownerId', '==', uid).where('ownerType', '==', 'client').limit(MAX_WORKSPACE_REWARD_RECORDS).get(),
-    firestore.collection('creditLedgers').where('ownerId', '==', uid).where('ownerType', '==', 'freelancer').limit(MAX_WORKSPACE_REWARD_RECORDS).get(),
-    authorizedBrandIds(uid, firestore),
+  const input = referralWorkspaceInput(value);
+  const { ownerType: ownerTypeValue, ownerId } = await authorizeWorkspaceScope(uid, input.scope, firestore);
+  const summaryRef = firestore.collection('referralOwnerSummaries').doc(ownerSummaryId(ownerTypeValue, ownerId));
+  const historyCollection = firestore.collection('referralOwnerHistory');
+  let historyQuery = historyCollection.where('ownerKey', '==', ownerSummaryId(ownerTypeValue, ownerId))
+    .where('role', '==', input.role).orderBy('createdAt', 'desc');
+  if (input.pageToken) {
+    const cursor = await historyCollection.doc(input.pageToken).get();
+    const cursorData = cursor.data() as RecordValue | undefined;
+    if (!cursor.exists || cursorData?.ownerKey !== ownerSummaryId(ownerTypeValue, ownerId)
+      || cursorData.ownerType !== ownerTypeValue || cursorData.ownerId !== ownerId || cursorData.role !== input.role) {
+      error('invalid-argument', 'Referral workspace pageToken is invalid');
+    }
+    historyQuery = historyQuery.startAfter(cursor);
+  }
+  const [summarySnapshot, historySnapshot, attributionSnapshot] = await Promise.all([
+    summaryRef.get(),
+    historyQuery.limit(input.limit + 1).get(),
+    input.scope.type === 'client' ? firestore.collection('referralAttributions').doc(uid).get() : Promise.resolve(undefined),
   ]);
-  const clientSafeCodes = clientCodes.docs.flatMap(code => {
-    const safeCode = safeCodeForWorkspace(code.data() as RecordValue);
-    return safeCode ? [safeCode] : [];
-  }).sort((left, right) => String(left.code).localeCompare(String(right.code)));
-  const freelancerSafeCodes = freelancerCodes.docs.flatMap(code => {
-    const safeCode = safeCodeForWorkspace(code.data() as RecordValue);
-    return safeCode ? [safeCode] : [];
-  }).sort((left, right) => String(left.code).localeCompare(String(right.code)));
-  const attribution = attributionSnapshot.data() as RecordValue | undefined;
-  const personalRewardSnapshots = [
-    ...clientInviterRewards.docs, ...freelancerInviterRewards.docs, ...invitedRewards.docs,
-  ] as Array<{ id: string; data(): RecordValue }>;
-  const [safeAttribution, validatedPersonalRewards] = await Promise.all([
-    sourceValidatedWorkspaceAttribution(attribution, firestore),
-    sourceValidatedWorkspaceRewards(personalRewardSnapshots, firestore),
-  ]);
-  const personalLedgers = [...clientLedgers.docs, ...freelancerLedgers.docs].flatMap(snapshot => {
-    const ledger = canonicalApprovedCreditLedgerForOverview(
-      snapshot as { id: string; data(): RecordValue }, validatedPersonalRewards,
-    );
-    return ledger ? [ledger] : [];
+  const projectionRows = historySnapshot.docs as Array<{ id: string; data(): RecordValue }>;
+  const pageRows = projectionRows.slice(0, input.limit).filter(row => {
+    const projection = row.data();
+    return projection.ownerId === ownerId && projection.ownerType === ownerTypeValue && projection.role === input.role
+      && typeof projection.rewardId === 'string' && DOCUMENT_ID_PATTERN.test(projection.rewardId);
   });
-  const inviterLedgerRewardIds = new Set(personalLedgers
-    .filter(ledger => ledger.kind === 'referral_inviter_credit').map(ledger => ledger.rewardId));
-  const invitedLedgerRewardIds = new Set(personalLedgers
-    .filter(ledger => ledger.kind === 'referral_invited_discount').map(ledger => ledger.rewardId));
-  const clientInviter = safeRewardsForOwner(
-    clientInviterRewards.docs as Array<{ id: string; data(): RecordValue }>, validatedPersonalRewards, inviterLedgerRewardIds, uid, 'client', 'inviter',
+  const rewardSnapshots = await Promise.all(pageRows.map(row => firestore.collection('referralRewards').doc(row.data().rewardId as string).get()));
+  const validatedRewards = await sourceValidatedWorkspaceRewards(
+    rewardSnapshots as Array<{ id: string; data(): RecordValue }>, firestore,
   );
-  const clientInvitee = safeRewardsForOwner(
-    invitedRewards.docs as Array<{ id: string; data(): RecordValue }>, validatedPersonalRewards, invitedLedgerRewardIds, uid, 'client', 'invited',
-  );
-  const freelancerInviter = safeRewardsForOwner(
-    freelancerInviterRewards.docs as Array<{ id: string; data(): RecordValue }>, validatedPersonalRewards, inviterLedgerRewardIds, uid, 'freelancer', 'inviter',
-  );
-  const brandWorkspaces = await Promise.all(brandIds.map(async brandId => {
-    const [brandCodes, brandRewardSnapshots, brandLedgers] = await Promise.all([
-      firestore.collection('referralCodes').where('ownerId', '==', brandId).where('ownerType', '==', 'brand').limit(MAX_WORKSPACE_REWARD_RECORDS).get(),
-      firestore.collection('referralRewards').where('inviterOwnerId', '==', brandId).where('inviterOwnerType', '==', 'brand').limit(MAX_WORKSPACE_REWARD_RECORDS).get(),
-      firestore.collection('creditLedgers').where('ownerId', '==', brandId).where('ownerType', '==', 'brand').limit(MAX_WORKSPACE_REWARD_RECORDS).get(),
-    ]);
-    const codes = brandCodes.docs.flatMap(code => {
-      const value = code.data() as RecordValue;
-      const safeCode = value.ownerType === 'brand' ? safeCodeForWorkspace(value) : null;
-      return safeCode ? [safeCode] : [];
-    }).sort((left, right) => String(left.code).localeCompare(String(right.code)));
-    const validatedBrandRewards = await sourceValidatedWorkspaceRewards(
-      brandRewardSnapshots.docs as Array<{ id: string; data(): RecordValue }>, firestore,
-    );
-    const canonicalBrandLedgers = brandLedgers.docs.flatMap(snapshot => {
-      const ledger = canonicalApprovedCreditLedgerForOverview(
-        snapshot as { id: string; data(): RecordValue }, validatedBrandRewards,
-      );
-      return ledger ? [ledger] : [];
-    });
-    const brandRewards = safeRewardsForOwner(
-      brandRewardSnapshots.docs as Array<{ id: string; data(): RecordValue }>,
-      validatedBrandRewards,
-      new Set(canonicalBrandLedgers.filter(ledger => ledger.kind === 'referral_inviter_credit').map(ledger => ledger.rewardId)),
-      brandId, 'brand', 'inviter',
-    );
-    return { ownerType: 'brand', brandId, codes, rewards: brandRewards, creditTotals: creditTotals(brandRewards, canonicalBrandLedgers) };
+  const items = await Promise.all(pageRows.map(async row => {
+    const rewardId = row.data().rewardId as string;
+    const reward = validatedRewards.get(rewardId);
+    if (!reward) return null;
+    const isOwner = input.role === 'inviter'
+      ? reward.inviterOwnerId === ownerId && reward.inviterOwnerType === ownerTypeValue
+      : reward.invitedOwnerId === ownerId && reward.invitedOwnerType === ownerTypeValue;
+    const amountMinor = input.role === 'inviter' ? reward.inviterCreditMinor : reward.invitedDiscountMinor;
+    if (!isOwner || !Number.isSafeInteger(amountMinor) || (amountMinor as number) < 0 || typeof reward.currency !== 'string'
+      || !CURRENCY_PATTERN.test(reward.currency) || !['pending', 'approved', 'rejected', 'cancelled'].includes(String(reward.status))) return null;
+    if (reward.status === 'approved') {
+      const ledgerId = `${rewardId}__${input.role === 'inviter' ? 'inviter' : 'invited'}`;
+      const ledger = await firestore.collection('creditLedgers').doc(ledgerId).get();
+      if (!canonicalApprovedCreditLedgerForOverview(ledger as { id: string; data(): RecordValue }, validatedRewards)) return null;
+    }
+    return {
+      id: rewardId, ownerType: ownerTypeValue, role: input.role, amountMinor: amountMinor as number,
+      currency: reward.currency, status: reward.status as RewardStatus,
+      ...(timestampIso(reward.createdAt) ? { createdAt: timestampIso(reward.createdAt) as string } : {}),
+    } as ReferralWorkspaceHistoryItem;
   }));
+  const attribution = attributionSnapshot ? await sourceValidatedWorkspaceAttribution(
+    attributionSnapshot.data() as RecordValue | undefined, firestore,
+  ) : undefined;
   return {
-    client: {
-      ownerType: 'client',
-      codes: clientSafeCodes,
-      ...(safeAttribution ? { attribution: safeAttribution } : {}),
-      inviterRewards: clientInviter,
-      inviteeRewards: clientInvitee,
+    contractVersion: 3,
+    scope: input.scope,
+    summary: safeWorkspaceSummary(summarySnapshot.data() as RecordValue | undefined, ownerTypeValue, ownerId),
+    ...(attribution ? { attribution: {
+      code: attribution.code as string,
+      programId: attribution.programId as string,
+      inviterOwnerType: attribution.inviterOwnerType as OwnerType,
+      expiresAt: timestampIso(attribution.expiresAt) as string,
+    } } : {}),
+    history: {
+      role: input.role,
+      items: items.flatMap(item => item ? [item] : []),
+      ...(projectionRows.length > input.limit ? { nextPageToken: pageRows.at(-1)?.id } : {}),
+      truncated: projectionRows.length > input.limit,
     },
-    freelancer: {
-      ownerType: 'freelancer',
-      codes: freelancerSafeCodes,
-      inviterRewards: freelancerInviter,
-    },
-    ...(brandWorkspaces.length > 0 ? { brandWorkspaces } : {}),
   };
 }
 

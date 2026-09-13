@@ -42,7 +42,7 @@ function firestoreState(initial, { retryFirstTransaction = false } = {}) {
       },
     };
   };
-  const query = (collectionName, filters = [], order = undefined, maximum = undefined) => ({
+  const query = (collectionName, filters = [], order = undefined, maximum = undefined, afterId = undefined) => ({
     collectionName,
     isQuery: true,
     filters,
@@ -55,7 +55,10 @@ function firestoreState(initial, { retryFirstTransaction = false } = {}) {
       return query(collectionName, filters, [field, direction], maximum);
     },
     limit(value) {
-      return query(collectionName, filters, order, value);
+      return query(collectionName, filters, order, value, afterId);
+    },
+    startAfter(cursor) {
+      return query(collectionName, filters, order, maximum, cursor.id);
     },
     async get() {
       const entries = Object.entries(state[collectionName] ?? {})
@@ -69,8 +72,9 @@ function firestoreState(initial, { retryFirstTransaction = false } = {}) {
           return direction === 'desc' ? -comparison : comparison;
         });
       }
+      const startIndex = afterId === undefined ? 0 : entries.findIndex(([id]) => id === afterId) + 1;
       const docs = entries
-        .slice(0, maximum)
+        .slice(startIndex, maximum === undefined ? undefined : startIndex + maximum)
         .map(([id, data]) => snapshot(data, id));
       return { docs, empty: docs.length === 0 };
     },
@@ -186,7 +190,7 @@ describe('referral domain', () => {
   test('returns aggregate referral marketing data only to a super admin', async () => {
     const { getReferralMarketingOverview } = loadModule();
     const { firestore } = firestoreState({
-      users: { 'admin-a': { role: 'superadmin' } },
+      users: { 'admin-a': { role: 'superadmin' }, 'client-a': { uid: 'client-a' }, 'brand-admin': { uid: 'brand-admin' } },
       referralPrograms: {
         'program-a': activeProgram,
       },
@@ -220,7 +224,7 @@ describe('referral domain', () => {
   test('keeps client and brand referrers with the same ID separate in the marketing overview', async () => {
     const { getReferralMarketingOverview } = loadModule();
     const { firestore } = firestoreState({
-      users: { 'admin-a': { role: 'superadmin' } },
+      users: { 'admin-a': { role: 'superadmin' }, 'client-a': { uid: 'client-a' }, 'brand-admin': { uid: 'brand-admin' } },
       referralPrograms: {}, referralCodes: {},
       referralAttributions: {
         client: { inviterId: 'X', inviterOwnerType: 'client' },
@@ -901,32 +905,64 @@ describe('referral domain', () => {
     expect(state.creditLedgers).toEqual({});
   });
 
-  test('returns only the caller-safe referral workspace', async () => {
+  test('returns an explicit client workspace v3 from its trusted owner summary', async () => {
     const { getMyReferralWorkspace } = loadModule();
     const { firestore } = firestoreState({
+      users: { 'inviter-a': { uid: 'inviter-a' } },
+      memberships: {}, freelancerProfiles: {},
       referralCodes: { FRIEND: { code: 'FRIEND', ownerId: 'inviter-a', ownerType: 'client', programId: 'program-a', status: 'active' } },
-      referralAttributions: { 'inviter-a': { code: 'OTHER', programId: 'program-b', inviterId: 'secret-user', expiresAt: '2026-09-20T00:00:00.000Z' } },
-      referralRewards: {
-        own: { inviterId: 'inviter-a', inviterOwnerId: 'inviter-a', inviterOwnerType: 'client', invitedUserId: 'new-client', invitedOwnerId: 'new-client', invitedOwnerType: 'client', inviterCreditMinor: 500, invitedDiscountMinor: 300, currency: 'EUR', status: 'approved' },
-        foreign: { inviterId: 'someone-else', inviterOwnerId: 'someone-else', inviterOwnerType: 'client', invitedUserId: 'other-client', invitedOwnerId: 'other-client', invitedOwnerType: 'client', inviterCreditMinor: 1, invitedDiscountMinor: 1, currency: 'EUR', status: 'approved' },
+      referralOwnerSummaries: {
+        'client__inviter-a': {
+          schemaVersion: 1, summaryEpoch: 'referral-v3', ownerId: 'inviter-a', ownerType: 'client', codeCount: 1, attributionCount: 0,
+          currentCode: { code: 'FRIEND', programId: 'program-a', status: 'active' },
+          inviter: { pendingCount: 1, approvedCount: 2, rejectedCount: 0, cancelledCount: 0, flaggedPendingCount: 0, creditTotalsByCurrency: { EUR: { approvedMinor: 1000, pendingMinor: 500 } } },
+          invitee: { pendingCount: 0, approvedCount: 0, rejectedCount: 0, cancelledCount: 0, flaggedPendingCount: 0, creditTotalsByCurrency: {} },
+        },
       },
+      referralRewards: {}, creditLedgers: {}, referralAttributions: {},
     });
 
-    await expect(getMyReferralWorkspace('inviter-a', {}, firestore)).resolves.toEqual({
-      client: {
-        ownerType: 'client',
-        codes: [{ code: 'FRIEND', ownerType: 'client', programId: 'program-a', status: 'active' }],
-        inviterRewards: [],
-        inviteeRewards: [],
+    await expect(getMyReferralWorkspace('inviter-a', { scope: { type: 'client' }, limit: 10 }, firestore)).resolves.toEqual({
+      contractVersion: 3,
+      scope: { type: 'client' },
+      summary: {
+        ownerType: 'client', currentCode: { code: 'FRIEND', programId: 'program-a', status: 'active' },
+        codeCount: 1, attributionCount: 0, state: 'verified',
+        inviter: { pendingCount: 1, approvedCount: 2, rejectedCount: 0, cancelledCount: 0, flaggedPendingCount: 0, creditTotals: [{ currency: 'EUR', approvedMinor: 1000, pendingMinor: 500 }] },
+        invitee: { pendingCount: 0, approvedCount: 0, rejectedCount: 0, cancelledCount: 0, flaggedPendingCount: 0, creditTotals: [] },
       },
-      freelancer: { ownerType: 'freelancer', codes: [], inviterRewards: [] },
+      history: { role: 'inviter', items: [], truncated: false },
     });
+  });
+
+  test('paginates a single owner history with an opaque continuation token', async () => {
+    const { getMyReferralWorkspace } = loadModule();
+    const summary = {
+      schemaVersion: 1, summaryEpoch: 'referral-v3', ownerId: 'client-a', ownerType: 'client', codeCount: 0, attributionCount: 0,
+      inviter: { pendingCount: 0, approvedCount: 0, rejectedCount: 0, cancelledCount: 0, flaggedPendingCount: 0, creditTotalsByCurrency: {} },
+      invitee: { pendingCount: 0, approvedCount: 0, rejectedCount: 0, cancelledCount: 0, flaggedPendingCount: 0, creditTotalsByCurrency: {} },
+    };
+    const { firestore } = firestoreState({
+      users: { 'client-a': { uid: 'client-a' } }, memberships: {}, freelancerProfiles: {},
+      referralOwnerSummaries: { 'client__client-a': summary },
+      referralOwnerHistory: {
+        one: { ownerKey: 'client__client-a', ownerId: 'client-a', ownerType: 'client', role: 'inviter', rewardId: 'program-a__client-b', createdAt: '2026-09-12T10:00:00.000Z' },
+        two: { ownerKey: 'client__client-a', ownerId: 'client-a', ownerType: 'client', role: 'inviter', rewardId: 'program-a__client-c', createdAt: '2026-09-12T09:00:00.000Z' },
+      },
+      referralRewards: {}, creditLedgers: {}, referralAttributions: {},
+    });
+
+    const first = await getMyReferralWorkspace('client-a', { scope: { type: 'client' }, limit: 1 }, firestore);
+    expect(first.history).toMatchObject({ truncated: true, nextPageToken: 'one' });
+    await expect(getMyReferralWorkspace('client-a', {
+      scope: { type: 'client' }, limit: 1, pageToken: first.history.nextPageToken,
+    }, firestore)).resolves.toMatchObject({ history: { truncated: false } });
   });
 
   test('renders only source-validated canonical client and brand rewards with matching ledgers', async () => {
     const { processReferralBookingCompletion, reviewReferralReward, getMyReferralWorkspace } = loadModule();
     const { firestore, state } = firestoreState({
-      users: { 'admin-a': { role: 'superadmin' } },
+      users: { 'admin-a': { role: 'superadmin' }, 'client-a': { uid: 'client-a' }, 'brand-admin': { uid: 'brand-admin' } },
       memberships: { 'brand-a__principal__brand-admin': { userId: 'brand-admin', brandId: 'brand-a', role: 'principal_admin', status: 'active' } },
       brands: { 'brand-a': { name: 'A' } },
       referralPrograms: { 'program-a': activeProgram },
@@ -964,17 +1000,22 @@ describe('referral domain', () => {
       ...state.creditLedgers['program-a__client-z__inviter'], rewardId: 'program-a__client-brand-malformed',
     };
 
-    const clientWorkspace = await getMyReferralWorkspace('client-a', {}, firestore);
-    expect(clientWorkspace.client.inviterRewards).toEqual([
-      { id: 'program-a__client-y', ownerType: 'client', role: 'inviter', amountMinor: 500, currency: 'EUR', status: 'approved' },
-    ]);
-    const brandWorkspace = await getMyReferralWorkspace('brand-admin', {}, firestore);
-    expect(brandWorkspace.brandWorkspaces).toMatchObject([{
-      brandId: 'brand-a',
-      rewards: [{ id: 'program-a__client-z', ownerType: 'brand', role: 'inviter', amountMinor: 500, status: 'approved' }],
-      creditTotals: [{ currency: 'EUR', approvedMinor: 500, pendingMinor: 0 }],
-    }]);
-    expect(brandWorkspace.brandWorkspaces[0].rewards).toHaveLength(1);
+    const clientWorkspace = await getMyReferralWorkspace('client-a', { scope: { type: 'client' } }, firestore);
+    expect(clientWorkspace).toMatchObject({
+      contractVersion: 3, summary: { state: 'verified', ownerType: 'client' },
+      history: { items: [{ id: 'program-a__client-y', ownerType: 'client', role: 'inviter', amountMinor: 500, currency: 'EUR', status: 'approved' }] },
+    });
+    const brandWorkspace = await getMyReferralWorkspace('brand-admin', { scope: { type: 'brand', brandId: 'brand-a' } }, firestore);
+    expect(brandWorkspace).toMatchObject({
+      contractVersion: 3, summary: { state: 'verified', ownerType: 'brand' },
+      history: { items: [{ id: 'program-a__client-z', ownerType: 'brand', role: 'inviter', amountMinor: 500, status: 'approved' }] },
+    });
+    expect(state.referralOwnerSummaries['client__client-a'].inviter).toMatchObject({
+      pendingCount: 0, approvedCount: 1, creditTotalsByCurrency: { EUR: { pendingMinor: 0, approvedMinor: 500 } },
+    });
+    expect(state.referralOwnerSummaries['brand__brand-a'].inviter).toMatchObject({
+      pendingCount: 0, approvedCount: 1, creditTotalsByCurrency: { EUR: { pendingMinor: 0, approvedMinor: 500 } },
+    });
   });
 
   test('does not create a reward for a completed booking settled at zero', async () => {
@@ -1012,6 +1053,7 @@ describe('referral domain', () => {
   test('projects only a principal\'s authorized brand referral data and totals', async () => {
     const { getMyReferralWorkspace } = loadModule();
     const { firestore } = firestoreState({
+      users: { 'principal-a': { uid: 'principal-a' } },
       memberships: {
         'brand-a__principal__principal-a': { userId: 'principal-a', brandId: 'brand-a', role: 'principal_admin', status: 'active', permissions: {} },
         'brand-b__principal__other-a': { userId: 'other-a', brandId: 'brand-b', role: 'principal_admin', status: 'active', permissions: {} },
@@ -1029,17 +1071,8 @@ describe('referral domain', () => {
       creditLedgers: { a: { ownerId: 'brand-a', ownerType: 'brand', amountMinor: 500, currency: 'EUR', status: 'approved' } },
     });
 
-    await expect(getMyReferralWorkspace('principal-a', {}, firestore)).resolves.toEqual({
-      client: { ownerType: 'client', codes: [], inviterRewards: [], inviteeRewards: [] },
-      freelancer: { ownerType: 'freelancer', codes: [], inviterRewards: [] },
-      brandWorkspaces: [{
-        ownerType: 'brand',
-        brandId: 'brand-a',
-        codes: [{ code: 'BRANDA', ownerType: 'brand', programId: 'program-a', status: 'active' }],
-        rewards: [],
-        creditTotals: [],
-      }],
-    });
+    await expect(getMyReferralWorkspace('principal-a', { scope: { type: 'brand', brandId: 'brand-a' } }, firestore))
+      .resolves.toMatchObject({ contractVersion: 3, scope: { type: 'brand', brandId: 'brand-a' }, summary: { state: 'unavailable' } });
   });
 
   test.each([
@@ -1083,6 +1116,10 @@ describe('referral domain', () => {
       code: 'CLIENT-A1', ownerType: 'client', programId: 'program-a', reused: true,
     });
     expect(state.referralCodes['CLIENT-A1'].ownerId).toBe('client-a');
+    expect(state.referralOwnerSummaries['client__client-a']).toMatchObject({
+      schemaVersion: 1, summaryEpoch: 'referral-v3', ownerType: 'client', ownerId: 'client-a', codeCount: 1,
+      currentCode: { code: 'CLIENT-A1', programId: 'program-a', status: 'active' },
+    });
     await expect(getReferralMarketingOverview('admin-a', { code: 'client-a1', limit: 1 }, firestore)).resolves.toMatchObject({
       auditTrail: [{ action: 'REFERRAL_CODE_CREATED', code: 'CLIENT-A1', actorUid: 'client-a' }],
     });
@@ -1226,15 +1263,15 @@ describe('referral domain', () => {
   test('projects a local salon admin\'s authorized brand workspace', async () => {
     const { getMyReferralWorkspace } = loadModule();
     const { firestore } = firestoreState({
+      users: { 'manager-a': { uid: 'manager-a' } },
       memberships: { 'brand-a__location-a__manager-a': { userId: 'manager-a', brandId: 'brand-a', locationId: 'location-a', role: 'salon_admin', status: 'active', permissions: {} } },
       brands: { 'brand-a': { name: 'A' } },
       referralCodes: { BRANDA: { code: 'BRANDA', ownerId: 'brand-a', ownerType: 'brand', programId: 'program-a', status: 'active' } },
       referralRewards: {}, referralAttributions: {},
     });
 
-    await expect(getMyReferralWorkspace('manager-a', {}, firestore)).resolves.toMatchObject({
-      brandWorkspaces: [{ brandId: 'brand-a', codes: [{ code: 'BRANDA' }], rewards: [], creditTotals: [] }],
-    });
+    await expect(getMyReferralWorkspace('manager-a', { scope: { type: 'brand', brandId: 'brand-a' } }, firestore))
+      .resolves.toMatchObject({ contractVersion: 3, scope: { type: 'brand', brandId: 'brand-a' } });
   });
 
   test('does not hide an authorized brand behind more than twenty irrelevant memberships', async () => {
@@ -1243,6 +1280,7 @@ describe('referral domain', () => {
       `irrelevant-${index}`, { userId: 'admin-a', brandId: `irrelevant-brand-${index}`, role: 'worker', status: 'active' },
     ]));
     const { firestore } = firestoreState({
+      users: { 'admin-a': { uid: 'admin-a' } },
       memberships: {
         ...irrelevant,
         valid: { userId: 'admin-a', brandId: 'brand-a', role: 'principal_admin', status: 'active' },
@@ -1250,94 +1288,33 @@ describe('referral domain', () => {
       brands: { 'brand-a': { name: 'A' } }, referralCodes: {}, referralRewards: {}, referralAttributions: {},
     });
 
-    await expect(getMyReferralWorkspace('admin-a', {}, firestore)).resolves.toMatchObject({
-      brandWorkspaces: [{ brandId: 'brand-a' }],
+    await expect(getMyReferralWorkspace('admin-a', { scope: { type: 'brand', brandId: 'brand-a' } }, firestore)).resolves.toMatchObject({
+      contractVersion: 3,
+      scope: { type: 'brand', brandId: 'brand-a' },
+      summary: { ownerType: 'brand', state: 'unavailable' },
     });
   });
 
-  test('separates client invitee, client inviter, freelancer inviter, and brand workspace data', async () => {
+  test('requires exactly one authorized workspace scope and never conflates matching IDs', async () => {
     const { getMyReferralWorkspace } = loadModule();
     const { firestore } = firestoreState({
-      memberships: { 'brand-a__principal__multi-a': { userId: 'multi-a', brandId: 'brand-a', role: 'principal_admin', status: 'active', permissions: {} } },
-      brands: { 'brand-a': { name: 'A' } },
-      referralCodes: {
-        CLIENTA: { code: 'CLIENTA', ownerId: 'multi-a', ownerType: 'client', programId: 'program-a', status: 'active' },
-        FREELANCEA: { code: 'FREELANCEA', ownerId: 'multi-a', ownerType: 'freelancer', programId: 'program-a', status: 'active' },
-        BRANDA: { code: 'BRANDA', ownerId: 'brand-a', ownerType: 'brand', programId: 'program-a', status: 'active' },
-      },
-      referralAttributions: { 'multi-a': { code: 'OTHER', programId: 'program-a', inviterId: 'other-a', inviterOwnerType: 'client', expiresAt: '2026-09-20T00:00:00.000Z' } },
-      referralRewards: {
-        clientInviter: { inviterOwnerId: 'multi-a', inviterOwnerType: 'client', invitedOwnerId: 'client-b', invitedOwnerType: 'client', inviterCreditMinor: 100, invitedDiscountMinor: 50, currency: 'EUR', status: 'approved' },
-        clientInvitee: { inviterOwnerId: 'other-a', inviterOwnerType: 'client', invitedOwnerId: 'multi-a', invitedOwnerType: 'client', inviterCreditMinor: 100, invitedDiscountMinor: 50, currency: 'EUR', status: 'approved' },
-        freelancerInviter: { inviterOwnerId: 'multi-a', inviterOwnerType: 'freelancer', invitedOwnerId: 'client-c', invitedOwnerType: 'client', inviterCreditMinor: 200, invitedDiscountMinor: 50, currency: 'EUR', status: 'approved' },
-        brandInviter: { inviterOwnerId: 'brand-a', inviterOwnerType: 'brand', invitedOwnerId: 'client-d', invitedOwnerType: 'client', inviterCreditMinor: 300, invitedDiscountMinor: 50, currency: 'EUR', status: 'approved' },
-      },
-      creditLedgers: { brand: { ownerId: 'brand-a', ownerType: 'brand', amountMinor: 300, currency: 'EUR', status: 'approved' } },
+      users: { X: { uid: 'X' }, 'brand-admin': { uid: 'brand-admin' } },
+      memberships: { membership: { userId: 'brand-admin', brandId: 'X', role: 'principal_admin', status: 'active', permissions: {} } },
+      brands: { X: { name: 'X' } }, freelancerProfiles: {},
+      referralOwnerSummaries: {
+        'client__X': { schemaVersion: 1, summaryEpoch: 'referral-v3', ownerId: 'X', ownerType: 'client', codeCount: 0, attributionCount: 0,
+          inviter: { pendingCount: 1, approvedCount: 0, rejectedCount: 0, cancelledCount: 0, flaggedPendingCount: 0, creditTotalsByCurrency: {} },
+          invitee: { pendingCount: 0, approvedCount: 0, rejectedCount: 0, cancelledCount: 0, flaggedPendingCount: 0, creditTotalsByCurrency: {} } },
+        'brand__X': { schemaVersion: 1, summaryEpoch: 'referral-v3', ownerId: 'X', ownerType: 'brand', codeCount: 0, attributionCount: 0,
+          inviter: { pendingCount: 9, approvedCount: 0, rejectedCount: 0, cancelledCount: 0, flaggedPendingCount: 0, creditTotalsByCurrency: {} },
+          invitee: { pendingCount: 0, approvedCount: 0, rejectedCount: 0, cancelledCount: 0, flaggedPendingCount: 0, creditTotalsByCurrency: {} } },
+      }, referralOwnerHistory: {}, referralRewards: {}, referralAttributions: {}, creditLedgers: {},
     });
-
-    await expect(getMyReferralWorkspace('multi-a', {}, firestore)).resolves.toEqual({
-      client: {
-        ownerType: 'client',
-        codes: [{ code: 'CLIENTA', ownerType: 'client', programId: 'program-a', status: 'active' }],
-        inviterRewards: [],
-        inviteeRewards: [],
-      },
-      freelancer: {
-        ownerType: 'freelancer',
-        codes: [{ code: 'FREELANCEA', ownerType: 'freelancer', programId: 'program-a', status: 'active' }],
-        inviterRewards: [],
-      },
-      brandWorkspaces: [{
-        ownerType: 'brand',
-        brandId: 'brand-a',
-        codes: [{ code: 'BRANDA', ownerType: 'brand', programId: 'program-a', status: 'active' }],
-        rewards: [],
-        creditTotals: [],
-      }],
-    });
-  });
-
-  test('separates client and brand referral workspaces when their IDs collide', async () => {
-    const { getMyReferralWorkspace } = loadModule();
-    const { firestore } = firestoreState({
-      memberships: { 'X__principal__brand-admin': { userId: 'brand-admin', brandId: 'X', role: 'principal_admin', status: 'active', permissions: {} } },
-      brands: { X: { name: 'X' } },
-      referralCodes: {
-        CLIENTX: { code: 'CLIENTX', ownerId: 'X', ownerType: 'client', programId: 'program-a', status: 'active' },
-        BRANDX: { code: 'BRANDX', ownerId: 'X', ownerType: 'brand', programId: 'program-a', status: 'active' },
-      },
-      referralRewards: {
-        clientInviter: { inviterId: 'X', inviterOwnerId: 'X', inviterOwnerType: 'client', invitedUserId: 'client-y', invitedOwnerId: 'client-y', invitedOwnerType: 'client', inviterCreditMinor: 500, invitedDiscountMinor: 300, currency: 'EUR', status: 'approved' },
-        brandInviter: { inviterId: 'X', inviterOwnerId: 'X', inviterOwnerType: 'brand', invitedUserId: 'client-z', invitedOwnerId: 'client-z', invitedOwnerType: 'client', inviterCreditMinor: 700, invitedDiscountMinor: 300, currency: 'EUR', status: 'approved' },
-        forgedBrandInvitee: { inviterId: 'other', inviterOwnerId: 'other', inviterOwnerType: 'client', invitedUserId: 'X', invitedOwnerId: 'X', invitedOwnerType: 'brand', inviterCreditMinor: 1, invitedDiscountMinor: 200, currency: 'EUR', status: 'approved' },
-      },
-      referralAttributions: {},
-      creditLedgers: {
-        clientInviter: { ownerId: 'X', ownerType: 'client', amountMinor: 500, currency: 'EUR', status: 'approved' },
-        brandInviter: { ownerId: 'X', ownerType: 'brand', amountMinor: 700, currency: 'EUR', status: 'approved' },
-      },
-    });
-
-    await expect(getMyReferralWorkspace('X', {}, firestore)).resolves.toEqual({
-      client: {
-        ownerType: 'client',
-        codes: [{ code: 'CLIENTX', ownerType: 'client', programId: 'program-a', status: 'active' }],
-        inviterRewards: [],
-        inviteeRewards: [],
-      },
-      freelancer: { ownerType: 'freelancer', codes: [], inviterRewards: [] },
-    });
-    await expect(getMyReferralWorkspace('brand-admin', {}, firestore)).resolves.toEqual({
-      client: { ownerType: 'client', codes: [], inviterRewards: [], inviteeRewards: [] },
-      freelancer: { ownerType: 'freelancer', codes: [], inviterRewards: [] },
-      brandWorkspaces: [{
-        ownerType: 'brand',
-        brandId: 'X',
-        codes: [{ code: 'BRANDX', ownerType: 'brand', programId: 'program-a', status: 'active' }],
-        rewards: [],
-        creditTotals: [],
-      }],
-    });
+    await expect(getMyReferralWorkspace('X', { scope: { type: 'client' } }, firestore))
+      .resolves.toMatchObject({ summary: { ownerType: 'client', inviter: { pendingCount: 1 } } });
+    await expect(getMyReferralWorkspace('brand-admin', { scope: { type: 'brand', brandId: 'X' } }, firestore))
+      .resolves.toMatchObject({ summary: { ownerType: 'brand', inviter: { pendingCount: 9 } } });
+    await expect(getMyReferralWorkspace('brand-admin', {}, firestore)).rejects.toMatchObject({ code: 'invalid-argument' });
   });
 
   test('records a validated public referral visit without changing rewards or credits', async () => {

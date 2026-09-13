@@ -70,17 +70,52 @@ Private, server-written referral-only audit rows record referral program changes
 
 Client scope requires a canonical `users/{uid}` identity record whose stored `uid` equals the authenticated UID, no `freelancerProfiles/{uid}` document, and no active salon membership. This matches the normal signup schema, which intentionally has no browser-supplied role. Freelancer scope requires that same canonical user identity plus the authoritative `freelancerProfiles/{uid}` document whose stored `uid` equals the authenticated UID, and no active salon membership. Brand scope requires that canonical identity and an active `principal_admin` or `salon_admin` membership for the exact requested, existing brand. Legacy roles are compatibility hints only: an absent role or the compatible legacy personal role is permitted, while a known non-personal role is denied for personal scope; a legacy admin may use only a verified brand membership. Missing or mismatched identity records fail closed. Super Admin/platform-admin identities cannot create a referral code in any scope.
 
-`getMyReferralWorkspace` returns distinct server-owned sections rather than a flattened personal list:
+`getMyReferralWorkspace` is contract version **3**. Every request selects exactly one authenticated and server-authorized scope; it never enumerates all of a user's brands or returns combined personal/brand surfaces.
 
 ```ts
-{
-  client: { ownerType: 'client', codes, attribution?, inviterRewards, inviteeRewards },
-  freelancer: { ownerType: 'freelancer', codes, inviterRewards },
-  brandWorkspaces?: [{ ownerType: 'brand', brandId, codes, rewards, creditTotals }],
-}
+type ReferralWorkspaceScope =
+  | { type: 'client' }
+  | { type: 'freelancer' }
+  | { type: 'brand'; brandId: string };
+
+type ReferralWorkspaceRequest = {
+  scope: ReferralWorkspaceScope;
+  role?: 'inviter' | 'invitee'; // `invitee` is valid only for `client`
+  limit?: number;               // integer 1..20; defaults to 10
+  pageToken?: string;           // opaque continuation from the same scope + role
+};
+
+type ReferralWorkspaceV3 = {
+  contractVersion: 3;
+  scope: ReferralWorkspaceScope;
+  summary: {
+    ownerType: 'client' | 'freelancer' | 'brand';
+    state: 'verified' | 'unavailable';
+    codeCount: number;
+    attributionCount: number;
+    currentCode?: { code: string; programId: string; status: string };
+    inviter: ReferralWorkspaceRoleSummary;
+    invitee: ReferralWorkspaceRoleSummary;
+  };
+  attribution?: { code: string; programId: string; inviterOwnerType: 'client' | 'freelancer' | 'brand'; expiresAt: string };
+  history: { role: 'inviter' | 'invitee'; items: ReferralWorkspaceHistoryItem[]; nextPageToken?: string; truncated: boolean };
+};
+
+type ReferralWorkspaceRoleSummary = {
+  pendingCount: number; approvedCount: number; rejectedCount: number; cancelledCount: number; flaggedPendingCount: number;
+  creditTotals: Array<{ currency: string; pendingMinor: number; approvedMinor: number }>;
+};
+type ReferralWorkspaceHistoryItem = {
+  id: string; ownerType: 'client' | 'freelancer' | 'brand'; role: 'inviter' | 'invitee';
+  amountMinor: number; currency: string; status: 'pending' | 'approved' | 'rejected' | 'cancelled'; createdAt?: string;
+};
 ```
 
-Each reward row retains its `ownerType`. Client invitee attribution and reward credit appear only in the `client` section; freelancer inviter credit and every authorized brand workspace remain separate. Workspace reward rows are bounded and require the deterministic reward/evidence chain, exact typed owner aliases, matching booking/attribution/code/program sources, and (for an approved row) its matching deterministic credit-ledger leg. Orphaned ledgers and malformed aliases are omitted; a later program status or terms edit does not erase otherwise canonical historical records because their trusted evidence preserves the qualified terms. This is a deliberate breaking staging contract so clients do not infer ownership from a flattened list.
+Client invitee attribution/credits are represented only in that client's `invitee` summary or `role: 'invitee'` page; freelancer and brand scopes only expose inviter data. Brand scope authorization is an exact active `principal_admin` or `salon_admin` membership query for the requested existing `brandId`; inactive and worker memberships cannot crowd it out. Personal scopes require the same authoritative profile, freelancer, and active-membership checks as code creation.
+
+The summary is the server-written `referralOwnerSummaries/{ownerType}__{ownerId}` projection (`schemaVersion: 1`, `summaryEpoch: 'referral-v3'`) and is updated in the transaction that creates a code/attribution/reward or reviews/flags a canonical reward. Its typed path and duplicated owner fields must agree. Its `currentCode` is a pointer, not browser authority. Missing, malformed, or wrong-epoch projections return `state: 'unavailable'` and no raw-record fallback; this quarantines unsupported pre-v3/legacy data rather than silently claiming zero balances.
+
+History is queried only from the bounded server-written `referralOwnerHistory` projection for the exact typed owner and role, ordered newest-first and fetched as `limit + 1`. `truncated` and `nextPageToken` therefore describe the real page boundary. The callable source-validates at most 20 returned reward rows against their deterministic evidence, booking, attribution, code, program, and—when approved—deterministic ledger leg. Orphaned ledgers, malformed aliases, and invalid source links are omitted. No user request scans raw reward/ledger collections, fans out across brands, or fetches a silently arbitrary 100-row window. This is a deliberate breaking staging contract; V2 workspace consumers must not infer or synthesize V3 data.
 
 ## Super Admin marketing dashboard
 
