@@ -57,6 +57,7 @@ import {
   createMyReferralCodeFunction,
   createReferralProgramFunction,
   getReferralMarketingOverviewFunction,
+  initializeReferralMarketingV3Function,
   getMyReferralWorkspaceFunction,
   getPublicReferralCodeFunction,
   recordReferralVisitFunction,
@@ -106,6 +107,7 @@ export const attributeReferral = attributeReferralFunction;
 export const reviewReferralReward = reviewReferralRewardFunction;
 export const setReferralRewardFlag = setReferralRewardFlagFunction;
 export const getReferralMarketingOverview = getReferralMarketingOverviewFunction;
+export const initializeReferralMarketingV3 = initializeReferralMarketingV3Function;
 export const getMyReferralWorkspace = getMyReferralWorkspaceFunction;
 export const getPublicReferralCode = getPublicReferralCodeFunction;
 export const recordReferralVisit = recordReferralVisitFunction;

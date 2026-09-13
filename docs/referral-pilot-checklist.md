@@ -91,6 +91,20 @@ Jest command passes: they are the assertions under test.
 
 ## Staging release gate
 
+- [ ] Initialize the V3 projection through the authenticated Super Admin
+  `initializeReferralMarketingV3` callable. On an empty staging project it
+  atomically creates the server-owned initialization gate and zero overview;
+  repeating the call must return `alreadyInitialized: true`. Never seed
+  `referralMarketingSummaries/overview` manually. If any legacy referral
+  program, code, attribution, reward, referral ledger, telemetry, audit,
+  evidence, or projection row exists, the callable must fail with
+  `failed-precondition` and the dashboard must remain `migrationRequired`.
+- [ ] For a staging project with referral history, run the separately reviewed
+  Admin SDK reconciliation workflow: backfill and validate every V3 canonical
+  row and projection, then atomically write the exact `referral-v3`
+  `status: reconciled` gate with its reconciled overview. The runtime callable
+  intentionally cannot turn arbitrary legacy rows into a trusted projection.
+  Record reconciliation counts and currency totals before continuing.
 - [ ] Keep referral telemetry disabled in the browser until Firebase Web App
   Check has been initialized with the staging provider and site key. Enable
   telemetry only after a fresh limited-use token reaches `recordReferralVisit`;
@@ -104,11 +118,13 @@ Blaze billing and that deployment credentials are authorized. Then deploy only
 staging:
 
 ```bash
-firebase deploy --only firestore:rules,functions --project staging
+firebase deploy --only firestore:rules,firestore:indexes,functions --project staging
 ```
 
 Verify Firebase resolves `staging` to `elite-cuts-staging`. Never substitute
-the production alias or project ID. After the staging deployment, run the
-four-user pilot above and make the release decision from its recorded evidence.
+the production alias or project ID. Wait until every composite index reports
+ready before invoking V3 overview/workspace queries. Then run the empty-first
+initializer or the reviewed reconciliation workflow above, run the four-user
+pilot, and make the release decision from its recorded evidence.
 The deferred browser registration-attribution step must be recorded as a
 release limitation; it is not a prerequisite to deploy to staging.

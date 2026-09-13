@@ -1,6 +1,6 @@
 import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 
 type Firestore = admin.firestore.Firestore;
 type RecordValue = Record<string, unknown>;
@@ -202,6 +202,7 @@ const REFERRAL_CANONICAL_SUMMARY_VERSION = 1;
 // Fresh staging rollout marker. Rows without this exact server-selected epoch are
 // quarantined rather than being interpreted as a zero-valued legacy workspace.
 const REFERRAL_SUMMARY_EPOCH = 'referral-v3';
+const REFERRAL_MARKETING_STATE_ID = 'v3';
 const SUPPORTED_REFERRAL_CURRENCIES = new Set(['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD']);
 const DOCUMENT_ID_FIELD_PATH = admin.firestore.FieldPath.documentId();
 
@@ -304,20 +305,20 @@ function positivePaidCompletionAt(booking: RecordValue | undefined): number | un
   return completedAt !== undefined && Number.isSafeInteger(completedAt) ? completedAt : undefined;
 }
 
-function earliestPositivePaidCompletion(
-  bookings: Array<{ id: string; data(): RecordValue }>,
-): { id: string; completedAtMs: number } | null {
-  const eligible: Array<{ id: string; completedAtMs: number }> = [];
-  for (const snapshot of bookings) {
-    const booking = snapshot.data();
-    if (!isPositivePaidBooking(booking)) continue;
-    const completedAtMs = positivePaidCompletionAt(booking);
-    if (completedAtMs === undefined) return null;
-    eligible.push({ id: snapshot.id, completedAtMs });
-  }
-  return eligible.sort((left, right) => (
-    left.completedAtMs - right.completedAtMs || left.id.localeCompare(right.id)
-  ))[0] ?? null;
+function earlierEligibleBookingQueries(
+  firestore: Firestore,
+  clientId: string,
+  bookingId: string,
+  completedAt: unknown,
+): admin.firestore.Query[] {
+  const base = firestore.collection('bookings')
+    .where('clientId', '==', clientId).where('status', '==', 'completed')
+    .where('paymentStatus', '==', 'paid').where('isTest', '==', false)
+    .where('pricePaidMinor', '>', 0);
+  return [
+    base.where('completedAt', '<', completedAt).limit(1),
+    base.where('completedAt', '==', completedAt).where(DOCUMENT_ID_FIELD_PATH, '<', bookingId).limit(1),
+  ];
 }
 
 function referralCompletionEvidence(value: unknown): ReferralCompletionEvidence | null {
@@ -726,6 +727,25 @@ function safeMarketingSummary(value: RecordValue | undefined): ReferralMarketing
   };
 }
 
+function newMarketingSummary(): ReferralMarketingSummaryRecord {
+  return {
+    schemaVersion: REFERRAL_MARKETING_SUMMARY_SCHEMA_VERSION,
+    summaryEpoch: REFERRAL_SUMMARY_EPOCH,
+    ...Object.fromEntries(PLATFORM_COUNT_FIELDS.map(field => [field, 0])) as Record<PlatformCountField, number>,
+    approvedCreditTotalsByCurrency: {},
+  };
+}
+
+function validMarketingGate(value: RecordValue | undefined): boolean {
+  return value?.schemaVersion === REFERRAL_MARKETING_SUMMARY_SCHEMA_VERSION
+    && value.summaryEpoch === REFERRAL_SUMMARY_EPOCH
+    && (value.status === 'initialized-empty' || value.status === 'reconciled');
+}
+
+export function deterministicReferralRewardId(programId: string, invitedUserId: string): string {
+  return `rr_v1_${createHash('sha256').update(JSON.stringify([programId, invitedUserId])).digest('hex')}`;
+}
+
 function newProgramSummary(programId: string, input: ReturnType<typeof activeProgramInput>): ReferralProgramSummaryRecord {
   return {
     schemaVersion: REFERRAL_MARKETING_SUMMARY_SCHEMA_VERSION,
@@ -839,10 +859,61 @@ async function readMarketingSummary(
   firestore: Firestore,
 ): Promise<{ ref: admin.firestore.DocumentReference; summary: ReferralMarketingSummaryRecord }> {
   const ref = firestore.collection('referralMarketingSummaries').doc('overview');
-  const snapshot = await transaction.get(ref);
+  const gateRef = firestore.collection('referralMarketingState').doc(REFERRAL_MARKETING_STATE_ID);
+  const [snapshot, gateSnapshot] = await transaction.getAll(ref, gateRef);
   const summary = safeMarketingSummary(snapshot.data() as RecordValue | undefined);
-  if (!snapshot.exists || !summary) error('failed-precondition', 'Referral marketing projection migration is required');
+  if (!snapshot.exists || !summary || !gateSnapshot.exists
+    || !validMarketingGate(gateSnapshot.data() as RecordValue | undefined)) {
+    error('failed-precondition', 'Referral marketing projection migration is required');
+  }
   return { ref, summary };
+}
+
+export async function initializeReferralMarketingV3(
+  caller: string | null,
+  value: unknown,
+  firestore: Firestore = admin.firestore(),
+  verifiedPlatformAdmin = false,
+): Promise<{ initialized: true; alreadyInitialized: boolean }> {
+  const uid = callerUid(caller);
+  await requireSuperAdmin(uid, firestore, verifiedPlatformAdmin);
+  record(value, [], 'Referral marketing initialization is invalid');
+  const gateRef = firestore.collection('referralMarketingState').doc(REFERRAL_MARKETING_STATE_ID);
+  const summaryRef = firestore.collection('referralMarketingSummaries').doc('overview');
+  return firestore.runTransaction(async transaction => {
+    const [gateSnapshot, summarySnapshot] = await transaction.getAll(gateRef, summaryRef);
+    const gate = gateSnapshot.data() as RecordValue | undefined;
+    const summary = safeMarketingSummary(summarySnapshot.data() as RecordValue | undefined);
+    if (gateSnapshot.exists) {
+      if (!validMarketingGate(gate) || !summarySnapshot.exists || !summary) {
+        error('failed-precondition', 'Referral marketing projection migration is required');
+      }
+      return { initialized: true as const, alreadyInitialized: true };
+    }
+    const sourceQueries: admin.firestore.Query[] = [
+      'referralPrograms', 'referralCodes', 'referralAttributions', 'referralRewards',
+      'referralTelemetry', 'referralAudit', 'referralBookingEvidence', 'referralOwnerSummaries',
+      'referralOwnerHistory', 'referralProgramSummaries', 'referralReferrerSummaries',
+      'referralOwnerProgramCodes', 'referralProgramState', 'referralMarketingSummaries', 'referralMarketingState',
+    ].map(collection => firestore.collection(collection).limit(1));
+    sourceQueries.push(
+      firestore.collection('creditLedgers').where('kind', '==', 'referral_inviter_credit').limit(1),
+      firestore.collection('creditLedgers').where('kind', '==', 'referral_invited_discount').limit(1),
+      firestore.collection('auditEvents').where('action', '>=', 'REFERRAL_').where('action', '<', 'REFERRAL`').limit(1),
+    );
+    const sources = await Promise.all(sourceQueries.map(query => transaction.get(query)));
+    if (summarySnapshot.exists || sources.some(snapshot => !snapshot.empty)) {
+      error('failed-precondition', 'Legacy referral data exists; reconciled V3 migration is required');
+    }
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    transaction.create(summaryRef, { ...newMarketingSummary(), updatedAt: now });
+    transaction.create(gateRef, {
+      schemaVersion: REFERRAL_MARKETING_SUMMARY_SCHEMA_VERSION,
+      summaryEpoch: REFERRAL_SUMMARY_EPOCH,
+      status: 'initialized-empty', initializedBy: uid, initializedAt: now,
+    });
+    return { initialized: true as const, alreadyInitialized: false };
+  });
 }
 
 async function readProgramSummary(
@@ -1321,12 +1392,10 @@ export async function processReferralBookingCompletion(
     if (!bookingSnapshot.exists || !isPositivePaidBooking(booking)) return false;
     if (typeof booking.clientId !== 'string' || !DOCUMENT_ID_PATTERN.test(booking.clientId)) return false;
     const attributionRef = firestore.collection('referralAttributions').doc(booking.clientId);
-    const [attributionSnapshot, completedBookings] = await Promise.all([
+    const [attributionSnapshot, ...earlierBookings] = await Promise.all([
       transaction.get(attributionRef),
-      transaction.get(firestore.collection('bookings')
-        .where('clientId', '==', booking.clientId).where('status', '==', 'completed')
-        .where('paymentStatus', '==', 'paid').where('isTest', '==', false).where('pricePaidMinor', '>', 0)
-        .orderBy('completedAt', 'asc').orderBy(DOCUMENT_ID_FIELD_PATH, 'asc').limit(1)),
+      ...earlierEligibleBookingQueries(firestore, booking.clientId, bookingId, booking.completedAt)
+        .map(query => transaction.get(query)),
     ]);
     const attribution = attributionSnapshot.data() as RecordValue | undefined;
     if (!attributionSnapshot.exists || !attribution || !hasActiveSummaryMarker(attribution)
@@ -1337,12 +1406,11 @@ export async function processReferralBookingCompletion(
       timestampMs(attribution.expiresAt) === undefined
       || (timestampMs(attribution.expiresAt) as number) < completionEvidence.updateTimeMs
     ) return false;
-    const earliestBooking = earliestPositivePaidCompletion(completedBookings.docs as Array<{ id: string; data(): RecordValue }>);
     const completedAtMs = positivePaidCompletionAt(booking);
-    if (!earliestBooking || completedAtMs === undefined || earliestBooking.id !== bookingId) return false;
+    if (completedAtMs === undefined || earlierBookings.some(snapshot => !snapshot.empty)) return false;
     const programRef = firestore.collection('referralPrograms').doc(attribution.programId);
     const codeRef = firestore.collection('referralCodes').doc(attribution.code);
-    const rewardRef = firestore.collection('referralRewards').doc(`${attribution.programId}__${booking.clientId}`);
+    const rewardRef = firestore.collection('referralRewards').doc(deterministicReferralRewardId(attribution.programId, booking.clientId));
     const [programSnapshot, codeSnapshot, rewardSnapshot, eligibilityEvidenceSnapshot] = await Promise.all([
       transaction.get(programRef), transaction.get(codeRef), transaction.get(rewardRef), transaction.get(eligibilityEvidenceRef),
     ]);
@@ -1467,6 +1535,7 @@ export async function reviewReferralReward(
     const rewardSnapshot = await transaction.get(rewardRef);
     const reward = rewardSnapshot.data() as RecordValue | undefined;
     if (!rewardSnapshot.exists || !reward) error('not-found', 'Referral reward not found');
+    await readMarketingSummary(transaction, firestore);
     if (reward.status !== 'pending') error('failed-precondition', 'Referral reward is no longer pending review');
     if ((reward.fraudFlag as RecordValue | undefined)?.status === 'flagged' && status === 'approved') {
       error('failed-precondition', 'Flagged referral rewards must be cleared before approval');
@@ -1489,7 +1558,7 @@ export async function reviewReferralReward(
         || !Number.isSafeInteger(reward.inviterCreditMinor) || (reward.inviterCreditMinor as number) < 0
         || !Number.isSafeInteger(reward.invitedDiscountMinor) || (reward.invitedDiscountMinor as number) < 0
       ) error('failed-precondition', 'Referral reward is invalid');
-      if (rewardId !== `${reward.programId}__${reward.invitedUserId}`) {
+      if (rewardId !== deterministicReferralRewardId(reward.programId as string, reward.invitedUserId as string)) {
         error('failed-precondition', 'Referral reward is invalid');
       }
       // These fields select trusted source documents only. Credit terms are never
@@ -1505,24 +1574,24 @@ export async function reviewReferralReward(
       const attributionRef = firestore.collection('referralAttributions').doc(linkage.invitedUserId);
       const codeRef = firestore.collection('referralCodes').doc(linkage.code);
       const programRef = firestore.collection('referralPrograms').doc(linkage.programId);
-      const [bookingSnapshot, eligibilityEvidenceSnapshot, attributionSnapshot, codeSnapshot, programSnapshot, clientBookings] = await Promise.all([
+      const [bookingSnapshot, eligibilityEvidenceSnapshot, attributionSnapshot, codeSnapshot, programSnapshot] = await Promise.all([
         transaction.get(bookingRef),
         transaction.get(eligibilityEvidenceRef),
         transaction.get(attributionRef),
         transaction.get(codeRef),
         transaction.get(programRef),
-        transaction.get(firestore.collection('bookings')
-          .where('clientId', '==', linkage.invitedUserId).where('status', '==', 'completed')
-          .where('paymentStatus', '==', 'paid').where('isTest', '==', false).where('pricePaidMinor', '>', 0)
-          .orderBy('completedAt', 'asc').orderBy(DOCUMENT_ID_FIELD_PATH, 'asc').limit(1)),
       ]);
       const booking = bookingSnapshot.data() as RecordValue | undefined;
       const attribution = attributionSnapshot.data() as RecordValue | undefined;
       const code = codeSnapshot.data() as RecordValue | undefined;
       const program = programSnapshot.data() as RecordValue | undefined;
       const eligibilityEvidence = eligibilityEvidenceSnapshot.data() as RecordValue | undefined;
-      const earliestBooking = earliestPositivePaidCompletion(clientBookings.docs as Array<{ id: string; data(): RecordValue }>);
       const completedAtMs = positivePaidCompletionAt(booking);
+      const earlierBookings = completedAtMs === undefined
+        ? null
+        : await Promise.all(earlierEligibleBookingQueries(
+          firestore, linkage.invitedUserId, linkage.bookingId, booking?.completedAt,
+        ).map(query => transaction.get(query)));
       const programEvidence = programEligibilityEvidence(program);
       const qualification = trustedQualificationFromEvidence(eligibilityEvidence);
       const rewardCompletionEvidence = qualification ? referralCompletionEvidence({
@@ -1535,7 +1604,7 @@ export async function reviewReferralReward(
       if (
         !bookingSnapshot.exists || !isPositivePaidBooking(booking)
         || booking.clientId !== linkage.invitedUserId
-        || !earliestBooking || completedAtMs === undefined || earliestBooking.id !== linkage.bookingId
+        || completedAtMs === undefined || !earlierBookings || earlierBookings.some(snapshot => !snapshot.empty)
         || !qualification || qualification.rewardId !== rewardId
         || qualification.programId !== linkage.programId || qualification.bookingId !== linkage.bookingId
         || qualification.code !== linkage.code || qualification.invitedUserId !== linkage.invitedUserId
@@ -1691,6 +1760,7 @@ export async function setReferralRewardFlag(
     const rewardSnapshot = await transaction.get(rewardRef);
     const reward = rewardSnapshot.data() as RecordValue | undefined;
     if (!rewardSnapshot.exists || !reward) error('not-found', 'Referral reward not found');
+    await readMarketingSummary(transaction, firestore);
     if (reward.status !== 'pending') error('failed-precondition', 'Only pending referral rewards can be flagged');
     const summaryQualification = trustedQualificationFromEvidence(reward);
     const canUpdateSummary = hasActiveSummaryMarker(reward)
@@ -2187,7 +2257,9 @@ export async function recordReferralVisit(
     const codeRef = firestore.collection('referralCodes').doc(code);
     const telemetry = firestore.collection('referralTelemetry');
     const totalRef = telemetry.doc('overview');
-    const [codeSnapshot, totalSnapshot] = await transaction.getAll(codeRef, totalRef);
+    const [codeSnapshot, totalSnapshot, marketingProjection] = await Promise.all([
+      transaction.get(codeRef), transaction.get(totalRef), readMarketingSummary(transaction, firestore),
+    ]);
     const referralCode = codeSnapshot.data() as RecordValue | undefined;
     if (
       !codeSnapshot.exists || !referralCode || referralCode.status !== 'active' || !hasActiveSummaryMarker(referralCode)
@@ -2210,6 +2282,9 @@ export async function recordReferralVisit(
       error('failed-precondition', 'Referral telemetry is invalid');
     }
     const validatedVisitCount = (total as number | undefined) ?? 0;
+    // Requiring the initialized/reconciled platform projection prevents public
+    // telemetry from creating the first V3-looking row over legacy data.
+    void marketingProjection;
     if (validatedVisitCount >= MAX_VALIDATED_VISITS_TOTAL) return false;
     const codeTelemetryRef = telemetry.doc(`${referralCode.programId}__${code}`);
     const codeTelemetrySnapshot = await transaction.get(codeTelemetryRef);
@@ -2257,7 +2332,7 @@ function canonicalReferralRewardForOverview(id: string, reward: RecordValue): bo
   }) : null;
   return qualification !== null
     && qualification.rewardId === id
-    && id === `${qualification.programId}__${qualification.invitedUserId}`
+    && id === deterministicReferralRewardId(qualification.programId, qualification.invitedUserId)
     && qualification.inviterId === qualification.inviterOwnerId
     && qualification.invitedUserId === qualification.invitedOwnerId
     && isTrustedCompletionEvidence(completionEvidence, qualification.eligibleCompletedAtMs, {
@@ -2367,7 +2442,10 @@ export async function getReferralMarketingOverview(
   const uid = callerUid(caller);
   await requireSuperAdmin(uid, firestore, verifiedPlatformAdmin);
   const input = referralMarketingOverviewInput(value);
-  const marketingSnapshot = await firestore.collection('referralMarketingSummaries').doc('overview').get();
+  const [marketingSnapshot, gateSnapshot] = await Promise.all([
+    firestore.collection('referralMarketingSummaries').doc('overview').get(),
+    firestore.collection('referralMarketingState').doc(REFERRAL_MARKETING_STATE_ID).get(),
+  ]);
   const marketing = safeMarketingSummary(marketingSnapshot.data() as RecordValue | undefined);
   const emptyPage = <T>(): ReferralOverviewPage<T> => ({ items: [], truncated: false });
   const emptyResult = (): ReferralMarketingOverview => ({
@@ -2387,7 +2465,8 @@ export async function getReferralMarketingOverview(
     flaggedRewards: emptyPage(),
     auditTrail: emptyPage(),
   });
-  if (!marketingSnapshot.exists || !marketing) return emptyResult();
+  if (!marketingSnapshot.exists || !marketing || !gateSnapshot.exists
+    || !validMarketingGate(gateSnapshot.data() as RecordValue | undefined)) return emptyResult();
 
   const programSummaries = firestore.collection('referralProgramSummaries');
   let programQuery: admin.firestore.Query = programSummaries
@@ -2544,7 +2623,7 @@ export async function getReferralMarketingOverview(
     approvedCreditTotals: Object.entries(marketing.approvedCreditTotalsByCurrency)
       .map(([currency, amountMinor]) => ({ currency, amountMinor }))
       .sort((left, right) => left.currency.localeCompare(right.currency)),
-    topReferrers: page(topReferrers, topRows, topSnapshot.docs.length, TOP_REFERRER_RESULTS),
+    topReferrers: { items: topReferrers, truncated: topSnapshot.docs.length > TOP_REFERRER_RESULTS },
     pendingRewards,
     flaggedRewards: flaggedRewards as ReferralOverviewPage<ReferralPendingRewardOverview & { fraudFlag: { status: 'flagged'; reason: string } }>,
     auditTrail: page(auditTrail, auditRows, auditSnapshot.docs.length, input.auditLimit),
@@ -2562,6 +2641,10 @@ function requirePlatformAdminContext(context: functions.https.CallableContext): 
 
 export const createReferralProgramFunction = functions.https.onCall((data, context) => (
   createReferralProgram(requirePlatformAdminContext(context), data, admin.firestore(), new Date(), true)
+));
+
+export const initializeReferralMarketingV3Function = functions.https.onCall((data, context) => (
+  initializeReferralMarketingV3(requirePlatformAdminContext(context), data, admin.firestore(), true)
 ));
 
 export const createMyReferralCodeFunction = functions.https.onCall((data, context) => (
