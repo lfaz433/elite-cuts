@@ -539,6 +539,35 @@ export function createReferralDashboardRequestCoordinator(): {
   };
 }
 
+export function createSupersedableOperationLock(): {
+  begin: () => number | null;
+  supersede: () => void;
+  release: (operation: number) => boolean;
+  isLocked: () => boolean;
+} {
+  let generation = 0;
+  let owner: number | null = null;
+  return {
+    begin() {
+      if (owner !== null) return null;
+      owner = ++generation;
+      return owner;
+    },
+    supersede() {
+      generation += 1;
+      owner = null;
+    },
+    release(operation) {
+      if (owner !== operation) return false;
+      owner = null;
+      return true;
+    },
+    isLocked() {
+      return owner !== null;
+    },
+  };
+}
+
 export function parseReferralMarketingInitializerResult(
   value: unknown,
 ): { initialized: true; alreadyInitialized: boolean } | null {
@@ -604,6 +633,18 @@ export function mergeOverviewPage(
   }
   const auditTrail = appendPage(current.auditTrail, incoming.auditTrail, item => item.id);
   return auditTrail ? { ...current, auditTrail } : null;
+}
+
+export function reconcileSelectedProgramId(selectedProgramId: string, programs: Program[]): string {
+  return programs.some(program => program.id === selectedProgramId) ? selectedProgramId : '';
+}
+
+export function programMutationIdentityFields(
+  selectedProgramId: string,
+  programs: Program[],
+): { programId?: string } {
+  const reconciledId = reconcileSelectedProgramId(selectedProgramId, programs);
+  return reconciledId ? { programId: reconciledId } : {};
 }
 
 export function createRewardActionTracker(): {
@@ -689,6 +730,7 @@ export default function ReferralMarketingDashboard() {
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
   const requestCoordinator = useRef(createReferralDashboardRequestCoordinator());
+  const initializerLock = useRef(createSupersedableOperationLock());
   const rewardActionTracker = useRef(createRewardActionTracker());
   const activeFilter = useRef<Record<string, unknown>>({});
 
@@ -697,10 +739,20 @@ export default function ReferralMarketingDashboard() {
     [overview, selectedProgramId],
   );
 
+  const replaceOverview = (nextOverview: ReferralMarketingOverview) => {
+    setOverview(nextOverview);
+    setSelectedProgramId(current => reconcileSelectedProgramId(
+      current,
+      nextOverview.state === 'ready' ? nextOverview.programs.items : [],
+    ));
+  };
+
   const loadOverview = async (filter: Record<string, unknown> = activeFilter.current) => {
     if (!requestCoordinator.current.isActive()) return;
     const isCurrent = requestCoordinator.current.begin('overview', true);
     if (!isCurrent()) return;
+    initializerLock.current.supersede();
+    setInitializing(false);
     setLoading(true);
     setLoadError(null);
     setInitializationStatus(null);
@@ -712,7 +764,7 @@ export default function ReferralMarketingDashboard() {
       const nextOverview = parseReferralMarketingOverview(result.data);
       if (!nextOverview) throw new Error('Invalid referral marketing overview V3');
       if (!isCurrent()) return;
-      setOverview(nextOverview);
+      replaceOverview(nextOverview);
     } catch (reason) {
       if (!isCurrent()) return;
       console.error('Unable to load referral marketing overview', reason);
@@ -726,7 +778,10 @@ export default function ReferralMarketingDashboard() {
     const coordinator = createReferralDashboardRequestCoordinator();
     requestCoordinator.current = coordinator;
     void loadOverview();
-    return () => coordinator.cancel();
+    return () => {
+      initializerLock.current.supersede();
+      coordinator.cancel();
+    };
   }, []);
 
   const initializeOverview = async () => {
@@ -736,8 +791,13 @@ export default function ReferralMarketingDashboard() {
       + 'Si un historique existe, le serveur refusera et une migration réconciliée restera obligatoire.',
     );
     if (!confirmed) return;
+    const operation = initializerLock.current.begin();
+    if (operation === null) return;
     const isCurrent = requestCoordinator.current.begin('initializer', true);
-    if (!isCurrent()) return;
+    if (!isCurrent()) {
+      initializerLock.current.release(operation);
+      return;
+    }
     setInitializing(true);
     setInitializationError(null);
     setInitializationStatus('Vérification serveur de l’environnement en cours…');
@@ -749,7 +809,6 @@ export default function ReferralMarketingDashboard() {
       setInitializationStatus(parsed.alreadyInitialized
         ? 'La projection V3 était déjà initialisée. Rechargement des données vérifiées…'
         : 'Projection V3 vide initialisée par le serveur. Rechargement des données vérifiées…');
-      setInitializing(false);
       toast.success(parsed.alreadyInitialized
         ? 'Projection V3 déjà initialisée.'
         : 'Projection V3 initialisée pour cet environnement vide.');
@@ -762,7 +821,10 @@ export default function ReferralMarketingDashboard() {
         'Initialisation refusée ou indisponible. Si des données existent, utilisez uniquement la migration Admin SDK réconciliée et validée.',
       );
     } finally {
-      if (isCurrent()) setInitializing(false);
+      initializerLock.current.release(operation);
+      if (requestCoordinator.current.isActive()) {
+        setInitializing(initializerLock.current.isLocked());
+      }
     }
   };
 
@@ -781,7 +843,7 @@ export default function ReferralMarketingDashboard() {
       if (!incoming) throw new Error('Invalid referral marketing overview cursor page');
       if (!isCurrent()) return;
       if (incoming.state === 'migrationRequired') {
-        setOverview(incoming);
+        replaceOverview(incoming);
         setPageLoading({});
         setPageErrors({});
         requestCoordinator.current.begin('overview', true);
@@ -854,7 +916,7 @@ export default function ReferralMarketingDashboard() {
     setSavingProgram(true);
     try {
       await createProgramCall({
-        ...(selectedProgramId ? { programId: selectedProgramId } : {}),
+        ...programMutationIdentityFields(selectedProgramId, overview?.programs.items ?? []),
         status: programStatus,
         countryCodes: normalizedCountries,
         currency: normalizedCurrency,

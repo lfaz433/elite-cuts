@@ -79,3 +79,23 @@ completed with no whitespace errors
 An independent scoped code review reported no Critical or Important findings and
 confirmed alignment with the V3 server contract, initializer boundary, pagination,
 preserved actions/filters, and per-reward locking requirements.
+
+## State-integrity follow-up
+
+Two UI state races found during final integration review were corrected without
+changing the V3 server contract or any server/rules/deployment file:
+
+- Initializer ownership now uses a supersedable operation token separate from the
+  request-version guard. A refresh releases the visible initializer lock immediately;
+  stale success/error paths publish no message or toast, and a stale completion cannot
+  release a newer retry's lock. Current success and error paths still release normally.
+- Full overview replacement reconciles `selectedProgramId` against the newly loaded
+  program page. A selected later-page program that disappears on refresh/search/reset
+  is cleared with its derived selection, and the program mutation payload independently
+  derives its optional `programId` from the currently loaded programs. The form can
+  therefore never say “Créer” while silently updating an unloaded prior program.
+
+The added regression tests reproduce refresh supersession followed by a safe retry,
+and selection of a later-page program followed by a first-page refresh and create
+payload construction. Fresh follow-up verification passed 20 component tests, the
+2,836-module production Vite build, and the scoped whitespace check.

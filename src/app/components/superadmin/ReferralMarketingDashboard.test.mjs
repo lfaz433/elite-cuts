@@ -283,6 +283,53 @@ test('invalidates stale overview and cursor work while allowing independent page
   assert.equal(coordinator.begin('overview', true)(), false);
 });
 
+test('refresh supersession releases the initializer lock and stale completion cannot lock a retry', () => {
+  const {
+    createReferralDashboardRequestCoordinator,
+    createSupersedableOperationLock,
+  } = loadDashboard();
+  const coordinator = createReferralDashboardRequestCoordinator();
+  const lock = createSupersedableOperationLock();
+  const firstRequest = coordinator.begin('initializer', true);
+  const firstOperation = lock.begin();
+
+  assert.notEqual(firstOperation, null);
+  assert.equal(lock.isLocked(), true);
+  coordinator.begin('overview', true);
+  lock.supersede();
+  assert.equal(firstRequest(), false);
+  assert.equal(lock.isLocked(), false);
+
+  const retryOperation = lock.begin();
+  assert.notEqual(retryOperation, null);
+  assert.equal(lock.release(firstOperation), false);
+  assert.equal(lock.isLocked(), true);
+  assert.equal(lock.release(retryOperation), true);
+  assert.equal(lock.isLocked(), false);
+});
+
+test('refresh clears a later-page program identity before building a create payload', () => {
+  const {
+    mergeOverviewPage,
+    reconcileSelectedProgramId,
+    programMutationIdentityFields,
+  } = loadDashboard();
+  const firstPage = overviewFixture();
+  const laterPage = overviewFixture();
+  laterPage.programs = page([{
+    id: 'program-2', status: 'paused', countryCodes: ['FR'], currency: 'EUR',
+    inviterCreditMinor: 700, invitedDiscountMinor: 200,
+    startsAt: '2026-09-01T00:00:00.000Z', endsAt: '2026-12-31T23:59:59.999Z',
+  }]);
+  const loaded = mergeOverviewPage(firstPage, laterPage, 'programs');
+  let selectedProgramId = reconcileSelectedProgramId('program-2', loaded.programs.items);
+  assert.deepEqual(programMutationIdentityFields(selectedProgramId, loaded.programs.items), { programId: 'program-2' });
+
+  selectedProgramId = reconcileSelectedProgramId(selectedProgramId, firstPage.programs.items);
+  assert.equal(selectedProgramId, '');
+  assert.deepEqual(programMutationIdentityFields(selectedProgramId, firstPage.programs.items), {});
+});
+
 test('keeps money and date formatting safe even when called defensively with bad data', () => {
   const { formatMoney, formatDate } = loadDashboard();
   assert.equal(formatMoney({ currency: 'EURO', amountMinor: 100 }), 'Montant indisponible');
