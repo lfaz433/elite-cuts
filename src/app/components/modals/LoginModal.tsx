@@ -5,14 +5,15 @@ import 'react-phone-input-2/lib/style.css';
 import { useAuth } from '../context/AuthContext';
 import { useBusiness } from '../context/BusinessContext';
 import { useTenant } from '../context/TenantContext';
-import { useNavigate } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../../lib/firebase';
+import { postLoginDestination } from '../../lib/authReturn';
 
 
-export default function LoginModal({ onClose }: { onClose: () => void }) {
-  const [isLogin, setIsLogin] = useState(true);
+export default function LoginModal({ onClose, initialSignUp = false, signupLabel = 'Inscription (Client)' }: { onClose: () => void; initialSignUp?: boolean; signupLabel?: string }) {
+  const [isLogin, setIsLogin] = useState(!initialSignUp);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
@@ -24,15 +25,16 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
   const { businessInfo } = useBusiness();
   const tenant = useTenant();
   const navigate = useNavigate();
+  const route = useLocation();
 
   // Handle redirect after successful login
   useEffect(() => {
     if (user && !authLoading) {
       onClose();
       // Use replace: true to prevent going back to login modal
-      navigate(`/${user.role}`, { replace: true });
+      navigate(postLoginDestination(route.search, `/${user.role}`, window.sessionStorage), { replace: true });
     }
-  }, [user, authLoading, navigate, onClose]);
+  }, [user, authLoading, navigate, onClose, route.search]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -62,7 +64,7 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
         toast.success('Bon retour !');
       } else {
         await signup(cleanEmail, password, name, phone);
-        toast.success('Bienvenue ! Votre compte a été créé.');
+        toast.success('Compte créé. Vérifiez l’e-mail que nous venons d’envoyer.');
       }
     } catch (error: any) {
       console.error(error);
@@ -108,7 +110,7 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
           {isLogin ? 'Connexion' : 'Inscription'}
         </h2>
         <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 14, marginBottom: 24 }}>
-          {isLogin ? 'Accédez à votre espace' : 'Rejoignez le salon Barberboard'}
+          {isLogin ? 'Accédez à votre espace' : initialSignUp ? 'Créez votre espace indépendant' : 'Rejoignez Barberboard'}
         </p>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -126,7 +128,7 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
               onClick={() => setIsLogin(false)}
               style={{ flex: 1, padding: '8px', borderRadius: 10, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: !isLogin ? '#D4AF37' : 'transparent', color: !isLogin ? 'black' : 'rgba(255,255,255,0.5)', transition: 'all 0.2s' }}
             >
-              Inscription (Client)
+              {signupLabel}
             </button>
           </div>
 

@@ -2,156 +2,641 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper: Safely retrieves user data without throwing errors if the document doesn't exist
-    function getUserData() {
-      return exists(/databases/$(database)/documents/users/$(request.auth.uid)) 
-        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data 
-        : {};
+    function membershipPath(tId) {
+      return /databases/$(database)/documents/memberships/$(tId + '__' + request.auth.uid);
     }
 
-    // Helper: checks if user is logged in and belongs to the specified tenant
-    function isMemberOfTenant(tId) {
-      return request.auth != null && (
-        getUserData().tenantId == tId ||
-        request.auth.token.tenantId == tId
+    function tenantPath(tId) {
+      return /databases/$(database)/documents/tenants/$(tId);
+    }
+
+    function marketplaceTenantMembershipPath(tId) {
+      return /databases/$(database)/documents/memberships/$(get(tenantPath(tId)).data.get('brandId', tId) + '__' + tId + '__' + request.auth.uid);
+    }
+
+    function hasActiveLegacyMembership(tId) {
+      return request.auth != null
+        && exists(membershipPath(tId))
+        && get(membershipPath(tId)).data.userId == request.auth.uid
+        && get(membershipPath(tId)).data.locationId == tId
+        && get(membershipPath(tId)).data.status == 'active';
+    }
+
+    function hasActiveMarketplaceTenantMembership(tId) {
+      return request.auth != null
+        && exists(tenantPath(tId))
+        && exists(marketplaceTenantMembershipPath(tId))
+        && get(marketplaceTenantMembershipPath(tId)).data.userId == request.auth.uid
+        && get(marketplaceTenantMembershipPath(tId)).data.brandId == get(tenantPath(tId)).data.get('brandId', tId)
+        && get(marketplaceTenantMembershipPath(tId)).data.locationId == tId
+        && get(marketplaceTenantMembershipPath(tId)).data.status == 'active';
+    }
+
+    function hasActiveTenantAdminMembership(tId) {
+      return (
+        hasActiveLegacyMembership(tId) && (
+          get(membershipPath(tId)).data.get('permissions', {}).get('manageTenant', false) == true
+          || get(membershipPath(tId)).data.get('role', '') in ['principal_admin', 'salon_admin', 'admin']
+        )
+      ) || (
+        hasActiveMarketplaceTenantMembership(tId) && (
+          get(marketplaceTenantMembershipPath(tId)).data.get('permissions', {}).get('manageTenant', false) == true
+          || get(marketplaceTenantMembershipPath(tId)).data.get('role', '') in ['principal_admin', 'salon_admin', 'admin']
+        )
       );
     }
 
+    function isTenantOwner(tId) {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/tenants/$(tId))
+        && get(/databases/$(database)/documents/tenants/$(tId)).data.ownerUid == request.auth.uid;
+    }
+
+    function hasTenantPermission(tId, permission) {
+      return isTenantOwner(tId) || (
+        hasActiveLegacyMembership(tId)
+        && get(membershipPath(tId)).data.get('permissions', {}).get(permission, false) == true
+      ) || (
+        hasActiveMarketplaceTenantMembership(tId)
+        && get(marketplaceTenantMembershipPath(tId)).data.get('permissions', {}).get(permission, false) == true
+      );
+    }
+
+    function isAssignedBarber(tId, barberId) {
+      return barberId is string && (
+        (
+          hasActiveLegacyMembership(tId)
+          && get(membershipPath(tId)).data.get('barberId', '') == barberId
+        ) || (
+          hasActiveMarketplaceTenantMembership(tId)
+          && get(marketplaceTenantMembershipPath(tId)).data.get('barberId', '') == barberId
+        )
+      );
+    }
+
+    function isTenantAuthority(tId) {
+      return request.auth != null && (
+        isTenantOwner(tId)
+        || hasActiveTenantAdminMembership(tId)
+      );
+    }
+
+    // Marketplace authority uses server-issued membership documents only. New
+    // marketplace IDs are deliberately distinct from legacy tenant memberships.
+    function principalMembershipPath(brandId) {
+      return /databases/$(database)/documents/memberships/$(brandId + '__principal__' + request.auth.uid);
+    }
+
+    function locationMembershipPath(brandId, locationId) {
+      return /databases/$(database)/documents/memberships/$(brandId + '__' + locationId + '__' + request.auth.uid);
+    }
+
+    function hasActiveBrandPrincipalMembership(brandId) {
+      return request.auth != null
+        && exists(principalMembershipPath(brandId))
+        && get(principalMembershipPath(brandId)).data.userId == request.auth.uid
+        && get(principalMembershipPath(brandId)).data.brandId == brandId
+        && get(principalMembershipPath(brandId)).data.get('locationId', null) == null
+        && get(principalMembershipPath(brandId)).data.role == 'principal_admin'
+        && get(principalMembershipPath(brandId)).data.status == 'active';
+    }
+
+    function hasActiveLocationMembership(brandId, locationId) {
+      return request.auth != null
+        && exists(locationMembershipPath(brandId, locationId))
+        && get(locationMembershipPath(brandId, locationId)).data.userId == request.auth.uid
+        && get(locationMembershipPath(brandId, locationId)).data.brandId == brandId
+        && get(locationMembershipPath(brandId, locationId)).data.locationId == locationId
+        && get(locationMembershipPath(brandId, locationId)).data.status == 'active';
+    }
+
+    function hasActiveLocationPermission(brandId, locationId, permission) {
+      return hasActiveLocationMembership(brandId, locationId)
+        && get(locationMembershipPath(brandId, locationId)).data.get('permissions', {}).get(permission, false) == true;
+    }
+
+    function canAccessSalonLocation(location, locationId) {
+      return request.auth != null && (
+        hasActiveBrandPrincipalMembership(location.brandId)
+        || hasActiveLocationMembership(location.brandId, locationId)
+      );
+    }
+
+    function safeTenantUpdateFields() {
+      return ['name', 'phone', 'address', 'branding', 'onboardingComplete', 'isDemo', 'settings', 'updatedAt'];
+    }
+
+    function hasNoCredentialFields(data) {
+      return !data.keys().hasAny([
+        'password',
+        'temporaryPassword',
+        'adminPassword',
+        'credentials'
+      ]);
+    }
+
+    function hasOnlyPublicBarberFields(data) {
+      return data.keys().hasOnly([
+        'name',
+        'specialty',
+        'experience',
+        'rating',
+        'image',
+        'shiftStart',
+        'shiftEnd',
+        'workingDays',
+        'phone',
+        'email',
+        'mainServiceId',
+        'secondaryServiceId',
+        'archived',
+        'commission',
+        'commissionRate',
+        'status',
+        'tenantId',
+        'locationId',
+        'brandId',
+        'userId',
+        'uid',
+        'createdAt',
+        'updatedAt',
+        'publicCredentialSafe'
+      ]);
+    }
+
+    function hasValidPublicBarberTypes(data) {
+      return data.name is string
+        && data.tenantId is string
+        && data.publicCredentialSafe is bool
+        && (!('specialty' in data) || data.specialty is string)
+        && (!('experience' in data) || data.experience is string)
+        && (!('rating' in data) || data.rating is number)
+        && (!('image' in data) || data.image is string)
+        && (!('shiftStart' in data) || data.shiftStart is string)
+        && (!('shiftEnd' in data) || data.shiftEnd is string)
+        && (!('workingDays' in data) || (
+          data.workingDays is list
+          && data.workingDays.size() <= 7
+          && data.workingDays.hasOnly([0, 1, 2, 3, 4, 5, 6])
+        ))
+        && (!('phone' in data) || data.phone is string)
+        && (!('email' in data) || data.email is string)
+        && (!('mainServiceId' in data) || data.mainServiceId is string)
+        && (!('secondaryServiceId' in data) || data.secondaryServiceId is string)
+        && (!('archived' in data) || data.archived is bool)
+        && (!('commission' in data) || data.commission is number)
+        && (!('commissionRate' in data) || data.commissionRate is number)
+        && (!('status' in data) || data.status is string)
+        && (!('locationId' in data) || data.locationId is string)
+        && (!('brandId' in data) || data.brandId is string)
+        && (!('userId' in data) || data.userId is string)
+        && (!('uid' in data) || data.uid is string)
+        && (!('createdAt' in data) || data.createdAt is timestamp || data.createdAt is number)
+        && (!('updatedAt' in data) || data.updatedAt is timestamp || data.updatedAt is number);
+    }
+
     function isSuperAdmin() {
-      return request.auth != null && getUserData().role == "superadmin";
+      return request.auth != null && (
+        request.auth.token.get('superadmin', false) == true ||
+        request.auth.token.get('platformAdmin', false) == true
+      );
+    }
+
+    function isOwnSafeProfile(userId) {
+      return request.auth != null
+        && request.auth.uid == userId
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasOnly([
+          'uid',
+          'email',
+          'name',
+          'displayName',
+          'phone',
+          'photoURL',
+          'locale',
+          'notificationPreferences',
+          'createdAt',
+          'updatedAt'
+        ])
+        && (!('createdAt' in request.resource.data) || request.resource.data.createdAt == request.time)
+        && (!('updatedAt' in request.resource.data) || request.resource.data.updatedAt == request.time);
+    }
+
+    function isOwnSafeProfileUpdate(userId) {
+      return request.auth != null
+        && request.auth.uid == userId
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'email',
+          'name',
+          'displayName',
+          'phone',
+          'photoURL',
+          'locale',
+          'notificationPreferences',
+          'updatedAt'
+        ])
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['updatedAt'])
+          || request.resource.data.updatedAt == request.time);
     }
 
     // 1. Tenants Collection (Public reads for domain resolution, admin write controls)
     match /tenants/{tenantId} {
       allow read: if true;
-      // Allow create if: superadmin, already a member, OR the authenticated user is the owner
-      // (the ownerUid check handles brand-new signups who don't yet have a matching tenantId in their user doc)
-      allow create: if isSuperAdmin() 
-        || isMemberOfTenant(tenantId)
-        || (request.auth != null && request.resource.data.ownerUid == request.auth.uid);
-      allow update, delete: if isSuperAdmin() || isMemberOfTenant(tenantId);
+      allow create: if isSuperAdmin();
+      allow update: if isSuperAdmin() || (
+        isTenantAuthority(tenantId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(safeTenantUpdateFields())
+        && request.resource.data.settings.maxBarbersLimit == resource.data.settings.maxBarbersLimit
+      );
+      allow delete: if isSuperAdmin();
     }
 
     // 1.1 Per-tenant business info subcollection
     match /tenants/{tenantId}/businessInfo/{docId} {
-      allow read: if true; // Public: needed for landing page branding
-      allow write: if isSuperAdmin() || (request.auth != null && (
-        getUserData().tenantId == tenantId ||
-        request.auth.token.tenantId == tenantId
-      ));
+      // Only trusted server code can attach this marker after exact schema and
+      // transactional membership validation. Legacy unmarked documents stay private.
+      allow read: if resource.data.publicCredentialSafe == true;
+      allow create, update, delete: if false;
     }
 
     // 1.5 Subdomains Reservation Collection
     match /subdomains/{subdomainName} {
       allow read: if true;
-      allow create: if request.auth != null && request.resource.data.ownerUid == request.auth.uid;
-      allow delete: if isSuperAdmin() || (request.auth != null && resource.data.ownerUid == request.auth.uid);
+      allow create: if false;
+      allow delete: if isSuperAdmin();
+    }
+
+    // The multi-salon marketplace is a clean layer beside legacy tenants.
+    // Browser writes are denied; Functions create brands, locations, and roles.
+    match /brands/{brandId} {
+      allow read: if hasActiveBrandPrincipalMembership(brandId);
+      allow create, update, delete: if false;
+    }
+
+    match /salonLocations/{locationId} {
+      allow read: if canAccessSalonLocation(resource.data, locationId);
+      allow create, update, delete: if false;
+    }
+
+    // Public marketplace reads are delivered by server callables, which
+    // re-whitelist every projection. Browser access to source/launch and
+    // projection records remains denied.
+    match /cityLaunches/{cityId} {
+      allow read, write: if false;
+    }
+
+    match /publicProfiles/{profileId} {
+      allow read, write: if false;
+    }
+
+    // Freelancer settings, portfolio moderation and availability writes pass
+    // through validated callables. Owners can read their own workspace only.
+    match /freelancerProfiles/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create, update, delete: if false;
+    }
+
+    match /portfolioItems/{portfolioItemId} {
+      allow read: if request.auth != null
+        && resource.data.ownerType == 'freelancer'
+        && resource.data.ownerId == request.auth.uid;
+      allow create, update, delete: if false;
+    }
+
+    match /availability/{ownerId} {
+      allow read: if request.auth != null
+        && request.auth.uid == ownerId
+        && resource.data.ownerId == request.auth.uid;
+      allow create, update, delete: if false;
+    }
+
+    // City-scoped jobs, applications, review decisions and invitation
+    // conversion are rebuilt and authorized by callables, never by browsers.
+    match /jobPosts/{jobId} {
+      allow read, write: if false;
+    }
+
+    match /jobApplications/{applicationId} {
+      allow read, write: if false;
+    }
+
+    // Payment capability is server-owned. Marketplace deposits remain
+    // unavailable until a separately approved provider integration exists.
+    match /paymentCapabilities/{countryCode} {
+      allow read, write: if false;
+    }
+
+    match /marketplaceDeposits/{depositId} {
+      allow read, write: if false;
+    }
+
+    // Referral state and non-cash credit ledger entries are server-owned.
+    // Admin SDK writes from the authenticated callable and completion trigger
+    // bypass these browser rules.
+    match /referralPrograms/{programId} {
+      allow read, write: if false;
+    }
+
+    match /referralCodes/{code} {
+      allow read, write: if false;
+    }
+
+    match /referralAttributions/{userId} {
+      allow read, write: if false;
+    }
+
+    match /referralRewards/{rewardId} {
+      allow read, write: if false;
+    }
+
+    match /creditLedgers/{ledgerId} {
+      allow read, write: if false;
+    }
+
+    match /referralBookingEvidence/{bookingId} {
+      allow read, write: if false;
+    }
+
+    // Invitations are server-owned. The exact invited email account may read
+    // its record, while location invitation managers may audit invitations.
+    match /invitations/{invitationId} {
+      allow read: if request.auth != null && (
+        (
+          request.auth.token.get('email_verified', false) == true
+          && request.auth.token.get('email', '') == resource.data.email
+        )
+        || hasActiveBrandPrincipalMembership(resource.data.brandId)
+        || hasActiveLocationPermission(
+          resource.data.brandId,
+          resource.data.locationId,
+          'inviteWorkers'
+        )
+      );
+      allow create, update, delete: if false;
     }
 
     // 2. Scoped Business Operations Collections
     match /bookings/{bookingId} {
-      allow read: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
-      allow create: if true; // guests can create bookings
-      allow update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow read: if isSuperAdmin()
+        || hasTenantPermission(resource.data.tenantId, 'manageBookings')
+        || isAssignedBarber(resource.data.tenantId, resource.data.get('barberId', ''))
+        || (request.auth != null && request.auth.uid == resource.data.clientId);
+      // Booking lifecycle writes are exclusive to authenticated/validated
+      // server endpoints. Admin SDK writes bypass these client rules.
+      allow create: if false;
+      // Status transitions are exclusive to the authenticated server endpoint.
+      // Admin SDK writes bypass rules; no browser role may mutate transition or
+      // scope fields directly.
+      allow update: if (
+          isSuperAdmin()
+          || hasTenantPermission(resource.data.tenantId, 'manageBookings')
+          || (
+            isAssignedBarber(resource.data.tenantId, resource.data.get('barberId', ''))
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['unreadBarber'])
+          )
+        )
+        && request.resource.data.tenantId == resource.data.tenantId
+        && request.resource.data.get('locationId', null) == resource.data.get('locationId', null)
+        && request.resource.data.get('isTest', null) == resource.data.get('isTest', null)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'status',
+          'statusUpdatedAt',
+          'statusUpdatedBy',
+          'clientId',
+          'barberId',
+          'serviceId',
+          'paymentStatus',
+          'pricePaid',
+          'tip',
+          'paymentMethod',
+          'expectedAmountMinor',
+          'durationMinutes',
+          'pricePaidMinor',
+          'tipMinor',
+          'paymentRecordedAt',
+          'paymentRecordedBy',
+          'completedAt',
+          'isTest'
+        ]);
+      allow delete: if false;
+    }
+
+    // Trusted booking transactions update one deterministic barber/day mutex.
+    // Browser access would bypass the transaction serialization invariant.
+    match /booking_slot_locks/{lockId} {
+      allow read, write: if false;
+    }
+
+    // Marketplace bookings have a server-owned lifecycle. Clients can read
+    // only their own requests; no browser path can create or transition one.
+    match /bookingRequests/{bookingId} {
+      allow read: if request.auth != null && (
+        resource.data.clientId == request.auth.uid
+        || (resource.data.ownerType == 'freelancer' && resource.data.ownerId == request.auth.uid)
+        || (resource.data.ownerType == 'salon'
+          && hasActiveBrandPrincipalMembership(resource.data.brandId))
+        || (resource.data.ownerType == 'salon'
+          && hasActiveLocationPermission(resource.data.brandId, resource.data.ownerId, 'manageBookings'))
+      );
+      allow create, update, delete: if false;
+    }
+
+    // Exact home addresses never enter a browser-readable collection. The
+    // authenticated callable releases one only to an accepting freelancer.
+    match /bookingRequestPrivate/{bookingId} {
+      allow read, write: if false;
+    }
+
+    match /clientFavourites/{userId}/items/{profileId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.data.keys().hasOnly(['profileId'])
+        && request.resource.data.profileId == profileId;
+      allow update: if false;
+      allow delete: if request.auth != null && request.auth.uid == userId;
     }
 
     match /barbers/{barberId} {
-      allow read: if true;
-      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
-      allow update: if isSuperAdmin() || (isMemberOfTenant(resource.data.tenantId) && isMemberOfTenant(request.resource.data.tenantId));
-      allow delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow read: if resource.data.publicCredentialSafe == true;
+      allow create: if hasNoCredentialFields(request.resource.data)
+        && hasOnlyPublicBarberFields(request.resource.data)
+        && hasValidPublicBarberTypes(request.resource.data)
+        && request.resource.data.publicCredentialSafe == true
+        && (isSuperAdmin() || hasTenantPermission(request.resource.data.tenantId, 'manageStaff'));
+      allow update: if hasNoCredentialFields(request.resource.data)
+        && hasOnlyPublicBarberFields(request.resource.data)
+        && hasValidPublicBarberTypes(request.resource.data)
+        && request.resource.data.publicCredentialSafe == true
+        && (
+          isSuperAdmin()
+          || (
+            hasTenantPermission(resource.data.tenantId, 'manageStaff')
+            && hasTenantPermission(request.resource.data.tenantId, 'manageStaff')
+          )
+          || (
+            isAssignedBarber(resource.data.tenantId, barberId)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'name',
+              'specialty',
+              'experience',
+              'image',
+              'shiftStart',
+              'shiftEnd',
+              'workingDays',
+              'phone',
+              'email',
+              'mainServiceId',
+              'secondaryServiceId',
+              'status',
+              'updatedAt',
+              'publicCredentialSafe'
+            ])
+          )
+        );
+      allow delete: if isSuperAdmin() || hasTenantPermission(resource.data.tenantId, 'removeWorkers');
     }
 
     match /services/{serviceId} {
       allow read: if true;
-      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
-      allow update: if isSuperAdmin() || (isMemberOfTenant(resource.data.tenantId) && isMemberOfTenant(request.resource.data.tenantId));
-      allow delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow create: if isSuperAdmin() || hasTenantPermission(request.resource.data.tenantId, 'manageServices');
+      allow update: if isSuperAdmin() || (
+        hasTenantPermission(resource.data.tenantId, 'manageServices')
+        && hasTenantPermission(request.resource.data.tenantId, 'manageServices')
+      );
+      allow delete: if isSuperAdmin() || hasTenantPermission(resource.data.tenantId, 'manageServices');
     }
 
     match /products/{productId} {
       allow read: if true;
-      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
-      allow update: if isSuperAdmin() || (isMemberOfTenant(resource.data.tenantId) && isMemberOfTenant(request.resource.data.tenantId));
-      allow delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow create: if isSuperAdmin() || hasTenantPermission(request.resource.data.tenantId, 'manageInventory');
+      allow update: if isSuperAdmin() || (
+        hasTenantPermission(resource.data.tenantId, 'manageInventory')
+        && hasTenantPermission(request.resource.data.tenantId, 'manageInventory')
+      );
+      allow delete: if isSuperAdmin() || hasTenantPermission(resource.data.tenantId, 'manageInventory');
     }
 
     match /gallery/{galleryId} {
       allow read: if true;
-      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
-      allow update: if isSuperAdmin() || (isMemberOfTenant(resource.data.tenantId) && isMemberOfTenant(request.resource.data.tenantId));
-      allow delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow create: if isSuperAdmin() || hasTenantPermission(request.resource.data.tenantId, 'manageServices');
+      allow update: if isSuperAdmin() || (
+        hasTenantPermission(resource.data.tenantId, 'manageServices')
+        && hasTenantPermission(request.resource.data.tenantId, 'manageServices')
+      );
+      allow delete: if isSuperAdmin() || hasTenantPermission(resource.data.tenantId, 'manageServices');
     }
 
     match /sales/{saleId} {
-      allow read, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
-      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
+      allow read, update, delete: if isSuperAdmin()
+        || hasTenantPermission(resource.data.tenantId, 'manageInventory');
+      allow create: if isSuperAdmin()
+        || hasTenantPermission(request.resource.data.tenantId, 'manageInventory');
     }
 
     match /expenses/{expenseId} {
-      allow read, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
-      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
+      allow read, update, delete: if isSuperAdmin() || isTenantOwner(resource.data.tenantId);
+      allow create: if isSuperAdmin() || isTenantOwner(request.resource.data.tenantId);
     }
 
     match /deposits/{depositId} {
-      allow read, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
-      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
+      allow read, update, delete: if isSuperAdmin() || isTenantOwner(resource.data.tenantId);
+      allow create: if isSuperAdmin() || isTenantOwner(request.resource.data.tenantId);
     }
 
     match /campaigns/{campaignId} {
-      allow read, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
-      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
+      allow read, update, delete: if isSuperAdmin()
+        || hasTenantPermission(resource.data.tenantId, 'manageServices');
+      allow create: if isSuperAdmin()
+        || hasTenantPermission(request.resource.data.tenantId, 'manageServices');
     }
 
-    // 3. User Profiles Collection (Owner-only access, tenant admin access)
+    // 3. User profiles contain identity/preferences only, never authority.
     match /users/{userId} {
-      allow read: if isSuperAdmin() 
-        || (request.auth != null && request.auth.uid == userId)
-        || (request.auth != null && getUserData().tenantId == resource.data.tenantId)
-        // Temporary migration rule: allow reading 'platform' users
-        || (request.auth != null && resource.data.tenantId == 'platform');
-      allow write: if isSuperAdmin() 
-        || (request.auth != null && request.auth.uid == userId)
-        || (request.auth != null && (
-             (resource != null && exists(/databases/$(database)/documents/tenants/$(resource.data.tenantId)) && get(/databases/$(database)/documents/tenants/$(resource.data.tenantId)).data.ownerUid == request.auth.uid)
-             ||
-             (resource == null && exists(/databases/$(database)/documents/tenants/$(request.resource.data.tenantId)) && get(/databases/$(database)/documents/tenants/$(request.resource.data.tenantId)).data.ownerUid == request.auth.uid)
-             ||
-             // Temporary migration rule: allow any authenticated user to migrate 'platform' users
-             (resource != null && resource.data.tenantId == 'platform')
-           ));
+      allow read: if isSuperAdmin() || (request.auth != null && request.auth.uid == userId);
+      allow create: if isOwnSafeProfile(userId);
+      allow update: if isOwnSafeProfileUpdate(userId);
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Membership authority is written only by trusted server code. A user may
+    // read their own records so the client can construct its workspace session.
+    // Brand principals may audit their brand; delegated staff may view only the
+    // team at an assigned location when they hold manageStaff.
+    match /memberships/{membershipId} {
+      allow read: if request.auth != null && (
+        resource.data.userId == request.auth.uid
+        || hasActiveBrandPrincipalMembership(resource.data.brandId)
+        || (
+          resource.data.get('locationId', null) != null
+          && hasActiveLocationPermission(
+            resource.data.brandId,
+            resource.data.locationId,
+            'manageStaff'
+          )
+        )
+      );
+      allow create, update, delete: if false;
+    }
+
+    // Immutable audit history is written by trusted server transactions only.
+    match /auditEvents/{eventId} {
+      allow read: if request.auth != null
+        && resource.data.get('brandId', null) != null
+        && hasActiveBrandPrincipalMembership(resource.data.brandId);
+      allow create, update, delete: if false;
     }
 
     // 3.4 Client Notes Collection (Tenant-scoped)
     match /client_notes/{noteId} {
-      allow read, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
-      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
+      allow read, update, delete: if isSuperAdmin()
+        || hasTenantPermission(resource.data.tenantId, 'manageBookings');
+      allow create: if isSuperAdmin()
+        || hasTenantPermission(request.resource.data.tenantId, 'manageBookings');
     }
 
     // 3.5 Audit Logs Collection (Admins can create audit logs, superadmins can manage)
     match /audit_logs/{logId} {
       allow read: if isSuperAdmin();
-      allow create: if isSuperAdmin() || (request.auth != null && getUserData().role == "admin");
+      allow create: if isSuperAdmin()
+        || hasTenantPermission(request.resource.data.tenantId, 'manageStaff');
       allow update, delete: if isSuperAdmin();
     }
 
     // 4. Notifications Collection
     match /notifications/{notificationId} {
-      allow read, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId) || 
-                                    (request.auth != null && request.auth.uid == resource.data.recipientId);
-      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId) || 
-                                    (request.auth != null && request.auth.uid == request.resource.data.recipientId);
+      function canAccessNotification(data) {
+        return isSuperAdmin()
+          || hasTenantPermission(data.tenantId, 'manageBookings')
+          || isAssignedBarber(data.tenantId, data.get('recipientId', ''))
+          || (request.auth != null && request.auth.uid == data.recipientId);
+      }
+
+      allow read, delete: if canAccessNotification(resource.data);
+      allow create: if canAccessNotification(request.resource.data)
+        && request.resource.data.get('serverIssued', false) != true;
+      allow update: if canAccessNotification(resource.data)
+        && request.resource.data.get('serverIssued', false) == resource.data.get('serverIssued', false)
+        && (
+          resource.data.get('serverIssued', false) != true
+          || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
+        );
     }
 
     // 5. Payroll Collections
     match /payroll_requests/{requestId} {
-      allow read, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
-      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
+      allow read, update, delete: if isSuperAdmin()
+        || hasTenantPermission(resource.data.tenantId, 'manageStaff');
+      allow create: if isSuperAdmin()
+        || hasTenantPermission(request.resource.data.tenantId, 'manageStaff');
     }
 
     match /payroll_payments/{paymentId} {
-      allow read, update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
-      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
+      allow read, update, delete: if isSuperAdmin()
+        || hasTenantPermission(resource.data.tenantId, 'manageStaff');
+      allow create: if isSuperAdmin()
+        || hasTenantPermission(request.resource.data.tenantId, 'manageStaff');
     }
 
     match /manual_payments/{paymentId} {
@@ -160,16 +645,30 @@ service cloud.firestore {
 
     // 6. Attendance (tenant-scoped)
     match /attendance/{document=**} {
-      allow read: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
-      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
-      allow update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow read: if isSuperAdmin()
+        || hasTenantPermission(resource.data.tenantId, 'manageStaff')
+        || isAssignedBarber(resource.data.tenantId, resource.data.get('barberId', ''));
+      allow create: if isSuperAdmin()
+        || hasTenantPermission(request.resource.data.tenantId, 'manageStaff')
+        || isAssignedBarber(request.resource.data.tenantId, request.resource.data.get('barberId', ''));
+      allow update, delete: if isSuperAdmin()
+        || hasTenantPermission(resource.data.tenantId, 'manageStaff')
+        || (
+          isAssignedBarber(resource.data.tenantId, resource.data.get('barberId', ''))
+          && request.resource.data.tenantId == resource.data.tenantId
+          && request.resource.data.get('barberId', '') == resource.data.get('barberId', '')
+        );
     }
 
     // 7. Settlements (tenant-scoped)
     match /settlements/{document=**} {
-      allow read: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
-      allow create: if isSuperAdmin() || isMemberOfTenant(request.resource.data.tenantId);
-      allow update, delete: if isSuperAdmin() || isMemberOfTenant(resource.data.tenantId);
+      allow read: if isSuperAdmin()
+        || hasTenantPermission(resource.data.tenantId, 'manageStaff')
+        || isAssignedBarber(resource.data.tenantId, resource.data.get('barberId', ''));
+      allow create: if isSuperAdmin()
+        || hasTenantPermission(request.resource.data.tenantId, 'manageStaff');
+      allow update, delete: if isSuperAdmin()
+        || hasTenantPermission(resource.data.tenantId, 'manageStaff');
     }
 
     match /business/{document=**} {

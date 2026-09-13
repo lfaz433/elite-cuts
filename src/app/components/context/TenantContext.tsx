@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { db } from '../../lib/firebase';
-import { collection, query, where, getDocs, addDoc, doc, getDoc, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
+import { extractSubdomain, loadTenantForHost, PLATFORM_TENANT } from './tenantResolution';
 
 export interface TenantData {
   tenantId: string;
@@ -13,7 +14,11 @@ export interface TenantData {
     trialEndsAt?: number;
     currentPeriodEnd?: number;
   };
-  settings: { maxBarbersLimit: number; allowOnlineBooking: boolean };
+  settings: {
+    maxBarbersLimit: number;
+    allowOnlineBooking: boolean;
+    bookingPolicy?: 'manual' | 'automatic';
+  };
   onboardingComplete?: boolean;
   isDemo?: boolean;
   subdomain?: string;
@@ -31,27 +36,6 @@ export function useTenant() {
     throw new Error('useTenant must be used within a TenantProvider');
   }
   return context;
-}
-
-function extractSubdomain(hostname: string): string {
-  if (
-    hostname === 'localhost' ||
-    hostname === '127.0.0.1' ||
-    hostname.endsWith('.vercel.app') ||
-    hostname === 'barberboard.pro' ||
-    hostname === 'www.barberboard.pro' ||
-    hostname === 'barbeboard.pro' ||
-    hostname === 'www.barbeboard.pro'
-  ) {
-    return 'elite-cuts-default';
-  }
-  if (hostname === 'demo.barberboard.pro' || hostname === 'demo.barbeboard.pro') {
-    return 'demo';
-  }
-  if (hostname.endsWith('.barberboard.pro') || hostname.endsWith('.barbeboard.pro')) {
-    return hostname.split('.')[0];
-  }
-  return 'elite-cuts-default';
 }
 
 export function TenantProvider({ children }: { children: React.ReactNode }) {
@@ -72,23 +56,21 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     const fetchTenant = async () => {
       const subdomain = getSubdomain();
       const hostname = window.location.hostname;
-      const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
       try {
-        const tenantsRef = collection(db, 'tenants');
-        const q = query(tenantsRef, where('subdomain', '==', subdomain));
+        const fetchedTenant = await loadTenantForHost(hostname, async (tenantSubdomain) => {
+          const tenantsRef = collection(db, 'tenants');
+          const q = query(tenantsRef, where('subdomain', '==', tenantSubdomain));
+          const timeoutPromise = new Promise<null>((_, reject) =>
+            setTimeout(() => reject(new Error('Tenant lookup timed out after 10s')), 10000)
+          );
+          const querySnapshot = await Promise.race([getDocs(q), timeoutPromise]) as Awaited<ReturnType<typeof getDocs>>;
 
-        // Race Firestore against a 10-second timeout to prevent infinite spinner
-        const timeoutPromise = new Promise<null>((_, reject) =>
-          setTimeout(() => reject(new Error('Tenant lookup timed out after 10s')), 10000)
-        );
-        const querySnapshot = await Promise.race([getDocs(q), timeoutPromise]) as Awaited<ReturnType<typeof getDocs>>;
+          if (querySnapshot.empty) return null;
 
-        if (!querySnapshot.empty) {
-
-          const doc = querySnapshot.docs[0];
-          const data = doc.data();
-          const fetchedTenant = {
-            tenantId: doc.id,
+          const tenantDoc = querySnapshot.docs[0];
+          const data = tenantDoc.data();
+          return {
+            tenantId: tenantDoc.id,
             subdomain: data.subdomain,
             name: data.name,
             branding: data.branding,
@@ -102,26 +84,14 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
             onboardingComplete: data.onboardingComplete || false,
             isDemo: data.isDemo || false,
           };
+        });
+
+        if (fetchedTenant) {
           setTenant(fetchedTenant);
           initialTenantRef.current = fetchedTenant;
         } else if (subdomain === 'elite-cuts-default') {
-          const fallbackTenant = {
-            tenantId: 'platform',
-            subdomain: 'elite-cuts-default',
-            name: "Barberboard Platform",
-            branding: { primaryColor: "#D4AF37", logoUrl: "", businessName: "Barberboard" },
-            subscription: { 
-              status: "active" as const, 
-              planId: "pro",
-              trialEndsAt: 0,
-              currentPeriodEnd: 0
-            },
-            settings: { maxBarbersLimit: 100, allowOnlineBooking: true },
-            onboardingComplete: true
-          };
-          
-          setTenant(fallbackTenant);
-          initialTenantRef.current = fallbackTenant;
+          setTenant(PLATFORM_TENANT);
+          initialTenantRef.current = PLATFORM_TENANT;
         } else {
           setError('Barbershop not found');
         }
@@ -140,22 +110,21 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     if (isLoading) return; // Wait until initial subdomain tenant is resolved
 
     const auth = getAuth();
-    let unsubscribeSnapshot: (() => void) | undefined;
 
-    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
-      if (unsubscribeSnapshot) {
-        unsubscribeSnapshot();
-        unsubscribeSnapshot = undefined;
-      }
-
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (user) {
-        unsubscribeSnapshot = onSnapshot(doc(db, 'users', user.uid), async (userDoc) => {
-          const userTenantId = userDoc.data()?.tenantId;
-          const currentTenant = tenantRef.current;
-          
-          if (userTenantId && currentTenant && userTenantId !== currentTenant.tenantId) {
-            // Load the correct tenant for this user
-            const tenantDoc = await getDoc(doc(db, 'tenants', userTenantId));
+        const currentTenant = tenantRef.current;
+        if (currentTenant?.tenantId === 'platform') {
+          const memberships = await getDocs(query(
+            collection(db, 'memberships'),
+            where('userId', '==', user.uid),
+            where('status', '==', 'active'),
+          ));
+          const locationId = memberships.docs
+            .map(membership => membership.data().locationId)
+            .find((value): value is string => typeof value === 'string' && value !== '');
+          if (locationId) {
+            const tenantDoc = await getDoc(doc(db, 'tenants', locationId));
             if (tenantDoc.exists()) {
               const data = tenantDoc.data();
               setTenant({
@@ -175,7 +144,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
               });
             }
           }
-        });
+        }
       } else {
         // Reset to initial subdomain tenant on logout
         if (initialTenantRef.current) {
@@ -186,7 +155,6 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       unsubscribeAuth();
-      if (unsubscribeSnapshot) unsubscribeSnapshot();
     };
   }, [isLoading]);
 

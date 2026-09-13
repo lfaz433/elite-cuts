@@ -1,0 +1,72 @@
+{
+  "indexes": [
+    { "collectionGroup": "memberships", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "userId", "order": "ASCENDING" }, { "fieldPath": "brandId", "order": "ASCENDING" },
+      { "fieldPath": "status", "order": "ASCENDING" }, { "fieldPath": "role", "order": "ASCENDING" }
+    ] },
+    { "collectionGroup": "memberships", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "userId", "order": "ASCENDING" }, { "fieldPath": "status", "order": "ASCENDING" }
+    ] },
+    { "collectionGroup": "bookings", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "clientId", "order": "ASCENDING" }, { "fieldPath": "status", "order": "ASCENDING" },
+      { "fieldPath": "paymentStatus", "order": "ASCENDING" }, { "fieldPath": "isTest", "order": "ASCENDING" },
+      { "fieldPath": "pricePaidMinor", "order": "ASCENDING" }, { "fieldPath": "completedAt", "order": "ASCENDING" },
+      { "fieldPath": "__name__", "order": "ASCENDING" }
+    ] },
+    { "collectionGroup": "bookings", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "clientId", "order": "ASCENDING" }, { "fieldPath": "status", "order": "ASCENDING" },
+      { "fieldPath": "paymentStatus", "order": "ASCENDING" }, { "fieldPath": "isTest", "order": "ASCENDING" },
+      { "fieldPath": "completedAt", "order": "ASCENDING" }, { "fieldPath": "pricePaidMinor", "order": "ASCENDING" },
+      { "fieldPath": "__name__", "order": "ASCENDING" }
+    ] },
+    { "collectionGroup": "referralProgramSummaries", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schemaVersion", "order": "ASCENDING" }, { "fieldPath": "summaryEpoch", "order": "ASCENDING" },
+      { "fieldPath": "updatedAt", "order": "DESCENDING" }, { "fieldPath": "__name__", "order": "DESCENDING" }
+    ] },
+    { "collectionGroup": "referralReferrerSummaries", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schemaVersion", "order": "ASCENDING" }, { "fieldPath": "summaryEpoch", "order": "ASCENDING" },
+      { "fieldPath": "attributionCount", "order": "DESCENDING" }, { "fieldPath": "rewardCount", "order": "DESCENDING" },
+      { "fieldPath": "__name__", "order": "ASCENDING" }
+    ] },
+    { "collectionGroup": "referralRewards", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "status", "order": "ASCENDING" }, { "fieldPath": "summaryVersion", "order": "ASCENDING" },
+      { "fieldPath": "summaryEpoch", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" },
+      { "fieldPath": "__name__", "order": "DESCENDING" }
+    ] },
+    { "collectionGroup": "referralRewards", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "status", "order": "ASCENDING" }, { "fieldPath": "summaryVersion", "order": "ASCENDING" },
+      { "fieldPath": "summaryEpoch", "order": "ASCENDING" }, { "fieldPath": "fraudFlag.status", "order": "ASCENDING" },
+      { "fieldPath": "createdAt", "order": "DESCENDING" }, { "fieldPath": "__name__", "order": "DESCENDING" }
+    ] },
+    { "collectionGroup": "referralOwnerHistory", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "ownerKey", "order": "ASCENDING" }, { "fieldPath": "role", "order": "ASCENDING" },
+      { "fieldPath": "schemaVersion", "order": "ASCENDING" }, { "fieldPath": "summaryEpoch", "order": "ASCENDING" },
+      { "fieldPath": "createdAt", "order": "DESCENDING" }, { "fieldPath": "__name__", "order": "DESCENDING" }
+    ] },
+    { "collectionGroup": "referralAudit", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "summaryVersion", "order": "ASCENDING" }, { "fieldPath": "summaryEpoch", "order": "ASCENDING" },
+      { "fieldPath": "createdAt", "order": "DESCENDING" }, { "fieldPath": "__name__", "order": "DESCENDING" }
+    ] },
+    { "collectionGroup": "referralAudit", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "summaryVersion", "order": "ASCENDING" }, { "fieldPath": "summaryEpoch", "order": "ASCENDING" },
+      { "fieldPath": "code", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" },
+      { "fieldPath": "__name__", "order": "DESCENDING" }
+    ] },
+    { "collectionGroup": "referralAudit", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "summaryVersion", "order": "ASCENDING" }, { "fieldPath": "summaryEpoch", "order": "ASCENDING" },
+      { "fieldPath": "programId", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" },
+      { "fieldPath": "__name__", "order": "DESCENDING" }
+    ] },
+    { "collectionGroup": "referralAudit", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "summaryVersion", "order": "ASCENDING" }, { "fieldPath": "summaryEpoch", "order": "ASCENDING" },
+      { "fieldPath": "rewardId", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" },
+      { "fieldPath": "__name__", "order": "DESCENDING" }
+    ] },
+    { "collectionGroup": "referralAudit", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "summaryVersion", "order": "ASCENDING" }, { "fieldPath": "summaryEpoch", "order": "ASCENDING" },
+      { "fieldPath": "action", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" },
+      { "fieldPath": "__name__", "order": "DESCENDING" }
+    ] }
+  ],
+  "fieldOverrides": []
+}

@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useNavigate } from 'react-router';
+import ReferralMarketingDashboard from '../superadmin/ReferralMarketingDashboard';
 
 export default function SuperAdmin() {
   const { user, logout: signOut } = useAuth();
@@ -183,7 +184,11 @@ export default function SuperAdmin() {
       const tenantId = tenant.id;
       const [bookingsSnap, barbersSnap, servicesSnap, salesSnap, expensesSnap] = await Promise.all([
         getDocs(query(collection(db, 'bookings'), where('tenantId', '==', tenantId))),
-        getDocs(query(collection(db, 'barbers'), where('tenantId', '==', tenantId))),
+        getDocs(query(
+          collection(db, 'barbers'),
+          where('tenantId', '==', tenantId),
+          where('publicCredentialSafe', '==', true),
+        )),
         getDocs(query(collection(db, 'services'), where('tenantId', '==', tenantId))),
         getDocs(query(collection(db, 'sales'), where('tenantId', '==', tenantId))),
         getDocs(query(collection(db, 'expenses'), where('tenantId', '==', tenantId)))
@@ -990,7 +995,8 @@ export default function SuperAdmin() {
             { id: 'revenue', label: 'Revenus & MRR', icon: TrendingUp },
             { id: 'bookings', label: 'Réservations Globales', icon: Calendar },
             { id: 'free', label: 'Accès Gratuit', icon: Gift },
-            { id: 'payments', label: '💳 Paiements', icon: CreditCard }
+            { id: 'payments', label: '💳 Paiements', icon: CreditCard },
+            { id: 'marketing', label: 'Marketing & parrainage', icon: Gift }
           ].map(tab => (
             <button
               key={tab.id}
@@ -1014,6 +1020,7 @@ export default function SuperAdmin() {
             </div>
           ) : (
             <>
+              {activeTab === 'marketing' && <ReferralMarketingDashboard />}
               {activeTab === 'dashboard' && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-10">
                   {/* Section 1 — Welcome header */}

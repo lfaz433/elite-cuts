@@ -1,11 +1,15 @@
 node_modules/
 dist/
 build/
+.superpowers/
 .env
-.env.local
-.env.production
+.env.*
+!.env.example
+!.env.staging.example
 .DS_Store
-functions/.env
+functions/.env*
+!functions/.env.example
+!functions/.env.staging.example
 functions/lib/
 gcloud init/
 scratch/

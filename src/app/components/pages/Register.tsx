@@ -1,18 +1,24 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Scissors, Check, AlertTriangle, ArrowRight, ArrowLeft, Loader2, Sparkles, Shield, User, Globe, Store } from 'lucide-react';
-import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { doc, setDoc, collection, getDocs, query, where } from 'firebase/firestore';
-import { auth, db, functions } from '../../lib/firebase';
+import { Scissors, Check, AlertTriangle, ArrowRight, ArrowLeft, Loader2, Sparkles, Shield, User, Globe, Store, MapPin } from 'lucide-react';
+import { createUserWithEmailAndPassword, sendEmailVerification, updateProfile } from 'firebase/auth';
+import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
-import { useNavigate } from 'react-router';
+import { auth, db, functions } from '../../lib/firebase';
+import { useNavigate, useSearchParams } from 'react-router';
 import { toast } from 'sonner';
 import PhoneInput from 'react-phone-input-2';
 import 'react-phone-input-2/lib/style.css';
 
+import { loadSessionUser } from '../../lib/session';
 import { validateSubdomain } from '../../lib/validators';
+import { useAuth } from '../context/AuthContext';
+import { sendAccountVerification } from '../../lib/emailVerification';
 
 type PlanId = 'basic' | 'pro' | 'enterprise';
+type ProvisionStatus = 'pending' | 'pending_verification' | 'active' | 'failed';
+
+const MAIN_DOMAIN = import.meta.env.VITE_MAIN_DOMAIN?.trim().toLowerCase() || '';
 
 interface Plan {
   id: PlanId;
@@ -22,6 +28,18 @@ interface Plan {
   limit: number;
   features: string[];
   recommended?: boolean;
+}
+
+interface BootstrapTenantResult {
+  tenantId: string;
+  locationId: string;
+  membershipId: string;
+}
+
+interface BootstrapBrandResult {
+  brandId: string;
+  locationId: string;
+  membershipId: string;
 }
 
 const PLANS: Plan[] = [
@@ -54,13 +72,22 @@ const PLANS: Plan[] = [
 
 export default function Register() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const { refreshSession } = useAuth();
+  const isBrandMode = searchParams.get('mode') === 'brand';
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [registrationOutcome, setRegistrationOutcome] = useState<{
+    tenantId: string;
+    status: Exclude<ProvisionStatus, 'active'>;
+  } | null>(null);
 
   // Form states
   const [shopName, setShopName] = useState('');
   const [shopPhone, setShopPhone] = useState('');
   const [shopAddress, setShopAddress] = useState('');
+  const [city, setCity] = useState('');
+  const [countryCode, setCountryCode] = useState('FR');
 
   const [subdomain, setSubdomain] = useState('');
   const [isCheckingSubdomain, setIsCheckingSubdomain] = useState(false);
@@ -98,9 +125,8 @@ export default function Register() {
     setIsCheckingSubdomain(true);
     setSubdomainError('');
     try {
-      const q = query(collection(db, 'tenants'), where('subdomain', '==', subdomain));
-      const querySnapshot = await getDocs(q);
-      const isTaken = !querySnapshot.empty;
+      const reservation = await getDoc(doc(db, 'subdomains', subdomain));
+      const isTaken = reservation.exists();
       setSubdomainAvailable(!isTaken);
       if (isTaken) {
         setSubdomainError('Ce sous-domaine est déjà utilisé.');
@@ -125,6 +151,17 @@ export default function Register() {
       }
     }
     if (step === 2) {
+      if (isBrandMode) {
+        if (!city.trim()) {
+          toast.error('Veuillez entrer la ville de votre premier salon.');
+          return false;
+        }
+        if (!/^[A-Za-z]{2}$/.test(countryCode.trim())) {
+          toast.error('Veuillez entrer un code pays à deux lettres.');
+          return false;
+        }
+        return true;
+      }
       if (!subdomain) {
         toast.error('Veuillez choisir un sous-domaine.');
         return false;
@@ -162,93 +199,117 @@ export default function Register() {
   };
 
   const handleSubmit = async () => {
+    if (registrationOutcome) {
+      toast.info('Votre salon est déjà créé et son domaine reste en attente.');
+      return;
+    }
+    if (!isBrandMode && !MAIN_DOMAIN) {
+      toast.error('Le domaine principal n’est pas configuré.');
+      return;
+    }
+
     setLoading(true);
     let createdUser: any = null;
-    let provisionStatus = 'pending';
+    let tenantBootstrapped = false;
+    let provisionStatus: ProvisionStatus = 'pending';
     let isVercelVerified = false;
 
     try {
-      // 1. Generate unique Tenant Doc ID
-      const newTenantId = doc(collection(db, 'tenants')).id;
-
-      // 2. Create Firebase Auth user
+      // 1. Create Firebase Auth user
       const cleanEmail = ownerEmail.trim().toLowerCase();
       const userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, ownerPassword);
       createdUser = userCredential.user;
 
-      // Pre-populate localStorage immediately so that AuthContext's onAuthStateChanged (which fires asynchronously
-      // in the next tick) resolves role: 'admin' right away.
-      localStorage.setItem(`user_profile_${createdUser.uid}`, JSON.stringify({
-        id: createdUser.uid,
-        uid: createdUser.uid,
-        email: cleanEmail,
-        name: ownerName,
-        role: 'admin',
-        tenantId: newTenantId
-      }));
-
-      // 3. Update displayName in Firebase Auth profile
+      // 2. Update displayName in Firebase Auth profile
       await updateProfile(createdUser, { displayName: ownerName });
 
-      // 4. Write user document to Firestore FIRST — this must happen before any other
-      //    Firestore write, because Security Rules use getUserData() to verify identity.
+      // 3. Store identity fields only. Server-managed membership records grant authority.
       const userProfile = {
         uid: createdUser.uid,
         email: cleanEmail,
         name: ownerName,
-        role: 'admin',
-        tenantId: newTenantId,
-        createdAt: new Date().toISOString()
+        displayName: ownerName,
+        createdAt: serverTimestamp(),
       };
       await setDoc(doc(db, 'users', createdUser.uid), userProfile);
+      await sendAccountVerification(createdUser, sendEmailVerification);
 
-      // 5. Reserve subdomain — now safe because user doc exists
-      try {
-        await setDoc(doc(db, 'subdomains', subdomain), {
-          ownerUid: createdUser.uid,
-          tenantId: newTenantId,
-          createdAt: new Date().toISOString()
+      if (isBrandMode) {
+        const bootstrapBrand = httpsCallable<Record<string, unknown>, BootstrapBrandResult>(
+          functions,
+          'bootstrapBrandOwner',
+        );
+        const brandResponse = await bootstrapBrand({
+          brandName: shopName.trim(),
+          locationName: shopName.trim(),
+          city: city.trim(),
+          countryCode: countryCode.trim().toUpperCase(),
+          ...(shopAddress.trim() ? { address: shopAddress.trim() } : {}),
+          ...(shopPhone.trim() ? { phone: shopPhone.trim() } : {}),
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         });
-      } catch (subErr) {
-        // Non-fatal: log but do not abort the entire registration
-        console.warn('Subdomain reservation failed (non-fatal):', subErr);
+        const { brandId, locationId, membershipId } = brandResponse.data;
+        if (!brandId || !locationId || !membershipId) {
+          throw new Error('Le serveur a renvoyé un espace de marque invalide.');
+        }
+        tenantBootstrapped = true;
+
+        const session = await loadSessionUser(createdUser);
+        const principalMembership = session.memberships.find(membership => (
+          membership.userId === createdUser.uid
+          && membership.brandId === brandId
+          && membership.role === 'principal_admin'
+          && membership.status === 'active'
+          && !membership.locationId
+        ));
+        const initialLocationMembership = session.memberships.find(membership => (
+          membership.id === membershipId
+          && membership.userId === createdUser.uid
+          && membership.brandId === brandId
+          && membership.locationId === locationId
+          && membership.role === 'principal_admin'
+          && membership.status === 'active'
+        ));
+        if (!principalMembership || !initialLocationMembership) {
+          throw new Error('L’accès Principal Admin n’a pas pu être vérifié.');
+        }
+        await refreshSession();
+        toast.success('Votre marque et votre premier salon sont prêts.');
+        navigate('/brand', { replace: true });
+        return;
       }
 
-      // 6. Write tenant document — user doc is now in Firestore so isMemberOfTenant() will pass
-      const tenantData = {
+      // 4. Atomically create the tenant, reservation, and fixed owner membership on the server.
+      const bootstrap = httpsCallable<Record<string, unknown>, BootstrapTenantResult>(
+        functions,
+        'bootstrapTenantOwner',
+      );
+      const bootstrapResponse = await bootstrap({
         subdomain,
-        domain: {
-          subdomain,
-          status: provisionStatus,
-          vercelVerified: isVercelVerified
-        },
-        name: shopName,
-        ownerUid: createdUser.uid,
-        onboardingComplete: true, // skip the onboarding wizard — admin goes straight to dashboard
-        subscription: {
-          status: 'trialing',
-          planId: selectedPlan,
-          trialEndsAt: Date.now() + 15 * 24 * 60 * 60 * 1000
-        },
-        branding: {
-          primaryColor: '#D4AF37',
-          logoUrl: '',
-          businessName: shopName
-        },
-        settings: {
-          maxBarbersLimit: selectedPlan === 'basic' ? 2 : selectedPlan === 'pro' ? 8 : 999,
-          allowOnlineBooking: true
-        },
-        createdAt: Date.now()
-      };
-      await setDoc(doc(db, 'tenants', newTenantId), tenantData);
+        shopName,
+        shopPhone,
+        shopAddress,
+        planId: selectedPlan,
+      });
+      const { tenantId: newTenantId, locationId, membershipId } = bootstrapResponse.data;
+      if (!newTenantId || locationId !== newTenantId || !membershipId) {
+        throw new Error('Le serveur a renvoyé un espace salon invalide.');
+      }
+      tenantBootstrapped = true;
 
+      const session = await loadSessionUser(createdUser);
+      const ownerMembership = session.memberships.find(membership => (
+        membership.id === membershipId &&
+        membership.userId === createdUser.uid &&
+        membership.locationId === newTenantId &&
+        membership.status === 'active' &&
+        membership.role === 'principal_admin'
+      ));
+      if (!ownerMembership) {
+        throw new Error('L’accès administrateur du salon n’a pas pu être vérifié.');
+      }
 
-
-      // 7. Force token refresh so downstream calls have fresh claims
-      await auth.currentUser?.getIdToken(true);
-
-      // 8. Call Vercel Provisioning API (non-fatal if it fails)
+      // 5. Call Vercel Provisioning API. The server persists the returned domain state.
       try {
         const idToken = await createdUser.getIdToken();
         const res = await fetch('/api/provision-subdomain', {
@@ -260,9 +321,9 @@ export default function Register() {
           body: JSON.stringify({ subdomain, tenantId: newTenantId })
         });
         const data = await res.json();
-        if (res.ok && data.ok) {
-          provisionStatus = 'active';
-          isVercelVerified = data.verified;
+        if (res.ok && data.ok && data.persisted === true) {
+          provisionStatus = data.status === 'active' ? 'active' : 'pending_verification';
+          isVercelVerified = data.verified === true;
         } else {
           provisionStatus = 'failed';
           console.error("Provisioning failed:", data.error || data);
@@ -274,21 +335,19 @@ export default function Register() {
 
       if (provisionStatus === 'failed') {
         toast.warning("Salon créé, mais la configuration du domaine a échoué. Vous pourrez réessayer depuis les paramètres.");
+      } else if (provisionStatus === 'pending_verification' || !isVercelVerified) {
+        toast.warning('Salon créé. Le domaine est enregistré et reste en attente de vérification.');
       } else {
         toast.success('Votre salon a été configuré avec succès !');
       }
       
-      const hostname = window.location.hostname;
-      if (
-        hostname === 'localhost' ||
-        hostname === '127.0.0.1' ||
-        hostname.endsWith('.vercel.app')
-      ) {
-        navigate('/admin', { replace: true });
+      if (provisionStatus === 'active' && isVercelVerified) {
+        window.location.assign(`https://${subdomain}.${MAIN_DOMAIN}/admin`);
       } else {
-        // Always redirect to 'barbeboard.pro' in production since it has wildcard subdomains configured on Vercel
-        const baseDomain = 'barbeboard.pro';
-        window.location.href = `https://${subdomain}.${baseDomain}/admin`;
+        setRegistrationOutcome({
+          tenantId: newTenantId,
+          status: provisionStatus === 'active' ? 'pending_verification' : provisionStatus,
+        });
       }
 
     } catch (err: any) {
@@ -296,7 +355,7 @@ export default function Register() {
       toast.error(err.message || 'Une erreur est survenue lors de la création.');
 
       // Rollback Auth user if database insertions failed
-      if (createdUser) {
+      if (createdUser && !tenantBootstrapped) {
         try {
           await createdUser.delete();
         } catch (delErr) {
@@ -334,15 +393,15 @@ export default function Register() {
           <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#D4AF37]/20 to-[#FFD700]/20 flex items-center justify-center border border-[#D4AF37]/30 mb-4">
             <Scissors className="w-8 h-8 text-[#D4AF37] animate-pulse" />
           </div>
-          <h1 className="text-3xl md:text-4xl font-black bg-gradient-to-r from-[#D4AF37] to-[#FFD700] bg-clip-text text-transparent mb-2">Rejoignez Barberboard</h1>
-          <p className="text-white/60">Configurez votre salon multi-utilisateur en quelques minutes.</p>
+          <h1 className="text-3xl md:text-4xl font-black bg-gradient-to-r from-[#D4AF37] to-[#FFD700] bg-clip-text text-transparent mb-2">{isBrandMode ? 'Créez votre marque' : 'Rejoignez Barberboard'}</h1>
+          <p className="text-white/60">{isBrandMode ? 'Ouvrez votre premier salon, puis pilotez vos emplacements depuis un seul espace.' : 'Configurez votre salon multi-utilisateur en quelques minutes.'}</p>
         </div>
 
         {/* Progress Bar */}
         <div className="mb-12">
           <div className="flex justify-between items-center text-xs font-bold text-white/40 uppercase tracking-widest mb-3">
             <span>Étape {step} sur 4</span>
-            <span>{step === 1 ? 'Salon' : step === 2 ? 'Lien' : step === 3 ? 'Compte' : 'Formule'}</span>
+            <span>{step === 1 ? 'Salon' : step === 2 ? (isBrandMode ? 'Implantation' : 'Lien') : step === 3 ? 'Compte' : (isBrandMode ? 'Confirmation' : 'Formule')}</span>
           </div>
           <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
             <motion.div 
@@ -433,7 +492,35 @@ export default function Register() {
               </motion.div>
             )}
 
-            {step === 2 && (
+            {step === 2 && isBrandMode && (
+              <motion.div
+                key="step2-brand"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                className="space-y-6"
+              >
+                <div className="flex items-center gap-3 border-b border-[#D4AF37]/10 pb-4 mb-6">
+                  <MapPin className="w-6 h-6 text-[#D4AF37]" />
+                  <h2 className="text-xl font-bold text-white">Implantation du premier salon</h2>
+                </div>
+                <div className="grid gap-6 md:grid-cols-[1fr_180px]">
+                  <div className="flex flex-col gap-2">
+                    <label className="text-xs font-bold uppercase text-white/60 tracking-wider">Ville *</label>
+                    <input value={city} onChange={event => setCity(event.target.value)} placeholder="Ex: Paris" className="px-5 py-4 bg-white/5 border border-white/10 rounded-xl focus:border-[#D4AF37] outline-none text-white transition-all placeholder:text-white/20" />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <label className="text-xs font-bold uppercase text-white/60 tracking-wider">Code pays *</label>
+                    <input value={countryCode} onChange={event => setCountryCode(event.target.value)} maxLength={2} className="px-5 py-4 bg-white/5 border border-white/10 rounded-xl focus:border-[#D4AF37] outline-none text-white uppercase transition-all" />
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-[#D4AF37]/20 bg-[#D4AF37]/5 p-5 text-sm text-white/60">
+                  Vous recevrez le rôle Principal Admin. Les rôles et permissions restent gérés par le serveur.
+                </div>
+              </motion.div>
+            )}
+
+            {step === 2 && !isBrandMode && (
               <motion.div
                 key="step2"
                 initial={{ opacity: 0, x: 20 }}
@@ -458,13 +545,13 @@ export default function Register() {
                       className="flex-1 px-5 py-4 bg-white/5 border border-white/10 rounded-xl focus:border-[#D4AF37] outline-none text-white transition-all placeholder:text-white/20 text-right font-mono"
                     />
                     <div className="px-5 py-4 sm:py-0 bg-white/10 border border-white/10 rounded-xl flex items-center justify-center text-white/60 font-mono text-xs sm:text-sm">
-                      .{window.location.hostname.includes('barbeboard.pro') ? 'barbeboard.pro' : 'barberboard.pro'}
+                      .{MAIN_DOMAIN || 'domaine-non-configuré'}
                     </div>
                   </div>
 
                   {subdomain && (
                     <p className="text-xs text-white/40 mt-1 font-mono">
-                      Aperçu : <span className="text-[#D4AF37]">{subdomain}.{window.location.hostname.includes('barbeboard.pro') ? 'barbeboard.pro' : 'barberboard.pro'}</span>
+                      Aperçu : <span className="text-[#D4AF37]">{subdomain}.{MAIN_DOMAIN || 'domaine-non-configuré'}</span>
                     </p>
                   )}
                 </div>
@@ -550,7 +637,27 @@ export default function Register() {
               </motion.div>
             )}
 
-            {step === 4 && (
+            {step === 4 && isBrandMode && (
+              <motion.div
+                key="step4-brand"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                className="space-y-6"
+              >
+                <div className="flex items-center gap-3 border-b border-[#D4AF37]/10 pb-4 mb-6">
+                  <Shield className="w-6 h-6 text-[#D4AF37]" />
+                  <h2 className="text-xl font-bold text-white">Vérifiez votre espace</h2>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5"><p className="text-xs uppercase tracking-wider text-white/40">Marque et salon</p><p className="mt-2 font-black text-white">{shopName}</p></div>
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5"><p className="text-xs uppercase tracking-wider text-white/40">Implantation</p><p className="mt-2 font-black text-white">{city}, {countryCode.toUpperCase()}</p></div>
+                </div>
+                <p className="text-sm leading-relaxed text-white/50">Aucun rôle privilégié n’est écrit depuis le navigateur : le serveur créera votre marque, son premier salon et vos accès Principal Admin dans une seule opération sécurisée.</p>
+              </motion.div>
+            )}
+
+            {step === 4 && !isBrandMode && (
               <motion.div
                 key="step4"
                 initial={{ opacity: 0, x: 20 }}
@@ -620,12 +727,21 @@ export default function Register() {
           </AnimatePresence>
         </div>
 
+        {registrationOutcome && (
+          <div role="status" className="mt-8 rounded-2xl border border-amber-400/30 bg-amber-400/10 p-5 text-sm text-amber-100">
+            <p className="font-bold">Salon créé — domaine en attente</p>
+            <p className="mt-1 text-amber-100/70">
+              Votre accès administrateur est enregistré. Nous ne vous redirigerons pas tant que le domaine n’est pas confirmé.
+            </p>
+          </div>
+        )}
+
         {/* Footer Navigation Buttons */}
         <div className="flex flex-col-reverse sm:flex-row justify-between items-center gap-3 border-t border-[#D4AF37]/10 pt-8 mt-10">
           {step > 1 ? (
             <button
               onClick={handlePrev}
-              disabled={loading}
+              disabled={loading || registrationOutcome !== null}
               className="px-6 py-4 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-2xl transition-all font-bold flex items-center gap-2 text-sm disabled:opacity-40"
             >
               <ArrowLeft className="w-4 h-4" /> Retour
@@ -637,7 +753,7 @@ export default function Register() {
           {step < 4 ? (
             <button
               onClick={handleNext}
-              disabled={step === 2 && subdomainAvailable !== true}
+              disabled={step === 2 && !isBrandMode && subdomainAvailable !== true}
               className="px-8 py-4 bg-[#D4AF37] text-black rounded-2xl hover:bg-[#FFD700] hover:shadow-lg hover:shadow-[#D4AF37]/20 transition-all font-bold flex items-center gap-2 text-sm active:scale-95 disabled:opacity-40"
             >
               Continuer <ArrowRight className="w-4 h-4" />
@@ -645,7 +761,7 @@ export default function Register() {
           ) : (
             <button
               onClick={handleSubmit}
-              disabled={loading}
+              disabled={loading || registrationOutcome !== null}
               className="px-10 py-4 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black rounded-2xl hover:shadow-xl hover:shadow-[#D4AF37]/30 transition-all font-black text-sm active:scale-95 flex items-center gap-2 disabled:opacity-40"
             >
               {loading ? (
@@ -653,9 +769,11 @@ export default function Register() {
                   <Loader2 className="w-5 h-5 animate-spin" />
                   Création en cours...
                 </>
+              ) : registrationOutcome ? (
+                <>Salon créé — en attente</>
               ) : (
                 <>
-                  Créer mon Salon <Sparkles className="w-5 h-5 fill-current" />
+                  {isBrandMode ? 'Créer ma marque' : 'Créer mon Salon'} <Sparkles className="w-5 h-5 fill-current" />
                 </>
               )}
             </button>

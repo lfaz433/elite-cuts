@@ -1,5 +1,7 @@
 {
   "projects": {
-    "default": "elite-cuts-app"
+    "default": "elite-cuts-staging",
+    "production": "elite-cuts-app",
+    "staging": "elite-cuts-staging"
   }
 }

@@ -1,36 +1,51 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
+import { adminDb, hasMembershipPermission, verifyFirebaseIdToken } from './utils/firebaseAdmin.js';
+import { claimPushTarget, recordPushDelivery } from './utils/pushTarget.js';
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export async function sendPushHandler(req: VercelRequest, res: VercelResponse) {
   // Only allow POST requests
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
-  // Basic security validation: Only authenticated requests
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  const decodedToken = await verifyFirebaseIdToken(req);
+  if (!decodedToken) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  // In a real app, verify the bearer token here to ensure it's from your valid clients.
-  // For simplicity, we assume if it reaches here and has a Bearer token, it's valid.
-
   try {
-    const { recipientId, title, body, data, notificationId, type } = req.body;
+    const { notificationId, tenantId } = req.body ?? {};
 
-    if (!recipientId || !title || !body) {
+    if (
+      typeof notificationId !== 'string' ||
+      typeof tenantId !== 'string'
+    ) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    const ONE_SIGNAL_APP_ID = "812f9b44-12d9-4391-97b7-6f0b2798987d";
-    const ONE_SIGNAL_REST_API_KEY = process.env.ONESIGNAL_REST_API_KEY?.trim();
+    const isAuthorized = decodedToken.superadmin === true
+      || decodedToken.platformAdmin === true
+      || await hasMembershipPermission(decodedToken.uid, tenantId, 'manageBookings');
 
-    if (!ONE_SIGNAL_REST_API_KEY) {
-      console.error('OneSignal credentials missing');
-      return res.status(500).json({ error: 'Server misconfiguration: Missing REST API KEY' });
+    if (!isAuthorized) {
+      return res.status(403).json({ error: 'Forbidden' });
     }
 
-    const redirectUrl = data?.url || '/';
+    const ONE_SIGNAL_APP_ID = process.env.ONESIGNAL_APP_ID?.trim();
+    const ONE_SIGNAL_REST_API_KEY = process.env.ONESIGNAL_REST_API_KEY?.trim();
+
+    if (!ONE_SIGNAL_APP_ID || !ONE_SIGNAL_REST_API_KEY) {
+      console.error('OneSignal credentials missing');
+      return res.status(500).json({ error: 'Server misconfiguration: Missing OneSignal credentials' });
+    }
+
+    let target;
+    try {
+      target = await claimPushTarget(adminDb, tenantId, notificationId);
+    } catch (error) {
+      console.warn('Push target rejected:', error);
+      return res.status(409).json({ error: 'Invalid or already delivered push target' });
+    }
 
     const response = await fetch('https://onesignal.com/api/v1/notifications', {
       method: 'POST',
@@ -40,10 +55,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       },
       body: JSON.stringify({
         app_id: ONE_SIGNAL_APP_ID,
-        include_external_user_ids: [recipientId],
-        contents: { en: body, fr: body },
-        headings: { en: title, fr: title },
-        url: redirectUrl,
+        include_external_user_ids: [target.recipientId],
+        contents: { en: target.body, fr: target.body },
+        headings: { en: target.title, fr: target.title },
+        url: target.redirectUrl,
       }),
     });
 
@@ -51,9 +66,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (!response.ok) {
       console.error('OneSignal Error:', result);
+      await recordPushDelivery(adminDb, notificationId, 'failed');
       return res.status(response.status).json({ error: 'Failed to send push notification', details: result });
     }
 
+    await recordPushDelivery(adminDb, notificationId, 'sent');
     return res.status(200).json({ success: true, result });
 
   } catch (error) {
@@ -61,3 +78,5 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(500).json({ error: 'Internal Server Error' });
   }
 }
+
+export default sendPushHandler;

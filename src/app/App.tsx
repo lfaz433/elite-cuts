@@ -1,10 +1,11 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router';
-import { Suspense } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router';
+import { Suspense, useMemo } from 'react';
 import { Toaster } from 'sonner';
 import PublicLayout from './components/layouts/PublicLayout';
 import LandingPage from './components/pages/LandingPage';
 import HomePage from './components/pages/HomePage';
 import { AuthProvider, useAuth } from './components/context/AuthContext';
+import { WorkspaceProvider } from './components/context/WorkspaceContext';
 import { BusinessProvider } from './components/context/BusinessContext';
 import { NotificationProvider } from './components/context/NotificationContext';
 import { useTenant } from './components/context/TenantContext';
@@ -13,6 +14,10 @@ import SuperAdminGuard from './components/SuperAdminGuard';
 import ErrorBoundary from './components/ErrorBoundary';
 import { Scissors } from 'lucide-react';
 import { lazy } from 'react';
+import { brandDashboardHomePath, hasBrandDashboardAccess } from './lib/marketplace/access';
+import { loginPathForProtectedRoute, postLoginDestination } from './lib/authReturn';
+
+const MAIN_DOMAIN = import.meta.env.VITE_MAIN_DOMAIN?.trim().toLowerCase() || '';
 
 // Lazy load heavy dashboard components
 const ClientDashboard = lazy(() => import('./components/pages/ClientDashboard'));
@@ -24,6 +29,15 @@ const Register = lazy(() => import('./components/pages/Register'));
 const Onboarding = lazy(() => import('./components/pages/Onboarding'));
 const Billing = lazy(() => import('./components/pages/Billing'));
 const DocsPage = lazy(() => import('./components/pages/DocsPage'));
+const BrandDashboard = lazy(() => import('./components/pages/BrandDashboard'));
+const AcceptInvitation = lazy(() => import('./components/pages/AcceptInvitation'));
+const DiscoverPage = lazy(() => import('./components/pages/DiscoverPage'));
+const ProfilePage = lazy(() => import('./components/discovery/ProfilePage'));
+const FreelancerDashboard = lazy(() => import('./components/pages/FreelancerDashboard'));
+const FreelancerPreviewPage = lazy(() => import('./components/pages/FreelancerPreviewPage'));
+const ClientPreviewPage = lazy(() => import('./components/pages/ClientPreviewPage'));
+const BrandPreviewPage = lazy(() => import('./components/pages/BrandPreviewPage'));
+const ReferralLanding = lazy(() => import('./components/referrals/ReferralLanding'));
 
 // --- Premium Loading Spinner ---
 function AppLoader() {
@@ -62,34 +76,50 @@ function ProtectedRoute({ children, role }: { children: React.ReactNode; role?: 
 // --- Simple Auth Required Wrapper (ignores subscription status) ---
 function AuthRequired({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
+  const route = useLocation();
   if (isLoading) return <AppLoader />;
-  if (!user) return <Navigate to="/" replace />;
+  if (!user) {
+    return <Navigate to={loginPathForProtectedRoute(`${route.pathname}${route.search}`)} replace />;
+  }
+  return <>{children}</>;
+}
+
+function BrandRequired({ children }: { children: React.ReactNode }) {
+  const { user, isLoading } = useAuth();
+  if (isLoading) return <AppLoader />;
+  if (!user) return <Navigate to="/?login=true" replace />;
+  if (!hasBrandDashboardAccess(user)) {
+    return <Navigate to="/" replace />;
+  }
   return <>{children}</>;
 }
 
 // --- Conditional Home Router ---
 function HomeRouter() {
   const { user, isLoading } = useAuth();
+  const route = useLocation();
+  const authenticatedDestination = useMemo(() => user
+    ? postLoginDestination(route.search, brandDashboardHomePath(user), window.sessionStorage)
+    : null, [route.search, user]);
   
   if (isLoading) return <AppLoader />;
   
   if (user) {
-    return <Navigate to={`/${user.role}`} replace />;
+    return <Navigate to={authenticatedDestination ?? brandDashboardHomePath(user)} replace />;
   }
 
   const hostname = window.location.hostname;
   
 
 
-  // Show HomePage on: localhost, vercel preview URLs, and main domain
+  // Show HomePage on localhost, preview URLs, and the configured main domain.
   const isMainDomain = 
     hostname === 'localhost' ||
     hostname === '127.0.0.1' ||
     hostname.endsWith('.vercel.app') ||
-    hostname === 'barberboard.pro' ||
-    hostname === 'www.barberboard.pro' ||
-    hostname === 'barbeboard.pro' ||
-    hostname === 'www.barbeboard.pro';
+    (MAIN_DOMAIN !== '' && (
+      hostname === MAIN_DOMAIN || hostname === `www.${MAIN_DOMAIN}`
+    ));
   
   if (isMainDomain) {
     return <HomePage />;
@@ -106,12 +136,22 @@ function AppRoutes() {
         <Route index element={<HomeRouter />} />
         <Route path="register" element={<Register />} />
         <Route path="docs" element={<DocsPage />} />
+        <Route path="discover" element={<DiscoverPage />} />
+      <Route path="discover/:profileId" element={<ProfilePage />} />
+      <Route path="freelancer-preview" element={<FreelancerPreviewPage />} />
+      <Route path="client-preview" element={<ClientPreviewPage />} />
+      <Route path="brand-preview" element={<BrandPreviewPage />} />
+      <Route path="r/:code" element={<ReferralLanding />} />
+        <Route path="book" element={<AuthRequired><LandingPage /></AuthRequired>} />
       </Route>
       <Route path="/boutique" element={<BoutiquePage />} />
       <Route path="/login" element={<Navigate to="/?login=true" replace />} />
       <Route path="/onboarding" element={<AuthRequired><Onboarding /></AuthRequired>} />
       <Route path="/billing" element={<AuthRequired><Billing /></AuthRequired>} />
+      <Route path="/invitations/:invitationId" element={<AuthRequired><AcceptInvitation /></AuthRequired>} />
       <Route path="/superadmin/*" element={<SuperAdminGuard><SuperAdmin /></SuperAdminGuard>} />
+      <Route path="/brand/*" element={<BrandRequired><BrandDashboard /></BrandRequired>} />
+      <Route path="/freelancer/*" element={<AuthRequired><FreelancerDashboard /></AuthRequired>} />
       <Route path="/client/*" element={<ProtectedRoute role="client"><ClientDashboard /></ProtectedRoute>} />
       <Route path="/admin/*" element={<ProtectedRoute role="admin"><SubscriptionGuard><AdminDashboard /></SubscriptionGuard></ProtectedRoute>} />
       <Route path="/barber/*" element={<ProtectedRoute role="barber"><SubscriptionGuard><BarberDashboard /></SubscriptionGuard></ProtectedRoute>} />
@@ -130,37 +170,50 @@ function AppRoutes() {
   );
 }
 
+function AppContent() {
+  const { pathname } = useLocation();
+  const routes = (
+    <div className="min-h-screen bg-black text-white">
+      <Suspense fallback={<AppLoader />}>
+        <AppRoutes />
+      </Suspense>
+    </div>
+  );
+
+  // The public freelancer preview is intentionally self-contained: it must be
+  // explorable without a tenant, an account, or Firestore listener activity.
+  if (pathname === '/freelancer-preview' || pathname === '/client-preview' || pathname === '/brand-preview' || pathname.startsWith('/r/')) return routes;
+
+  return <BusinessProvider>{routes}</BusinessProvider>;
+}
+
 export default function App() {
   return (
     <ErrorBoundary>
       <BrowserRouter>
         <AuthProvider>
-          <NotificationProvider>
-            <BusinessProvider>
-              <div className="min-h-screen bg-black text-white">
-                <Suspense fallback={<AppLoader />}>
-                  <AppRoutes />
-                </Suspense>
-              </div>
-              <Toaster
-                position="top-center"
-                richColors
-                toastOptions={{
-                  style: {
-                    background: '#141414',
-                    border: '1px solid rgba(212,175,55,0.3)',
-                    color: 'white',
-                    borderRadius: '16px',
-                    padding: '16px 20px',
-                    gap: '12px',
-                    fontSize: '14px',
-                    lineHeight: '1.5',
-                    boxShadow: '0 20px 40px -15px rgba(0,0,0,0.5)',
-                  },
-                }}
-              />
-            </BusinessProvider>
-          </NotificationProvider>
+            <WorkspaceProvider>
+              <NotificationProvider>
+                <AppContent />
+                <Toaster
+                  position="top-center"
+                  richColors
+                  toastOptions={{
+                    style: {
+                      background: '#141414',
+                      border: '1px solid rgba(212,175,55,0.3)',
+                      color: 'white',
+                      borderRadius: '16px',
+                      padding: '16px 20px',
+                      gap: '12px',
+                      fontSize: '14px',
+                      lineHeight: '1.5',
+                      boxShadow: '0 20px 40px -15px rgba(0,0,0,0.5)',
+                    },
+                  }}
+                />
+            </NotificationProvider>
+          </WorkspaceProvider>
         </AuthProvider>
       </BrowserRouter>
     </ErrorBoundary>

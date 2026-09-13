@@ -1,16 +1,17 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
 import { X, Image as ImageIcon } from 'lucide-react';
-import { toast } from 'sonner';
 import type { Barber, Service } from '../context/BusinessContext';
 import PhoneInput from 'react-phone-input-2';
 import 'react-phone-input-2/lib/style.css';
+import StaffInvitationNotice from './StaffInvitationNotice';
 
 const BarberModal = ({ 
   barber, 
   services = [],
   onClose, 
   onSave, 
+  onInvite,
   isSaving, 
   handleImageUpload 
 }: { 
@@ -18,6 +19,7 @@ const BarberModal = ({
   services?: Service[],
   onClose: () => void, 
   onSave: (data: any) => void,
+  onInvite: () => void,
   isSaving: boolean,
   handleImageUpload: (file: File) => Promise<string>
 }) => {
@@ -25,18 +27,9 @@ const BarberModal = ({
     barber || { 
       name: '', specialty: '', experience: '', rating: 5, image: '', 
       shiftStart: '09:00', shiftEnd: '18:00', workingDays: [1,2,3,4,5,6], 
-      commission: 50, commissionRate: 50, phone: '', email: '', status: 'available', password: ''
+      commission: 50, commissionRate: 50, phone: '', email: '', status: 'available'
     }
   );
-
-  const [showPassword, setShowPassword] = useState(false);
-
-  const handleGeneratePassword = () => {
-    const randomCode = Math.floor(1000 + Math.random() * 9000);
-    setFormData(prev => ({ ...prev, password: `Elite-${randomCode}` }));
-    setShowPassword(true);
-    toast.success("Mot de passe sécurisé généré !");
-  };
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
@@ -193,36 +186,8 @@ const BarberModal = ({
                 </div>
               </div>
 
-              {/* Security Access Control (Password Management) */}
-              <div className="pt-4 border-t border-white/5 space-y-3">
-                <h4 className="text-xs font-black text-[#D4AF37] uppercase tracking-wider">Sécurité & Accès</h4>
-                <div>
-                  <label className="block text-white/60 text-xs mb-2">Mot de Passe</label>
-                  <div className="flex gap-2">
-                    <input 
-                      type={showPassword ? "text" : "password"} 
-                      value={formData.password || ''} 
-                      onChange={e => setFormData({ ...formData, password: e.target.value })} 
-                      className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-[#D4AF37] outline-none transition-colors font-mono text-sm" 
-                      placeholder="••••••••"
-                    />
-                    <button 
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="px-4 bg-white/5 border border-white/10 rounded-xl text-white/60 hover:text-white transition-colors text-xs font-bold"
-                    >
-                      {showPassword ? "Masquer" : "Afficher"}
-                    </button>
-                    <button 
-                      type="button"
-                      onClick={handleGeneratePassword}
-                      className="px-4 bg-[#D4AF37]/10 border border-[#D4AF37]/20 rounded-xl text-[#D4AF37] hover:bg-[#D4AF37]/20 transition-colors text-xs font-black"
-                    >
-                      Générer
-                    </button>
-                  </div>
-                  <p className="text-[10px] text-white/30 mt-2 italic">Ce mot de passe sera utilisé pour les connexions directes du coiffeur.</p>
-                </div>
+              <div className="pt-4 border-t border-white/5">
+                <StaffInvitationNotice onInvite={onInvite} />
               </div>
             </div>
 

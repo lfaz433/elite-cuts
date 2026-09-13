@@ -1,30 +1,39 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { useNavigate } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
+import { captureInvitationReturn } from '../../lib/authReturn';
 import LoginModal from '../modals/LoginModal';
-import { 
+import {
   Scissors, BarChart3, Calendar, Users, Bell, Shield, 
-  Smartphone, Menu, X, ChevronRight, ChevronLeft, Check, ChevronDown, Star
+  Smartphone, Menu, X, ChevronRight, ChevronLeft, Check, ChevronDown, Star,
+  Store, UserRound, KeyRound, MapPin
 } from 'lucide-react';
+import { getRoleJourney } from '../../lib/roleJourney.mjs';
 
 type Lang = 'fr' | 'en' | 'ar';
 
 const CONTENT = {
   fr: {
-    nav: { features: 'Fonctionnalités', pricing: 'Tarifs', testimonials: 'Témoignages', contact: 'Contact', login: 'Se connecter', trial: 'Essai gratuit 15 jours' },
+    nav: { features: 'Fonctionnalités', pricing: 'Tarifs', testimonials: 'Témoignages', contact: 'Contact', login: 'Se connecter', trial: 'Rejoindre Elite Cuts', menuOpen: 'Ouvrir le menu', menuClose: 'Fermer le menu' },
     hero: {
-      badge: '🚀 Nouveau — Gestion multi-coiffeurs disponible',
-      title: 'Gérez votre barbershop. Développez votre business.',
-      subtitle: 'La seule plateforme conçue pour les barbershops modernes. Réservations, équipe, caisse, analytiques — tout en un tableau de bord.',
-      cta1: 'Commencer gratuitement →',
-      cta2: 'Voir la démo',
-      trust: '✓ 15 jours gratuits · ✓ Sans carte bancaire · ✓ Annulation à tout moment'
+      badge: '✦ Lancement France — Paris en premier',
+      title: 'Trouvez votre style. Développez votre métier.',
+      subtitle: 'Une plateforme premium qui réunit clients, barbiers indépendants et équipes de salons.',
+      cta1: 'Réserver une coupe',
+      cta2: 'Rejoindre Elite Cuts',
+      trust: 'Un seul compte · Votre activité, vos choix · Aucun paiement configuré'
+    },
+    join: {
+      title: 'Choisissez votre parcours.', subtitle: 'Un seul compte par personne. Sélectionnez la manière dont vous rejoignez la plateforme.', close: 'Fermer',
+      brandTitle: 'Créer une marque ou un salon', brandText: 'Créez votre premier salon, puis ajoutez vos emplacements et votre équipe.', start: 'Commencer',
+      freelancerTitle: 'Devenir barbier indépendant', freelancerText: 'Votre portfolio, vos services à domicile et vos demandes de salon.', soon: 'Commencer',
+      invitationTitle: 'J’ai une invitation de salon', invitationText: 'Connectez-vous avec l’adresse e-mail utilisée par votre invitation.', login: 'Se connecter'
     },
     stats: {
-      shops: '500+', shopsLabel: 'Barbershops',
-      revenue: '€2M+', revenueLabel: 'Revenus gérés',
-      satisfaction: '98%', satisfactionLabel: 'Satisfaction',
-      support: '24/7', supportLabel: 'Support'
+      shops: 'Paris', shopsLabel: 'Ville pilote',
+      revenue: '3', revenueLabel: 'Villes françaises prévues',
+      satisfaction: '1', satisfactionLabel: 'Compte par personne',
+      support: '0', supportLabel: 'Paiement en direct pour le moment'
     },
     problems: {
       title: 'Vous reconnaissez-vous ?',
@@ -98,20 +107,26 @@ const CONTENT = {
     }
   },
   en: {
-    nav: { features: 'Features', pricing: 'Pricing', testimonials: 'Testimonials', contact: 'Contact', login: 'Login', trial: 'Start 15-day free trial' },
+    nav: { features: 'Features', pricing: 'Pricing', testimonials: 'Testimonials', contact: 'Contact', login: 'Login', trial: 'Join Elite Cuts', menuOpen: 'Open menu', menuClose: 'Close menu' },
     hero: {
-      badge: '🚀 New — Multi-barber management available',
-      title: 'Manage your barbershop. Grow your business.',
-      subtitle: 'The only platform built for modern barbershops. Bookings, team, POS, analytics — all in one dashboard.',
-      cta1: 'Start for free →',
-      cta2: 'View Demo',
-      trust: '✓ 15 days free · ✓ No credit card · ✓ Cancel anytime'
+      badge: '✦ France launch — Paris first',
+      title: 'Find your style. Build your business.',
+      subtitle: 'A premium platform connecting clients, freelance barbers, and salon teams.',
+      cta1: 'Book a haircut',
+      cta2: 'Join Elite Cuts',
+      trust: 'One account · Your business, your choices · No payment setup'
+    },
+    join: {
+      title: 'Choose your path.', subtitle: 'One account per person. Select how you are joining the platform.', close: 'Close',
+      brandTitle: 'Create a salon brand', brandText: 'Create your first salon, then add locations and your team.', start: 'Get started',
+      freelancerTitle: 'Become a freelance barber', freelancerText: 'Your portfolio, home services, and salon opportunities.', soon: 'Get started',
+      invitationTitle: 'I have a salon invitation', invitationText: 'Sign in with the email address used for your invitation.', login: 'Sign in'
     },
     stats: {
-      shops: '500+', shopsLabel: 'Barbershops',
-      revenue: '€2M+', revenueLabel: 'Revenue Managed',
-      satisfaction: '98%', satisfactionLabel: 'Satisfaction',
-      support: '24/7', supportLabel: 'Support'
+      shops: 'Paris', shopsLabel: 'Pilot city',
+      revenue: '3', revenueLabel: 'French cities planned',
+      satisfaction: '1', satisfactionLabel: 'Account per person',
+      support: '0', supportLabel: 'Live payments for now'
     },
     problems: {
       title: 'Does this sound familiar?',
@@ -191,21 +206,28 @@ const CONTENT = {
       testimonials: 'آراء العملاء',
       contact: 'تواصل معنا',
       login: 'تسجيل الدخول',
-      trial: 'تجربة مجانية 15 يوماً'
+      trial: 'انضم إلى Elite Cuts',
+      menuOpen: 'فتح القائمة', menuClose: 'إغلاق القائمة'
     },
     hero: {
-      badge: '🚀 جديد — إدارة حلاقين متعددين متاحة الآن',
-      title: 'أدر صالون الحلاقة. طوّر أعمالك.',
-      subtitle: 'المنصة الوحيدة المصممة لصالونات الحلاقة الحديثة. الحجوزات، الفريق، الصندوق، التحليلات — كل شيء في لوحة تحكم واحدة.',
-      cta1: 'ابدأ مجاناً ←',
-      cta2: 'شاهد العرض',
-      trust: '✓ 15 يوماً مجاناً · ✓ بدون بطاقة بنكية · ✓ إلغاء في أي وقت'
+      badge: '✦ إطلاق فرنسا — باريس أولاً',
+      title: 'اعثر على أسلوبك. طوّر عملك.',
+      subtitle: 'منصة مميزة تجمع العملاء والحلاقين المستقلين وفرق الصالونات.',
+      cta1: 'احجز موعداً',
+      cta2: 'انضم إلى Elite Cuts',
+      trust: 'حساب واحد · نشاطك وخياراتك · لا إعداد للدفع الآن'
+    },
+    join: {
+      title: 'اختر مسارك.', subtitle: 'حساب واحد لكل شخص. اختر الطريقة التي تنضم بها إلى المنصة.', close: 'إغلاق',
+      brandTitle: 'أنشئ علامة تجارية أو صالوناً', brandText: 'أنشئ صالونك الأول ثم أضف المواقع وفريقك.', start: 'ابدأ الآن',
+      freelancerTitle: 'كن حلاقاً مستقلاً', freelancerText: 'ملف أعمالك وخدماتك المنزلية وفرص العمل في الصالونات.', soon: 'ابدأ الآن',
+      invitationTitle: 'لدي دعوة من صالون', invitationText: 'سجّل الدخول بالبريد الإلكتروني المستخدم في دعوتك.', login: 'تسجيل الدخول'
     },
     stats: {
-      shops: '500+', shopsLabel: 'صالون',
-      revenue: '€2M+', revenueLabel: 'إيرادات مُدارة',
-      satisfaction: '98%', satisfactionLabel: 'رضا العملاء',
-      support: '24/7', supportLabel: 'دعم'
+      shops: 'باريس', shopsLabel: 'مدينة الإطلاق',
+      revenue: '3', revenueLabel: 'مدن فرنسية مخطط لها',
+      satisfaction: '1', satisfactionLabel: 'حساب لكل شخص',
+      support: '0', supportLabel: 'مدفوعات مباشرة حالياً'
     },
     problems: {
       title: 'هل تتعرف على نفسك؟',
@@ -299,11 +321,17 @@ export default function HomePage() {
   const [annualBilling, setAnnualBilling] = useState(false);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
+  const [freelancerSignup, setFreelancerSignup] = useState(false);
+  const [joinOpen, setJoinOpen] = useState(false);
+  const [journeyNotice, setJourneyNotice] = useState<string | null>(null);
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [langDropdownOpen, setLangDropdownOpen] = useState(false);
   const desktopDropdownRef = useRef<HTMLDivElement>(null);
   const mobileDropdownRef = useRef<HTMLDivElement>(null);
+  const joinDialogRef = useRef<HTMLDivElement>(null);
+  const joinTriggerRef = useRef<HTMLElement | null>(null);
 
   const languages = [
     { code: 'fr', label: 'Français', flag: '🇫🇷' },
@@ -336,8 +364,10 @@ export default function HomePage() {
     const savedLang = localStorage.getItem('elite_lang') as Lang;
     if (savedLang && (savedLang === 'fr' || savedLang === 'en' || savedLang === 'ar')) setLang(savedLang);
 
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(location.search);
     if (params.get('login') === 'true') {
+      captureInvitationReturn(location.search, window.sessionStorage);
+      setFreelancerSignup(params.get('signup') === 'freelancer');
       setLoginOpen(true);
       window.history.replaceState({}, '', window.location.pathname);
     }
@@ -345,7 +375,7 @@ export default function HomePage() {
     const handleScroll = () => setIsScrolled(window.scrollY > 50);
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
+  }, [location.search]);
 
   useEffect(() => {
     if (lang === 'ar') {
@@ -360,6 +390,63 @@ export default function HomePage() {
   const selectLang = (newLang: Lang) => {
     setLang(newLang);
     localStorage.setItem('elite_lang', newLang);
+  };
+
+  const openJoin = (focusReturnTarget?: HTMLElement | null) => {
+    joinTriggerRef.current = focusReturnTarget === undefined
+      ? (document.activeElement instanceof HTMLElement ? document.activeElement : null)
+      : focusReturnTarget;
+    setJourneyNotice(null);
+    setJoinOpen(true);
+  };
+
+  const closeJoin = () => setJoinOpen(false);
+
+  useEffect(() => {
+    if (!joinOpen) return;
+    const dialog = joinDialogRef.current;
+    const focusable = () => Array.from(dialog?.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])') ?? [])
+      .filter((element) => !element.hasAttribute('disabled'));
+    const focusFirst = () => focusable()[0]?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeJoin();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const items = focusable();
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    focusFirst();
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      joinTriggerRef.current?.focus();
+    };
+  }, [joinOpen]);
+
+  const handleRoleJourney = (role: 'brand' | 'freelancer' | 'invitation' | 'client') => {
+    const journey = getRoleJourney(role, lang);
+    closeJoin();
+    if (journey.kind === 'navigate') {
+      navigate(journey.path);
+      return;
+    }
+    if (journey.kind === 'login') {
+      setLoginOpen(true);
+      return;
+    }
+    setJourneyNotice(journey.label);
   };
 
   const t = CONTENT[lang];
@@ -438,12 +525,12 @@ export default function HomePage() {
               </AnimatePresence>
             </div>
             <button onClick={() => setLoginOpen(true)} className="text-sm font-medium hover:text-[#D4AF37] transition-colors">{t.nav.login}</button>
-            <button onClick={() => navigate('/register')} className="px-5 py-2.5 bg-[#D4AF37] text-black rounded-lg font-bold text-sm hover:bg-[#FFD700] transition-all hover:shadow-lg hover:shadow-[#D4AF37]/20 active:scale-95">
+            <button onClick={() => openJoin()} className="px-5 py-2.5 bg-[#D4AF37] text-black rounded-lg font-bold text-sm hover:bg-[#FFD700] transition-all hover:shadow-lg hover:shadow-[#D4AF37]/20 active:scale-95">
               {t.nav.trial}
             </button>
           </div>
 
-          <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="md:hidden text-[#D4AF37] p-2">
+          <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="md:hidden text-[#D4AF37] p-2" aria-label={mobileMenuOpen ? t.nav.menuClose : t.nav.menuOpen}>
             {mobileMenuOpen ? <X size={28} /> : <Menu size={28} />}
           </button>
         </div>
@@ -458,7 +545,7 @@ export default function HomePage() {
               <a href="#temoignages" onClick={() => setMobileMenuOpen(false)}>{t.nav.testimonials}</a>
               <a href="/docs" onClick={() => setMobileMenuOpen(false)}>Documentation</a>
               <button onClick={() => { setMobileMenuOpen(false); setLoginOpen(true); }} className={`text-[#D4AF37] mt-4 ${lang === 'ar' ? 'text-right' : 'text-left'}`}>{t.nav.login}</button>
-              <button onClick={() => { setMobileMenuOpen(false); navigate('/register'); }} className="mt-4 px-6 py-4 bg-[#D4AF37] text-black rounded-xl text-center shadow-lg shadow-[#D4AF37]/20">{t.nav.trial}</button>
+              <button onClick={() => { setMobileMenuOpen(false); openJoin(null); }} className="mt-4 px-6 py-4 bg-[#D4AF37] text-black rounded-xl text-center shadow-lg shadow-[#D4AF37]/20">{t.nav.trial}</button>
             </div>
             <div className="mt-auto mb-10 flex justify-center w-full">
               <div className="relative w-48" ref={mobileDropdownRef}>
@@ -508,7 +595,53 @@ export default function HomePage() {
         )}
       </AnimatePresence>
 
-      {loginOpen && <LoginModal onClose={() => setLoginOpen(false)} />}
+      {loginOpen && <LoginModal onClose={() => { setLoginOpen(false); setFreelancerSignup(false); }} initialSignUp={freelancerSignup} signupLabel={freelancerSignup ? 'Inscription indépendant' : 'Inscription (Client)'} />}
+
+      <AnimatePresence>
+        {joinOpen && (
+          <motion.div
+            className="fixed inset-0 z-[70] flex items-center justify-center bg-black/75 px-4 backdrop-blur-md"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            onClick={closeJoin}
+          >
+            <motion.div
+              ref={joinDialogRef} role="dialog" aria-modal="true" aria-labelledby="join-title"
+              className="w-full max-w-3xl rounded-3xl border border-[#D4AF37]/30 bg-[#111111] p-6 shadow-2xl shadow-black/60 md:p-10"
+              initial={{ opacity: 0, y: 24, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 24, scale: 0.98 }}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mb-8 flex items-start justify-between gap-6">
+                <div>
+                  <p className="mb-2 text-xs font-black uppercase tracking-[0.24em] text-[#D4AF37]">Elite Cuts</p>
+                  <h2 id="join-title" className="text-3xl font-black tracking-tight md:text-4xl">{t.join.title}</h2>
+                  <p className="mt-3 max-w-xl text-white/55">{t.join.subtitle}</p>
+                </div>
+                <button onClick={closeJoin} className="rounded-full border border-white/10 p-2 text-white/70 transition hover:border-[#D4AF37]/50 hover:text-[#D4AF37]" aria-label={t.join.close}><X size={20} /></button>
+              </div>
+              <div className="grid gap-4 md:grid-cols-3">
+                <motion.button whileHover={{ y: -4 }} whileTap={{ scale: 0.98 }} onClick={() => handleRoleJourney('brand')} className="group rounded-2xl border border-[#D4AF37]/30 bg-gradient-to-b from-[#D4AF37]/15 to-transparent p-6 text-left transition hover:border-[#D4AF37]">
+                  <Store className="mb-6 h-7 w-7 text-[#D4AF37]" />
+                  <h3 className="text-lg font-bold">{t.join.brandTitle}</h3>
+                  <p className="mt-2 text-sm leading-relaxed text-white/55">{t.join.brandText}</p>
+                  <span className="mt-6 inline-flex items-center gap-1 text-sm font-bold text-[#D4AF37]">{t.join.start} <ChevronRight size={16} /></span>
+                </motion.button>
+                <motion.button whileHover={{ y: -4 }} whileTap={{ scale: 0.98 }} onClick={() => handleRoleJourney('freelancer')} className="group rounded-2xl border border-white/10 bg-white/[0.03] p-6 text-left transition hover:border-[#D4AF37]/60">
+                  <UserRound className="mb-6 h-7 w-7 text-[#D4AF37]" />
+                  <h3 className="text-lg font-bold">{t.join.freelancerTitle}</h3>
+                  <p className="mt-2 text-sm leading-relaxed text-white/55">{t.join.freelancerText}</p>
+                  <span className="mt-6 inline-flex text-xs font-bold uppercase tracking-wider text-white/45">{t.join.soon}</span>
+                </motion.button>
+                <motion.button whileHover={{ y: -4 }} whileTap={{ scale: 0.98 }} onClick={() => handleRoleJourney('invitation')} className="group rounded-2xl border border-white/10 bg-white/[0.03] p-6 text-left transition hover:border-[#D4AF37]/60">
+                  <KeyRound className="mb-6 h-7 w-7 text-[#D4AF37]" />
+                  <h3 className="text-lg font-bold">{t.join.invitationTitle}</h3>
+                  <p className="mt-2 text-sm leading-relaxed text-white/55">{t.join.invitationText}</p>
+                  <span className="mt-6 inline-flex items-center gap-1 text-sm font-bold text-[#D4AF37]">{t.join.login} <ChevronRight size={16} /></span>
+                </motion.button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="relative z-10 pt-32 pb-20 md:pt-48 md:pb-32 overflow-hidden min-h-[90vh] flex items-center">
         <div className="max-w-7xl mx-auto px-6 grid lg:grid-cols-2 gap-16 items-center">
@@ -524,12 +657,17 @@ export default function HomePage() {
             <p className="text-lg md:text-xl text-white/60 mb-10 max-w-lg leading-relaxed">
               {t.hero.subtitle}
             </p>
-            <div className="flex flex-col sm:flex-row gap-4 mb-6">
-              <button onClick={() => navigate('/register')} className="px-8 py-4 bg-[#D4AF37] text-black font-bold rounded-xl transition-all hover:bg-[#FFD700] hover:scale-105 active:scale-95 shadow-xl shadow-[#D4AF37]/20 text-center flex items-center justify-center gap-2">
+            <div className="flex flex-col sm:flex-row gap-4 mb-4">
+              <button onClick={() => navigate('/discover')} className="px-8 py-4 bg-[#D4AF37] text-black font-bold rounded-xl transition-all hover:bg-[#FFD700] hover:scale-105 active:scale-95 shadow-xl shadow-[#D4AF37]/20 text-center flex items-center justify-center gap-2">
                 {t.hero.cta1}
               </button>
-
+              <button onClick={() => openJoin()} className="px-8 py-4 rounded-xl border border-white/15 bg-white/[0.04] font-bold text-white transition-all hover:border-[#D4AF37]/70 hover:bg-[#D4AF37]/10 hover:text-[#FFD700] active:scale-95 text-center flex items-center justify-center gap-2">
+                {t.hero.cta2} <ChevronRight size={18} />
+              </button>
             </div>
+            <AnimatePresence>
+              {journeyNotice && <motion.p initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} className="mb-4 flex items-center gap-2 text-sm text-[#D4AF37]"><MapPin size={16} />{journeyNotice}</motion.p>}
+            </AnimatePresence>
             <p className="text-xs text-white/40 font-medium">
               {t.hero.trust}
             </p>
@@ -836,7 +974,7 @@ export default function HomePage() {
                       </li>
                     ))}
                   </ul>
-                  <button onClick={() => navigate(i === 2 ? '#contact' : `/register?plan=${plan.name.toLowerCase()}`)} className={`w-full py-4 rounded-xl font-bold uppercase tracking-wider text-sm transition-all ${isPro ? 'bg-[#D4AF37] text-black hover:bg-[#FFD700]' : 'bg-white/5 text-white hover:bg-white/10'}`}>
+                  <button onClick={() => i === 2 ? navigate('#contact') : openJoin()} className={`w-full py-4 rounded-xl font-bold uppercase tracking-wider text-sm transition-all ${isPro ? 'bg-[#D4AF37] text-black hover:bg-[#FFD700]' : 'bg-white/5 text-white hover:bg-white/10'}`}>
                     {i === 2 ? t.pricing.ctaContact : t.pricing.ctaFree}
                   </button>
                 </motion.div>
@@ -893,7 +1031,7 @@ export default function HomePage() {
       <section className="py-32 border-y border-white/5 bg-gradient-to-br from-[#111] to-[#1a1400]">
         <div className="max-w-4xl mx-auto px-6 text-center">
           <h2 className="text-4xl md:text-6xl font-black mb-8 bg-gradient-to-r from-white via-[#D4AF37] to-white bg-clip-text text-transparent">{t.cta.title}</h2>
-          <button onClick={() => navigate('/register')} className="px-10 py-5 bg-[#D4AF37] text-black font-black uppercase tracking-widest text-lg rounded-xl hover:scale-105 active:scale-95 transition-all shadow-2xl shadow-[#D4AF37]/30 mb-6">
+          <button onClick={() => navigate('/discover')} className="px-10 py-5 bg-[#D4AF37] text-black font-black uppercase tracking-widest text-lg rounded-xl hover:scale-105 active:scale-95 transition-all shadow-2xl shadow-[#D4AF37]/30 mb-6">
             {t.hero.cta1}
           </button>
           <p className="text-sm font-medium text-white/50">{t.cta.trust}</p>

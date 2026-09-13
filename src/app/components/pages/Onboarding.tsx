@@ -111,10 +111,11 @@ export default function Onboarding() {
             name: barberName.trim(),
             specialty: barberSpecialty.trim() || 'Coiffeur',
             experience: 'Coiffeur qualifié',
-            rating: '5.0',
+            rating: 5,
             image: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400&h=400&fit=crop',
             archived: false,
-            tenantId: activeTenantId
+            tenantId: activeTenantId,
+            publicCredentialSafe: true,
           });
           toast.success('Premier collaborateur ajouté !');
         }

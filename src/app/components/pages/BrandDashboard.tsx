@@ -1,0 +1,362 @@
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
+import { Building2, LayoutDashboard, LockKeyhole, LogOut, Plus, ShieldCheck, UserPlus } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router';
+import { toast } from 'sonner';
+import { db, functions } from '../../lib/firebase';
+import { DEFAULT_SALON_ADMIN_PERMISSIONS, DEFAULT_WORKER_PERMISSIONS, PERMISSION_KEYS } from '../../lib/marketplace/permissions';
+import type { PermissionKey, SalonLocation } from '../../lib/marketplace/types';
+import { isManagerEligibleMembership, isVerifiedMarketplacePrincipal, managerLocationForRoute, managerLocationIds } from '../../lib/marketplace/access';
+import LocationForm from '../brand/LocationForm';
+import LocationList from '../brand/LocationList';
+import MembershipPermissionManager, { type PermissionMember } from '../brand/MembershipPermissionManager';
+import PermissionEditor from '../brand/PermissionEditor';
+import SalonBookingManager from '../brand/SalonBookingManager';
+import SalonHiringManager from '../brand/SalonHiringManager';
+import WorkerInviteDialog from '../brand/WorkerInviteDialog';
+import ReferralCard from '../referrals/ReferralCard';
+import { useAuth } from '../context/AuthContext';
+import { useWorkspace } from '../context/WorkspaceContext';
+
+const updateMembershipPermissions = httpsCallable<
+  { membershipId: string; permissions: Record<PermissionKey, boolean> },
+  { membershipId: string; permissions: Record<PermissionKey, boolean> }
+>(functions, 'updateMembershipPermissions');
+
+function locationRecord(id: string, data: Record<string, unknown>): SalonLocation | null {
+  if (
+    typeof data.brandId !== 'string'
+    || typeof data.name !== 'string'
+    || typeof data.city !== 'string'
+    || typeof data.countryCode !== 'string'
+  ) return null;
+  return {
+    id,
+    brandId: data.brandId,
+    name: data.name,
+    city: data.city,
+    countryCode: data.countryCode,
+    ...(typeof data.address === 'string' ? { address: data.address } : {}),
+    ...(typeof data.phone === 'string' ? { phone: data.phone } : {}),
+    ...(typeof data.timezone === 'string' ? { timezone: data.timezone } : {}),
+  };
+}
+
+function permissionMemberRecord(id: string, data: Record<string, unknown>): PermissionMember | null {
+  if (
+    data.role !== 'salon_admin'
+    || data.status !== 'active'
+    || typeof data.permissions !== 'object'
+    || data.permissions === null
+  ) return null;
+  const permissionValues = data.permissions as Record<string, unknown>;
+  const permissions = { ...DEFAULT_SALON_ADMIN_PERMISSIONS } as Record<PermissionKey, boolean>;
+  for (const key of PERMISSION_KEYS) {
+    if (typeof permissionValues[key] !== 'boolean') return null;
+    permissions[key] = permissionValues[key] as boolean;
+  }
+  return {
+    id,
+    displayName: typeof data.displayName === 'string' && data.displayName.trim()
+      ? data.displayName.trim()
+      : 'Salon Admin',
+    email: typeof data.email === 'string' ? data.email : 'Compte membre',
+    permissions,
+  };
+}
+
+export default function BrandDashboard() {
+  const { user, logout, refreshSession } = useAuth();
+  const { brandId, locationId, selectLocation } = useWorkspace();
+  const navigate = useNavigate();
+  const route = useLocation();
+  const [locations, setLocations] = useState<SalonLocation[]>([]);
+  const [brandName, setBrandName] = useState('Espace multi-salon');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [showLocationForm, setShowLocationForm] = useState(false);
+  const [showWorkerInvite, setShowWorkerInvite] = useState(false);
+  const [permissionMembers, setPermissionMembers] = useState<PermissionMember[]>([]);
+  const [selectedPermissionMemberId, setSelectedPermissionMemberId] = useState('');
+  const [permissionDraft, setPermissionDraft] = useState<Record<PermissionKey, boolean>>({
+    ...DEFAULT_SALON_ADMIN_PERMISSIONS,
+  });
+  const [savingPermissions, setSavingPermissions] = useState(false);
+
+  const isPrincipal = isVerifiedMarketplacePrincipal(user);
+  const assignedLocationIds = useMemo(() => (
+    user && brandId ? managerLocationIds(user.memberships, brandId) : []
+  ), [brandId, user?.memberships]);
+
+  const loadLocations = useCallback(async () => {
+    if (!brandId) {
+      setLocations([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      if (isPrincipal) {
+        const [brandSnapshot, locationSnapshot] = await Promise.all([
+          getDoc(doc(db, 'brands', brandId)),
+          getDocs(query(collection(db, 'salonLocations'), where('brandId', '==', brandId))),
+        ]);
+        const brand = brandSnapshot.data();
+        if (brandSnapshot.exists() && typeof brand?.name === 'string') setBrandName(brand.name);
+        setLocations(locationSnapshot.docs
+          .map(item => locationRecord(item.id, item.data()))
+          .filter((item): item is SalonLocation => item !== null)
+          .sort((left, right) => left.city.localeCompare(right.city)));
+      } else {
+        const snapshots = await Promise.all(assignedLocationIds.map(id => (
+          getDoc(doc(db, 'salonLocations', id))
+        )));
+        setLocations(snapshots
+          .filter(item => item.exists())
+          .map(item => locationRecord(item.id, item.data()))
+          .filter((item): item is SalonLocation => item !== null && item.brandId === brandId)
+          .sort((left, right) => left.city.localeCompare(right.city)));
+      }
+    } catch (reason) {
+      console.error('Failed to load salon locations:', reason);
+      setError('Impossible de charger les salons autorisés.');
+    } finally {
+      setLoading(false);
+    }
+  }, [assignedLocationIds, brandId, isPrincipal]);
+
+  useEffect(() => {
+    void loadLocations();
+  }, [loadLocations]);
+
+  useEffect(() => {
+    if (locations.length === 0) return;
+    const routeLocationId = route.pathname.match(/^\/brand\/locations\/([^/]+)/)?.[1];
+    const accessibleLocationId = managerLocationForRoute(
+      routeLocationId,
+      locations.map(location => location.id),
+      locationId,
+    );
+    if (!accessibleLocationId) return;
+    selectLocation(accessibleLocationId);
+    if (routeLocationId !== accessibleLocationId) {
+      navigate(`/brand/locations/${accessibleLocationId}`, { replace: true });
+    }
+  }, [locationId, locations, navigate, route.pathname, selectLocation]);
+
+  useEffect(() => {
+    if (!isPrincipal || !brandId || !locationId) {
+      setPermissionMembers([]);
+      setSelectedPermissionMemberId('');
+      return;
+    }
+    let cancelled = false;
+    void getDocs(query(
+      collection(db, 'memberships'),
+      where('brandId', '==', brandId),
+      where('locationId', '==', locationId),
+    )).then(snapshot => {
+      if (cancelled) return;
+      const members = snapshot.docs
+        .map(item => permissionMemberRecord(item.id, item.data()))
+        .filter((item): item is PermissionMember => item !== null)
+        .sort((left, right) => left.displayName.localeCompare(right.displayName));
+      setPermissionMembers(members);
+      setSelectedPermissionMemberId(current => {
+        const selected = members.find(member => member.id === current) ?? members[0];
+        setPermissionDraft(selected?.permissions ?? { ...DEFAULT_SALON_ADMIN_PERMISSIONS });
+        return selected?.id ?? '';
+      });
+    }).catch(reason => {
+      if (cancelled) return;
+      console.error('Failed to load Salon Admin memberships:', reason);
+      setPermissionMembers([]);
+      setSelectedPermissionMemberId('');
+      toast.error('Impossible de charger les membres de ce salon.');
+    });
+    return () => { cancelled = true; };
+  }, [brandId, isPrincipal, locationId]);
+
+  const selectedLocation = locations.find(location => location.id === locationId) ?? null;
+  const selectedMembership = user?.memberships.find(membership => (
+    membership.brandId === brandId
+    && membership.locationId === selectedLocation?.id
+    && isManagerEligibleMembership(membership)
+  ));
+  const permissionValue = {
+    ...DEFAULT_WORKER_PERMISSIONS,
+    ...(selectedMembership?.permissions ?? {}),
+  } as Record<PermissionKey, boolean>;
+  const permissionsView = route.pathname.endsWith('/permissions');
+
+  const selectPermissionMember = (membershipId: string) => {
+    const member = permissionMembers.find(item => item.id === membershipId);
+    setSelectedPermissionMemberId(membershipId);
+    if (member) setPermissionDraft({ ...member.permissions });
+  };
+
+  const savePermissionMember = async (membershipId: string) => {
+    if (!isPrincipal || !membershipId) return;
+    setSavingPermissions(true);
+    try {
+      const result = await updateMembershipPermissions({
+        membershipId,
+        permissions: permissionDraft,
+      });
+      setPermissionMembers(current => current.map(member => (
+        member.id === membershipId
+          ? { ...member, permissions: { ...result.data.permissions } }
+          : member
+      )));
+      toast.success('Droits du Salon Admin enregistrés.');
+    } catch (reason) {
+      console.error('Membership permission update failed:', reason);
+      toast.error('Impossible d’enregistrer ces droits.');
+    } finally {
+      setSavingPermissions(false);
+    }
+  };
+
+  const openLocation = (id: string) => {
+    selectLocation(id);
+    navigate(`/brand/locations/${id}`);
+  };
+
+  const handleCreated = async (id: string) => {
+    await refreshSession();
+    await loadLocations();
+    setShowLocationForm(false);
+    selectLocation(id);
+    navigate(`/brand/locations/${id}`);
+  };
+
+  return (
+    <div className="min-h-screen bg-[#070707] text-white">
+      <header className="border-b border-white/10 bg-black/70 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-4 lg:px-8">
+          <div className="flex items-center gap-3">
+            <span className="grid h-11 w-11 place-items-center rounded-2xl bg-[#D4AF37] text-black"><Building2 className="h-5 w-5" /></span>
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.25em] text-[#D4AF37]">Barberboard Brands</p>
+              <h1 className="text-lg font-black">{brandName}</h1>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="hidden rounded-full border border-[#D4AF37]/20 bg-[#D4AF37]/10 px-3 py-1.5 text-xs font-bold text-[#D4AF37] sm:inline-flex">
+              {isPrincipal ? 'Principal Admin' : 'Salon Admin'}
+            </span>
+            <button type="button" onClick={() => void logout()} aria-label="Se déconnecter" className="rounded-xl border border-white/10 p-2.5 text-white/55 hover:border-white/20 hover:text-white">
+              <LogOut className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <div className="mx-auto grid max-w-7xl gap-6 px-5 py-7 lg:grid-cols-[290px_1fr] lg:px-8">
+        <aside className="space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-white/45">Vos salons</p>
+            {isPrincipal && (
+              <button type="button" onClick={() => setShowLocationForm(true)} className="flex items-center gap-1 rounded-lg bg-[#D4AF37] px-2.5 py-1.5 text-xs font-black text-black">
+                <Plus className="h-3.5 w-3.5" /> Ajouter
+              </button>
+            )}
+          </div>
+          {loading ? (
+            <div className="space-y-2">
+              {[0, 1, 2].map(item => <div key={item} className="h-[74px] animate-pulse rounded-2xl border border-white/5 bg-white/[0.03]" />)}
+            </div>
+          ) : <LocationList locations={locations} selectedId={selectedLocation?.id ?? null} onSelect={openLocation} />}
+          {error && <p role="alert" className="rounded-xl border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm text-red-200">{error}</p>}
+        </aside>
+
+        <main className="min-w-0 space-y-6">
+          <ReferralCard surface="brand" brandId={brandId} title="Faites connaître vos salons" description="Partagez un lien de parrainage Barberboard et consultez les crédits associés à ce réseau." />
+          {showLocationForm && brandId ? (
+            <LocationForm brandId={brandId} onCreated={handleCreated} onCancel={() => setShowLocationForm(false)} />
+          ) : selectedLocation ? (
+            <div className="space-y-6">
+              <section className="overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-[#171717] to-[#0d0d0d]">
+                <div className="border-b border-white/10 px-6 py-7 sm:px-8">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-[#D4AF37]">{selectedLocation.city}</p>
+                      <h2 className="mt-2 text-3xl font-black">{selectedLocation.name}</h2>
+                      <p className="mt-2 text-sm text-white/45">{selectedLocation.address || `${selectedLocation.city}, ${selectedLocation.countryCode}`}</p>
+                    </div>
+                    {(isPrincipal || permissionValue.inviteWorkers) && (
+                      <button type="button" onClick={() => setShowWorkerInvite(true)} className="inline-flex items-center gap-2 rounded-xl bg-[#D4AF37] px-4 py-2.5 text-sm font-black text-black">
+                        <UserPlus className="h-4 w-4" /> Inviter
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <nav className="flex gap-2 p-3" aria-label="Navigation du salon">
+                  <button type="button" onClick={() => navigate(`/brand/locations/${selectedLocation.id}`)} className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold ${!permissionsView ? 'bg-[#D4AF37] text-black' : 'text-white/55 hover:bg-white/5'}`}>
+                    <LayoutDashboard className="h-4 w-4" /> Vue d’ensemble
+                  </button>
+                  <button type="button" onClick={() => navigate(`/brand/locations/${selectedLocation.id}/permissions`)} className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold ${permissionsView ? 'bg-[#D4AF37] text-black' : 'text-white/55 hover:bg-white/5'}`}>
+                    <LockKeyhole className="h-4 w-4" /> Permissions
+                  </button>
+                </nav>
+              </section>
+
+              {permissionsView ? (
+                <section className="rounded-3xl border border-white/10 bg-[#111] p-6 sm:p-8">
+                  <div className="mb-6 flex items-start gap-3">
+                    <ShieldCheck className="mt-0.5 h-5 w-5 text-[#D4AF37]" />
+                    <div>
+                      <h3 className="font-black">{isPrincipal ? 'Droits des Salon Admins' : 'Droits de votre accès'}</h3>
+                      <p className="mt-1 text-sm text-white/45">{isPrincipal ? 'Sélectionnez un membre de ce salon. Chaque changement est enregistré dans le journal d’audit.' : 'Ces autorisations sont attribuées côté serveur et affichées en lecture seule.'}</p>
+                    </div>
+                  </div>
+                  {isPrincipal ? (
+                    permissionMembers.length > 0 ? (
+                      <MembershipPermissionManager
+                        members={permissionMembers}
+                        selectedId={selectedPermissionMemberId}
+                        value={permissionDraft}
+                        onSelect={selectPermissionMember}
+                        onChange={setPermissionDraft}
+                        onSave={savePermissionMember}
+                        saving={savingPermissions}
+                      />
+                    ) : <p className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-5 text-sm text-white/50">Aucun Salon Admin actif pour cet emplacement.</p>
+                  ) : (
+                    <PermissionEditor value={permissionValue} onChange={() => undefined} disabledKeys={PERMISSION_KEYS} showRole={false} />
+                  )}
+                </section>
+              ) : (
+                <>
+                  <section className="grid gap-4 sm:grid-cols-3">
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5"><p className="text-xs uppercase tracking-wider text-white/40">Ville</p><p className="mt-2 text-lg font-black">{selectedLocation.city}</p></div>
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5"><p className="text-xs uppercase tracking-wider text-white/40">Pays</p><p className="mt-2 text-lg font-black">{selectedLocation.countryCode}</p></div>
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5"><p className="text-xs uppercase tracking-wider text-white/40">Périmètre</p><p className="mt-2 text-lg font-black">Emplacement actif</p></div>
+                  </section>
+                  {(isPrincipal || permissionValue.manageBookings) && <SalonBookingManager locationId={selectedLocation.id} />}
+                  {(isPrincipal || permissionValue.manageJobs) && <SalonHiringManager locationId={selectedLocation.id} canInviteWorkers={isPrincipal || permissionValue.inviteWorkers} />}
+                </>
+              )}
+            </div>
+          ) : !loading && !error ? (
+            <div className="rounded-3xl border border-dashed border-white/15 px-8 py-16 text-center">
+              <Building2 className="mx-auto h-8 w-8 text-white/25" />
+              <h2 className="mt-4 text-xl font-black">Aucun salon accessible</h2>
+              <p className="mt-2 text-sm text-white/45">{isPrincipal ? 'Ajoutez votre premier emplacement.' : 'Demandez à votre Principal Admin de vous attribuer un salon.'}</p>
+            </div>
+          ) : null}
+        </main>
+      </div>
+      {selectedLocation && (
+        <WorkerInviteDialog
+          locationId={selectedLocation.id}
+          canInviteSalonAdmins={isPrincipal}
+          open={showWorkerInvite}
+          onOpenChange={setShowWorkerInvite}
+        />
+      )}
+    </div>
+  );
+}

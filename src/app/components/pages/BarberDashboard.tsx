@@ -28,6 +28,7 @@ import { Html5Qrcode } from 'html5-qrcode';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import NotificationCenter from '../ui/NotificationCenter';
 import NotificationPermissionModal from '../modals/NotificationPermissionModal';
+import { runTruthfulAction } from '../../lib/truthfulAction';
 // Lazy load heavy components
 const ScannerModal = lazy(() => import('../modals/ScannerModal'));
 const WalletModal = lazy(() => import('../modals/WalletModal'));
@@ -43,8 +44,7 @@ const WalkInModal = ({ onClose, services, currentBarber, commissionRate, addBook
   const [selectedServiceId, setSelectedServiceId] = useState('');
   const [tipAmount, setTipAmount] = useState('0');
   const [pricePaid, setPricePaid] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card'>('cash');
-  const [isSuccess, setIsSuccess] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const selectedService = services.find((s: any) => s.id === selectedServiceId);
   
@@ -53,9 +53,7 @@ const WalkInModal = ({ onClose, services, currentBarber, commissionRate, addBook
       setPricePaid((selectedService.price || '').replace(/[^0-9]/g, ''));
     }
   }, [selectedService]);
-  const price = selectedService ? parseInt((selectedService.price || '').replace(/[^0-9]/g, '')) : 0;
-
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedServiceId) return;
     if (!currentBarber) {
@@ -80,27 +78,31 @@ const WalkInModal = ({ onClose, services, currentBarber, commissionRate, addBook
       status: 'completed' as const,
       pricePaid: parseFloat(pricePaid) || 0,
       tip: parseFloat(tipAmount) || 0,
-      paymentMethod,
+      paymentMethod: 'cash' as const,
       type: 'sans-rdv' as const,
       completedAt: _now.toISOString(),
       paymentStatus: 'paid' as const,
     };
     
-    try {
-      addBooking(newBooking);
-      toast.custom((t) => (
-        <div className="bg-[#141414] border border-green-500/50 p-6 rounded-2xl flex flex-col items-center justify-center gap-4 shadow-2xl w-full min-w-[300px]">
-          <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center">
-            <CheckCircle className="w-10 h-10 text-green-500" />
+    setIsSubmitting(true);
+    const succeeded = await runTruthfulAction(() => addBooking(newBooking), {
+      onSuccess: () => {
+        toast.custom(() => (
+          <div className="bg-[#141414] border border-green-500/50 p-6 rounded-2xl flex flex-col items-center justify-center gap-4 shadow-2xl w-full min-w-[300px]">
+            <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center">
+              <CheckCircle className="w-10 h-10 text-green-500" />
+            </div>
+            <h3 className="text-xl font-bold text-white">Action réussie !</h3>
           </div>
-          <h3 className="text-xl font-bold text-white">Action réussie !</h3>
-        </div>
-      ), { duration: 1500, position: 'top-center' });
+        ), { duration: 1500, position: 'top-center' });
+      },
+      onError: error => toast.error("Erreur: " + error.message),
+    });
+    setIsSubmitting(false);
+    if (succeeded) {
       setTimeout(() => {
         onClose();
       }, 1500);
-    } catch (error: any) {
-      toast.error("Erreur: " + (error.message || 'Une erreur est survenue'));
     }
   };
 
@@ -174,11 +176,7 @@ const WalkInModal = ({ onClose, services, currentBarber, commissionRate, addBook
             </div>
           )}
 
-          <label className="block text-white/40 text-sm mt-4 mb-2">Méthode de paiement</label>
-          <div className="grid grid-cols-2 gap-2 mb-4">
-            <button type="button" onClick={() => setPaymentMethod('cash')} className={`py-2 rounded-lg text-sm font-bold border ${paymentMethod === 'cash' ? 'bg-[#D4AF37] text-black border-[#D4AF37]' : 'bg-transparent text-white/60 border-white/20'}`}>Espèce</button>
-            <button type="button" onClick={() => setPaymentMethod('card')} className={`py-2 rounded-lg text-sm font-bold border ${paymentMethod === 'card' ? 'bg-[#D4AF37] text-black border-[#D4AF37]' : 'bg-transparent text-white/60 border-white/20'}`}>Carte Bancaire</button>
-          </div>
+          <p className="rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/55">Encaissement en espèces avec attestation du collaborateur.</p>
 
 
 
@@ -192,9 +190,10 @@ const WalkInModal = ({ onClose, services, currentBarber, commissionRate, addBook
             </button>
             <button
               type="submit"
+              disabled={isSubmitting}
               className="flex-1 px-6 py-3 bg-gradient-to-r from-[#D4AF37] to-[#FFD700] text-black rounded-lg hover:shadow-lg hover:shadow-[#D4AF37]/50 transition-all font-bold"
             >
-              Encaisser
+              {isSubmitting ? 'Enregistrement…' : 'Encaisser'}
             </button>
           </div>
         </form>
@@ -926,9 +925,13 @@ export default function BarberDashboard() {
                           )}
                           {b.status === 'pending' && (
                             <button 
-                              onClick={() => { 
-                                updateBookingStatus(b.id, 'approved', 'barber'); 
-                                toast.success('Rendez-vous approuvé !'); 
+                              onClick={async () => {
+                                try {
+                                  await updateBookingStatus(b.id, 'approved', 'barber');
+                                  toast.success('Rendez-vous approuvé !');
+                                } catch (error) {
+                                  toast.error(error instanceof Error ? error.message : 'Impossible d’approuver le rendez-vous');
+                                }
                               }} 
                               className="flex-1 sm:flex-none px-3 sm:px-4 py-2 bg-green-500/10 text-green-400 hover:bg-green-500 hover:text-white rounded-xl text-[10px] sm:text-xs font-black uppercase border border-green-500/20 transition-all text-center"
                             >
@@ -1181,11 +1184,15 @@ export default function BarberDashboard() {
                   Annuler
                 </button>
                 <button
-                  onClick={() => {
+                  onClick={async () => {
                     if (bookingToReject) {
-                      updateBookingStatus(bookingToReject, 'rejected', 'barber');
-                      toast.success("RÉSERVATION REJETÉE AVEC SUCCÈS");
-                      setBookingToReject(null);
+                      try {
+                        await updateBookingStatus(bookingToReject, 'rejected', 'barber');
+                        toast.success("RÉSERVATION REJETÉE AVEC SUCCÈS");
+                        setBookingToReject(null);
+                      } catch (error) {
+                        toast.error(error instanceof Error ? error.message : 'Impossible de rejeter la réservation');
+                      }
                     }
                   }}
                   className="flex-1 py-3 px-4 bg-red-500 hover:bg-red-600 text-white rounded-xl font-bold transition-colors"

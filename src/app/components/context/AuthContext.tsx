@@ -1,27 +1,38 @@
-import { createContext, useContext, useState, useEffect, useMemo, ReactNode } from 'react';
-import { 
-  signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword, 
-  signOut, 
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
+import {
+  createUserWithEmailAndPassword,
   onAuthStateChanged,
-  updateProfile
+  reload,
+  sendEmailVerification,
+  signInWithEmailAndPassword,
+  signOut,
+  updateProfile,
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, collection, query, where, getDocs, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { auth, db } from '../../lib/firebase';
+import {
+  loadSessionUser,
+  MembershipSummary,
+  SessionUser,
+} from '../../lib/session';
+import { legacyRoleForLocation, membershipForLocation } from '../../lib/sessionAccess';
+import type { MembershipRole } from '../../lib/marketplace/types';
+import { resolveMarketplaceManager, resolveMarketplaceWorker } from '../../lib/marketplace/access';
+import { refreshVerifiedEmail, sendAccountVerification } from '../../lib/emailVerification';
 import { useTenant } from './TenantContext';
 
-// Forced correct key for bootstrap
-const CORRECT_API_KEY = "AIzaSyB455BHQ7ZIAcO0jwXYbYuzlcvXKt2Qpx4";
+type LegacyRole = 'client' | 'admin' | 'barber' | 'superadmin';
 
-interface User {
+export interface User extends SessionUser {
   id: string;
-  uid: string;
   name: string;
-  email: string;
   phone?: string;
-  role: 'client' | 'admin' | 'barber';
+  role: LegacyRole;
   barberId?: string;
   tenantId: string;
+  marketplaceRole?: MembershipRole;
+  brandId?: string;
+  marketplaceMembershipId?: string;
 }
 
 interface AuthContextType {
@@ -30,206 +41,121 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   signup: (email: string, password: string, name: string, phone?: string) => Promise<void>;
   logout: () => Promise<void>;
+  refreshSession: () => Promise<void>;
+  resendEmailVerification: () => Promise<void>;
+  refreshEmailVerification: () => Promise<boolean>;
   isAuthenticated: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+function membershipRole(membership?: MembershipSummary): LegacyRole {
+  if (!membership) return 'client';
+  if (membership.role === 'principal_admin' || membership.role === 'salon_admin' || membership.role === 'admin') {
+    return 'admin';
+  }
+  if (membership.role === 'worker' || membership.role === 'barber') {
+    return 'barber';
+  }
+  return 'client';
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const { tenantId } = useTenant();
 
+  const hydrateSession = useCallback(async (firebaseUser: NonNullable<typeof auth.currentUser>) => {
+    const [session, token] = await Promise.all([
+      loadSessionUser(firebaseUser),
+      firebaseUser.getIdTokenResult(),
+    ]);
+    const activeMembership = membershipForLocation(session.memberships, tenantId);
+    const marketplaceManager = await resolveMarketplaceManager(session.memberships, async membership => {
+      try {
+        if (membership.locationId) {
+          const location = await getDoc(doc(db, 'salonLocations', membership.locationId));
+          return location.exists() && location.data().brandId === membership.brandId;
+        }
+        const brand = await getDoc(doc(db, 'brands', membership.brandId));
+        return brand.exists();
+      } catch (error) {
+        console.warn('Marketplace membership verification failed:', error);
+        return false;
+      }
+    });
+    const marketplaceWorker = marketplaceManager ? undefined : await resolveMarketplaceWorker(
+      session.memberships,
+      async membership => {
+        try {
+          if (!membership.locationId) return false;
+          const location = await getDoc(doc(db, 'salonLocations', membership.locationId));
+          return location.exists() && location.data().brandId === membership.brandId;
+        } catch (error) {
+          console.warn('Marketplace worker verification failed:', error);
+          return false;
+        }
+      },
+    );
+    const isPlatformAdmin = token.claims.superadmin === true || token.claims.platformAdmin === true;
+    const claimedTenantId = typeof token.claims.tenantId === 'string'
+      ? token.claims.tenantId
+      : undefined;
+    const scopedClaimTenantId = claimedTenantId === tenantId
+      ? claimedTenantId
+      : undefined;
+    const role = isPlatformAdmin
+      ? 'superadmin'
+      : marketplaceWorker
+        ? 'barber'
+      : activeMembership
+        ? membershipRole(activeMembership)
+        : legacyRoleForLocation(token.claims.role, claimedTenantId, tenantId);
+
+    setUser({
+      ...session,
+      id: session.uid,
+      name: session.displayName || (role === 'admin' ? 'Administrateur' : 'Utilisateur'),
+      role,
+      barberId: activeMembership?.barberId ?? marketplaceWorker?.barberId,
+      tenantId: activeMembership?.locationId ?? marketplaceWorker?.locationId ?? scopedClaimTenantId ?? tenantId,
+      marketplaceRole: (marketplaceManager ?? marketplaceWorker)?.role as MembershipRole | undefined,
+      brandId: (marketplaceManager ?? marketplaceWorker)?.brandId,
+      marketplaceMembershipId: (marketplaceManager ?? marketplaceWorker)?.id,
+    });
+  }, [tenantId]);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        setIsLoading(true);
-        try {
-          const email = firebaseUser.email?.trim().toLowerCase() || '';
-          
-
-
-          // 2. Check Cache (only use if it exists and is not stale — we'll overwrite after Firestore fetch)
-          const cachedProfile = localStorage.getItem(`user_profile_${firebaseUser.uid}`);
-          let cacheUsed = false;
-          if (cachedProfile) {
-            try {
-              const parsed = JSON.parse(cachedProfile);
-              // Only trust the cache if the tenantId is real (not 'platform' fallback)
-              // and the cached email matches the current user (prevents cross-account cache pollution)
-              if (
-                parsed.tenantId &&
-                parsed.tenantId !== 'platform' &&
-                parsed.email === email
-              ) {
-                setUser(parsed);
-                setIsLoading(false); // Instantly dismiss loading screen so user is not blocked
-                cacheUsed = true;
-              } else {
-                // Stale or invalid cache — remove it
-                localStorage.removeItem(`user_profile_${firebaseUser.uid}`);
-              }
-            } catch {
-              localStorage.removeItem(`user_profile_${firebaseUser.uid}`);
-            }
-          }
-
-          // 3. Fresh Fetch
-          const profilePromise = (async () => {
-            // Fetch user profile first to know their true home tenant
-            let userDoc = await getDoc(doc(db, 'users', firebaseUser.uid)).catch(() => null);
-            if (!userDoc?.exists()) {
-              // Retry once after 600ms in case of new registration write delay
-              await new Promise(resolve => setTimeout(resolve, 600));
-              userDoc = await getDoc(doc(db, 'users', firebaseUser.uid)).catch(() => null);
-            }
-            const userData = userDoc?.exists() ? userDoc.data() : {};
-
-            // Global query for barbers to find their home tenant
-            const barberQuery = query(
-              collection(db, 'barbers'), 
-              where('email', '==', email)
-            );
-            const barberSnap = await getDocs(barberQuery).catch(() => ({ empty: true, docs: [] }));
-            
-            // Filter precisely to avoid any case or spacing issues
-            let barberDoc = (!barberSnap || barberSnap.empty) ? null : 
-              barberSnap.docs.find(d => {
-                const bEmail = d.data().email?.trim().toLowerCase();
-                return bEmail && bEmail === email;
-              }) || null;
-            
-            const isBarber = !!barberDoc;
-            const barberData = barberDoc?.data();
-            const barberId = barberDoc?.id;
-
-            let resolvedTenantId = userData.tenantId || barberData?.tenantId || tenantId;
-
-            // Auto-resolve tenantId from tenants collection if current resolution is missing or 'platform'
-            if ((!resolvedTenantId || resolvedTenantId === 'platform') && firebaseUser.uid) {
-              try {
-                const tenantsRef = collection(db, 'tenants');
-                const q = query(tenantsRef, where('ownerUid', '==', firebaseUser.uid));
-                const qSnap = await getDocs(q);
-                if (!qSnap.empty) {
-                  resolvedTenantId = qSnap.docs[0].id;
-                  console.log(`[Auth] Auto-resolved tenantId from tenants ownerUid query: ${resolvedTenantId}`);
-                }
-              } catch (err) {
-                console.error("[Auth] Error fetching tenant by ownerUid:", err);
-              }
-            }
-
-            const activeTenantId = resolvedTenantId;
-
-            // Resolve Role with strict priority:
-            // 1. If users/{uid} doc explicitly says 'barber' → ALWAYS barber (set by admin at creation)
-            // 2. If users/{uid} doc says 'admin' → ALWAYS admin (registered via Register page)
-            // 3. If users/{uid} doc is missing or says 'client' AND barbers collection has this email → barber
-            // 4. Otherwise → keep whatever the users doc says (defaults to 'client')
-            let resolvedRole: string;
-            
-            if (userData.role === 'barber') {
-              // Explicitly created as barber by admin — trust this completely
-              resolvedRole = 'barber';
-            } else if (userData.role === 'admin') {
-              // Registered as salon admin — always admin regardless of barbers collection
-              resolvedRole = 'admin';
-            } else if (isBarber) {
-              // Found in barbers collection but users doc doesn't explicitly say admin
-              // → treat as barber (covers cases where users doc is missing or says 'client')
-              resolvedRole = 'barber';
-            } else {
-              // No barber record found, use whatever the users doc says
-              resolvedRole = userData.role || 'client';
-            }
-            
-            // Auto-create user document for barber if it doesn't exist
-            if (!userDoc?.exists() && isBarber) {
-              try {
-                await setDoc(doc(db, 'users', firebaseUser.uid), {
-                  uid: firebaseUser.uid,
-                  email: email,
-                  name: barberData.name || firebaseUser.displayName || 'Coiffeur',
-                  role: 'barber',
-                  tenantId: activeTenantId,
-                  createdAt: new Date().toISOString()
-                });
-                userData.role = 'barber';
-                userData.tenantId = activeTenantId;
-              } catch (e) {
-                console.error("Could not auto-create barber user profile:", e);
-              }
-            }
-            
-            // Auto-heal admin / client user document if tenantId is missing or incorrectly set to 'platform'
-            if (userDoc?.exists() && (!userData.tenantId || userData.tenantId === 'platform') && activeTenantId && activeTenantId !== 'platform') {
-              try {
-                await updateDoc(doc(db, 'users', firebaseUser.uid), {
-                  tenantId: activeTenantId
-                });
-                userData.tenantId = activeTenantId;
-                console.log(`[Auth] Auto-healed tenantId for user ${firebaseUser.uid} to ${activeTenantId}`);
-              } catch (e) {
-                console.error("Could not auto-heal user tenantId:", e);
-              }
-            }
-            
-            
-            const fullProfile: User = {
-              id: firebaseUser.uid,
-              uid: firebaseUser.uid,
-              email: email,
-              phone: userData.phone || '',
-              name: userData.name || barberData?.name || firebaseUser.displayName || (resolvedRole === 'admin' ? 'Administrateur' : 'Utilisateur'),
-              role: resolvedRole as 'admin' | 'barber' | 'client',
-              barberId: barberId,
-              tenantId: activeTenantId
-            };
-
-            // If the fresh role differs from what was cached, clear cache and notify
-            if (cacheUsed) {
-              const cachedData = JSON.parse(localStorage.getItem(`user_profile_${firebaseUser.uid}`) || '{}');
-              if (cachedData.role && cachedData.role !== resolvedRole) {
-                console.warn(`[Auth] Role mismatch: cached=${cachedData.role}, resolved=${resolvedRole}. Updating.`);
-              }
-            }
-            setUser(fullProfile);
-            localStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(fullProfile));
-            setIsLoading(false); // Clear loading as soon as we have fresh data
-          })();
-
-          // Wait max 3s for fresh data, then proceed
-          await Promise.race([
-            profilePromise,
-            new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3000))
-          ]);
-
-        } catch (error) {
-          console.error("Auth profile fetch issue:", error);
-          if (!user) {
-            setUser({
-              id: firebaseUser.uid,
-              uid: firebaseUser.uid,
-              email: firebaseUser.email || '',
-              name: firebaseUser.displayName || 'Utilisateur',
-              role: 'client',
-              tenantId: tenantId
-            });
-          }
-        }
-      } else {
+      if (!firebaseUser) {
         setUser(null);
-        // Clear caches on logout
-        Object.keys(localStorage).forEach(key => {
-          if (key.startsWith('user_profile_')) localStorage.removeItem(key);
-        });
+        setIsLoading(false);
+        return;
       }
-      setIsLoading(false);
+
+      setIsLoading(true);
+      try {
+        await hydrateSession(firebaseUser);
+      } catch (error) {
+        console.error('Auth session fetch failed:', error);
+        setUser({
+          id: firebaseUser.uid,
+          uid: firebaseUser.uid,
+          email: firebaseUser.email?.trim().toLowerCase() ?? '',
+          emailVerified: firebaseUser.emailVerified,
+          displayName: firebaseUser.displayName ?? '',
+          name: firebaseUser.displayName ?? 'Utilisateur',
+          role: 'client',
+          tenantId,
+          memberships: [],
+        });
+      } finally {
+        setIsLoading(false);
+      }
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [hydrateSession, tenantId]);
 
   const login = async (email: string, password: string) => {
     await signInWithEmailAndPassword(auth, email, password);
@@ -238,36 +164,61 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signup = async (email: string, password: string, name: string, phone?: string) => {
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     const firebaseUser = userCredential.user;
-    
+
     await updateProfile(firebaseUser, { displayName: name });
-    
-    // Create profile in Firestore
-    const profile = {
+    await setDoc(doc(db, 'users', firebaseUser.uid), {
       uid: firebaseUser.uid,
-      email,
+      email: email.trim().toLowerCase(),
       name,
-      phone: phone || '',
-      role: 'client', // Default role for new signups
-      createdAt: new Date().toISOString(),
-      tenantId: tenantId
-    };
-    
-    await setDoc(doc(db, 'users', firebaseUser.uid), profile);
+      displayName: name,
+      phone: phone ?? '',
+      createdAt: serverTimestamp(),
+    });
+    await sendAccountVerification(firebaseUser, sendEmailVerification);
   };
 
   const logout = async () => {
     await signOut(auth);
   };
 
-  const value = useMemo(() => ({ 
-    user, isLoading, login, signup, logout, isAuthenticated: !!user 
-  }), [user, isLoading]);
+  const refreshSession = useCallback(async () => {
+    if (!auth.currentUser) {
+      setUser(null);
+      return;
+    }
+    setIsLoading(true);
+    try {
+      await hydrateSession(auth.currentUser);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [hydrateSession]);
 
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
+  const resendEmailVerification = useCallback(async () => {
+    if (!auth.currentUser) throw new Error('Authentication is required');
+    await sendAccountVerification(auth.currentUser, sendEmailVerification);
+  }, []);
+
+  const refreshEmailVerification = useCallback(async () => {
+    if (!auth.currentUser) return false;
+    const verified = await refreshVerifiedEmail(auth.currentUser, reload);
+    if (verified) await hydrateSession(auth.currentUser);
+    return verified;
+  }, [hydrateSession]);
+
+  const value = useMemo(() => ({
+    user,
+    isLoading,
+    login,
+    signup,
+    logout,
+    refreshSession,
+    resendEmailVerification,
+    refreshEmailVerification,
+    isAuthenticated: user !== null,
+  }), [user, isLoading, refreshSession, resendEmailVerification, refreshEmailVerification]);
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {

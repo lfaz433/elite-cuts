@@ -1,29 +1,23 @@
-import fs from 'fs';
-import { OAuth2Client } from 'google-auth-library';
 import { Firestore } from '@google-cloud/firestore';
 import { initializeApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
+import { requireStagingWrite, STAGING_PROJECT_ID } from './lib/staging-write-guard.mjs';
 
+if (!requireStagingWrite(process.argv.slice(2), process.env, 'Demo seed')) process.exit(0);
+const demoAdminPassword = process.env.DEMO_ADMIN_PASSWORD;
+const demoClientPassword = process.env.DEMO_CLIENT_PASSWORD;
+const firebaseApiKey = process.env.STAGING_FIREBASE_API_KEY;
+if (!demoAdminPassword || !demoClientPassword || !firebaseApiKey) {
+  throw new Error('Demo seed requires DEMO_ADMIN_PASSWORD, DEMO_CLIENT_PASSWORD, and STAGING_FIREBASE_API_KEY.');
+}
 const firebaseConfig = {
-  apiKey: "AIzaSyB455BHQ7ZIAcO0jwXYbYuzlcvXKt2Qpx4",
-  authDomain: "elite-cuts-app.firebaseapp.com",
-  projectId: "elite-cuts-app",
-  storageBucket: "elite-cuts-app.firebasestorage.app",
-  messagingSenderId: "499181564992",
-  appId: "1:499181564992:web:afc888388b72144ccc9ba5",
-  measurementId: "G-QDWD7EKPM7"
+  apiKey: firebaseApiKey,
+  authDomain: `${STAGING_PROJECT_ID}.firebaseapp.com`,
+  projectId: STAGING_PROJECT_ID,
 };
 
-// 1. Initialize Firestore Admin client via OAuth2Client using CLI token
-const cliConfig = JSON.parse(fs.readFileSync('/Users/mac/.config/configstore/firebase-tools.json', 'utf8'));
-const accessToken = cliConfig.tokens.access_token;
-
-const authClient = new OAuth2Client();
-authClient.setCredentials({ access_token: accessToken });
-
 const db = new Firestore({
-  projectId: 'elite-cuts-app',
-  authClient: authClient
+  projectId: STAGING_PROJECT_ID,
 });
 
 // 2. Initialize Firebase Web SDK for Auth operations
@@ -70,9 +64,8 @@ async function main() {
 
   // Create Auth Users first so we have their actual UIDs
   console.log('👤 Seeding Firebase Auth users...');
-  const adminUid = await createAuthUser('demo-admin@barberboard.pro', 'Demo1234!', 'Admin Demo');
-  const barberUid = await createAuthUser('demo-barber@barberboard.pro', 'Demo1234!', 'Karim B.');
-  const clientUid = await createAuthUser('demo-client@barberboard.pro', 'Demo1234!', 'Client Demo');
+  const adminUid = await createAuthUser('demo-admin@barberboard.pro', demoAdminPassword, 'Admin Demo');
+  const clientUid = await createAuthUser('demo-client@barberboard.pro', demoClientPassword, 'Client Demo');
 
   // Clear Firestore demo data
   await clearDemoData();
@@ -85,7 +78,7 @@ async function main() {
     ownerUid: adminUid,
     subscription: { status: 'active', planId: 'pro' },
     branding: { primaryColor: '#D4AF37', businessName: 'Gold Cuts Paris', logoUrl: '' },
-    settings: { maxBarbersLimit: 8, allowOnlineBooking: true },
+    settings: { maxBarbersLimit: 8, allowOnlineBooking: true, bookingPolicy: 'manual' },
     onboardingComplete: true,
     isDemo: true,
     createdAt: Date.now(),
@@ -96,7 +89,6 @@ async function main() {
   console.log('👤 Seeding user profiles in Firestore...');
   const usersToSeed = [
     { uid: adminUid, email: 'demo-admin@barberboard.pro', name: 'Admin Demo', role: 'admin' },
-    { uid: barberUid, email: 'demo-barber@barberboard.pro', name: 'Karim B.', role: 'barber' },
     { uid: clientUid, email: 'demo-client@barberboard.pro', name: 'Client Demo', role: 'client' },
   ];
   for (const u of usersToSeed) {
@@ -124,6 +116,7 @@ async function main() {
     await docRef.set({
       ...b,
       tenantId: TENANT_ID,
+      publicCredentialSafe: true,
       image: '',
       createdAt: Date.now(),
     });
@@ -248,9 +241,8 @@ async function main() {
 
   console.log('\n✅ Demo seed complete!\n');
   console.log('Login credentials:');
-  console.log('  Admin:  demo-admin@barberboard.pro / Demo1234!');
-  console.log('  Barber: demo-barber@barberboard.pro / Demo1234!');
-  console.log('  Client: demo-client@barberboard.pro / Demo1234!\n');
+  console.log('  Demo credentials were supplied through the environment and are not printed.\n');
+  console.log('  Staff access is created only through the worker-owned invitation flow.\n');
   process.exit(0);
 }
 

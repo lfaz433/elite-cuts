@@ -1,9 +1,14 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, query, where, getDocs, limit } from "firebase/firestore";
+import { requireStagingRead, STAGING_PROJECT_ID } from './scripts/lib/staging-write-guard.mjs';
+
+requireStagingRead(process.argv.slice(2), 'Booking audit');
+const firebaseApiKey = process.env.STAGING_FIREBASE_API_KEY;
+if (!firebaseApiKey) throw new Error('STAGING_FIREBASE_API_KEY is required.');
 
 const firebaseConfig = {
-  apiKey: "AIzaSyB455BHQ7ZIAcO0jwXYbYuzlcvXKt2Qpx4",
-  projectId: "elite-cuts-app",
+  apiKey: firebaseApiKey,
+  projectId: STAGING_PROJECT_ID,
 };
 
 const app = initializeApp(firebaseConfig);

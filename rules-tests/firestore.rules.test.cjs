@@ -14,14 +14,14 @@ const {
 const { readFileSync } = require('fs');
 const { setDoc, doc, collection, addDoc, updateDoc, getDoc } = require('firebase/firestore');
 
-const PROJECT_ID = 'elite-cuts-app';
+const PROJECT_ID = 'demo-elite-cuts-rules';
 const RULES = readFileSync('./firestore.rules', 'utf8');
 
 // ── helpers ───────────────────────────────────────────────────────────────
 // auth param: { sub: 'some-uid' } — 'sub' is required by firebase/rules-unit-testing v4+
-async function getFirestore(env, authSub) {
+async function getFirestore(env, authSub, claims = {}) {
   return authSub
-    ? env.authenticatedContext(authSub, { sub: authSub }).firestore()
+    ? env.authenticatedContext(authSub, { sub: authSub, ...claims }).firestore()
     : env.unauthenticatedContext().firestore();
 }
 
@@ -88,14 +88,13 @@ test('T1: Unauthenticated user cannot create a tenant', async () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// T2 — Brand-new user (no Firestore users doc yet) can create tenant where ownerUid == uid
-// This is the CRITICAL test that was failing before the rules fix
+// T2 — Tenant creation is reserved for the atomic server bootstrap.
 // ═══════════════════════════════════════════════════════════════════════════
-test('T2: New user with no Firestore doc can create tenant where ownerUid == uid (Fix #2)', async () => {
+test('T2: New user cannot bypass bootstrap by creating a tenant directly', async () => {
   const uid = 'brand-new-user';
   const db = await getFirestore(testEnv, uid);
 
-  await assertSucceeds(
+  await assertFails(
     setDoc(doc(db, 'tenants', 'mytenant'), {
       ownerUid: uid,
       subdomain: 'mytenant',
@@ -127,10 +126,11 @@ test('T3: User cannot create a tenant where ownerUid is someone elses uid', asyn
 // ═══════════════════════════════════════════════════════════════════════════
 // T4 — User with matching tenantId can add a barber (SHOULD PASS)
 // ═══════════════════════════════════════════════════════════════════════════
-test('T4: Tenant member can create a barber for their tenant', async () => {
+test('T4: Tenant owner can create a safe public barber for their tenant', async () => {
   const uid = 'admin-uid';
   const tenantId = 'salon-abc';
   await seedUser(uid, tenantId, 'admin');
+  await seedTenant(tenantId, uid);
 
   const db = await getFirestore(testEnv, uid);
 
@@ -139,6 +139,7 @@ test('T4: Tenant member can create a barber for their tenant', async () => {
       name: 'Karim',
       tenantId: tenantId,
       specialty: 'Coupe',
+      publicCredentialSafe: true,
     })
   );
 });
@@ -150,25 +151,26 @@ test('T5: User cannot create a barber for a different tenant', async () => {
   const uid = 'attacker-uid';
   await seedUser(uid, 'my-tenant', 'admin');
 
-  const db = await getFirestore(testEnv, uid);
+  const db = await getFirestore(testEnv, uid, { tenantId: 'my-tenant' });
 
   await assertFails(
     addDoc(collection(db, 'barbers'), {
       name: 'Fake Barber',
       tenantId: 'other-tenant',
       specialty: 'Coupe',
+      publicCredentialSafe: true,
     })
   );
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// T6 — Authenticated user can create subdomain reservation where ownerUid == uid
+// T6 — Reservations are server-owned so callers cannot squat names directly.
 // ═══════════════════════════════════════════════════════════════════════════
-test('T6: Authenticated user can reserve a subdomain for themselves', async () => {
+test('T6: Authenticated user cannot reserve a subdomain directly', async () => {
   const uid = 'new-owner-uid';
   const db = await getFirestore(testEnv, uid);
 
-  await assertSucceeds(
+  await assertFails(
     setDoc(doc(db, 'subdomains', 'mysalon'), {
       ownerUid: uid,
       tenantId: 'some-id',
@@ -195,7 +197,7 @@ test('T7: User cannot create subdomain reservation with another uid', async () =
 // ═══════════════════════════════════════════════════════════════════════════
 // T8 — Tenant member can update their own tenant settings (onboarding)
 // ═══════════════════════════════════════════════════════════════════════════
-test('T8: Tenant member can update their tenant (finalizing onboarding)', async () => {
+test('T8: Tenant owner can update safe tenant presentation fields without a legacy claim', async () => {
   const uid = 'owner-uid';
   const tenantId = 'salon-xyz';
   await seedUser(uid, tenantId, 'admin');
@@ -205,10 +207,102 @@ test('T8: Tenant member can update their tenant (finalizing onboarding)', async 
 
   await assertSucceeds(
     updateDoc(doc(db, 'tenants', tenantId), {
-      'settings.weeklyHours': {},
+      name: 'Updated Salon',
+      branding: { primaryColor: '#fff', logoUrl: '', businessName: 'Updated' },
       onboardingComplete: true,
     })
   );
+});
+
+test('active deterministic membership can operate without a legacy tenant claim', async () => {
+  const tenantId = 'membership-salon';
+  const uid = 'member-uid';
+  await seedTenant(tenantId, 'owner-uid');
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'memberships', `${tenantId}__${uid}`), {
+      userId: uid, brandId: tenantId, locationId: tenantId, role: 'salon_admin',
+      status: 'active', permissions: { manageStaff: true },
+    });
+  });
+  const db = await getFirestore(testEnv, uid);
+
+  await assertSucceeds(addDoc(collection(db, 'barbers'), {
+    tenantId, name: 'Membership Barber', publicCredentialSafe: true,
+  }));
+});
+
+test.each([
+  ['branding', { primaryColor: '#000', logoUrl: '', businessName: 'Worker Edit' }],
+  ['onboardingComplete', true],
+  ['isDemo', true],
+  ['settings', { maxBarbersLimit: 8, allowOnlineBooking: false }],
+])('low-privilege membership cannot update tenant %s', async (field, value) => {
+  const tenantId = 'worker-protected-salon';
+  const uid = 'worker-uid';
+  await seedTenant(tenantId, 'owner-uid');
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'memberships', `${tenantId}__${uid}`), {
+      userId: uid,
+      brandId: tenantId,
+      locationId: tenantId,
+      role: 'worker',
+      status: 'active',
+      permissions: { manageBookings: true },
+    });
+  });
+  const db = await getFirestore(testEnv, uid);
+
+  await assertFails(updateDoc(doc(db, 'tenants', tenantId), { [field]: value }));
+});
+
+test('explicit tenant admin membership can update tenant presentation', async () => {
+  const tenantId = 'admin-managed-salon';
+  const uid = 'salon-admin-uid';
+  await seedTenant(tenantId, 'owner-uid');
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'memberships', `${tenantId}__${uid}`), {
+      userId: uid,
+      brandId: tenantId,
+      locationId: tenantId,
+      role: 'salon_admin',
+      status: 'active',
+      permissions: { manageStaff: true },
+    });
+  });
+  const db = await getFirestore(testEnv, uid);
+
+  await assertSucceeds(updateDoc(doc(db, 'tenants', tenantId), {
+    branding: { primaryColor: '#fff', logoUrl: '', businessName: 'Admin Edit' },
+  }));
+});
+
+test.each([
+  ['ownerUid', 'attacker'],
+  ['subdomain', 'stolen-name'],
+  ['domain', { subdomain: 'stolen-name', status: 'active', vercelVerified: true }],
+  ['subscription', { status: 'active', planId: 'enterprise' }],
+  ['settings', { maxBarbersLimit: 999, allowOnlineBooking: true }],
+])('tenant member cannot rewrite server-owned %s', async (field, value) => {
+  const tenantId = 'protected-salon';
+  await seedTenant(tenantId, 'owner-uid');
+  const db = await getFirestore(testEnv, 'member-uid', { tenantId });
+
+  await assertFails(updateDoc(doc(db, 'tenants', tenantId), { [field]: value }));
+});
+
+test('client can read only their own booking lifecycle without tenant membership', async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'bookings', 'own-booking'), {
+      tenantId: 'salon-a', clientId: 'client-a', status: 'approved',
+    });
+    await setDoc(doc(ctx.firestore(), 'bookings', 'other-booking'), {
+      tenantId: 'salon-a', clientId: 'client-b', status: 'approved',
+    });
+  });
+  const db = await getFirestore(testEnv, 'client-a');
+
+  await assertSucceeds(getDoc(doc(db, 'bookings', 'own-booking')));
+  await assertFails(getDoc(doc(db, 'bookings', 'other-booking')));
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -221,7 +315,7 @@ test('T9: Non-member cannot update a tenant they do not belong to', async () => 
   await seedTenant(tenantId, ownerUid);
 
   await seedUser('attacker', 'other-salon', 'admin');
-  const db = await getFirestore(testEnv, 'attacker');
+  const db = await getFirestore(testEnv, 'attacker', { tenantId: 'other-salon' });
 
   await assertFails(
     updateDoc(doc(db, 'tenants', tenantId), {
@@ -239,7 +333,7 @@ test('T10: SuperAdmin can update any tenant', async () => {
   const tenantId = 'some-salon';
   await seedTenant(tenantId, 'some-owner');
 
-  const db = await getFirestore(testEnv, superUid);
+  const db = await getFirestore(testEnv, superUid, { superadmin: true });
 
   await assertSucceeds(
     updateDoc(doc(db, 'tenants', tenantId), {

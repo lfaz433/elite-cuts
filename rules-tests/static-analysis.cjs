@@ -18,20 +18,17 @@ const FAIL = '\x1b[31m✗ FAIL\x1b[0m';
 const tests = [
   {
     id: 'SA-1',
-    description: 'Tenants: create rule allows ownerUid == request.auth.uid (Fix for new signups)',
+    description: 'Tenants: browser creation is denied in favor of server bootstrap',
     check: () => {
       // Must contain the ownerUid check in the tenants block
       const tenantsBlock = rules.match(/match \/tenants\/\{tenantId\}[^}]+(?:\{[^}]*\}[^}]*)*?\}/s)?.[0] || '';
-      return (
-        tenantsBlock.includes('request.resource.data.ownerUid == request.auth.uid') ||
-        rules.includes('request.resource.data.ownerUid == request.auth.uid')
-      );
+      return tenantsBlock.includes('allow create: if isSuperAdmin()');
     },
   },
   {
     id: 'SA-2',
-    description: 'Subdomains: create rule allows ownerUid == request.auth.uid',
-    check: () => rules.includes("request.resource.data.ownerUid == request.auth.uid"),
+    description: 'Subdomains: browser creation is denied',
+    check: () => /match \/subdomains\/\{subdomainName\}[\s\S]*?allow create: if false;/.test(rules),
   },
   {
     id: 'SA-3',
@@ -40,22 +37,24 @@ const tests = [
   },
   {
     id: 'SA-4',
-    description: 'isMemberOfTenant helper exists and checks getUserData().tenantId',
+    description: 'Tenant authority requires a permission or owner record, never bare membership',
     check: () =>
-      rules.includes('function isMemberOfTenant') &&
-      rules.includes('getUserData().tenantId == tenantId'),
+      rules.includes('function hasTenantPermission') &&
+      rules.includes('isTenantOwner(tId)') &&
+      !rules.includes('function isMemberOfTenant') &&
+      !rules.includes('request.auth.token.tenantId == tId'),
   },
   {
     id: 'SA-5',
-    description: 'getUserData() safely returns {} if doc does not exist',
+    description: 'Client profile fields are not used as authorization inputs',
     check: () =>
-      rules.includes('exists(/databases') &&
-      rules.includes(': {}'),
+      !rules.includes('getUserData()') &&
+      rules.includes("match /memberships/{membershipId}"),
   },
   {
     id: 'SA-6',
-    description: 'Barbers: create requires isMemberOfTenant on the incoming tenantId',
-    check: () => rules.includes('isMemberOfTenant(request.resource.data.tenantId)'),
+    description: 'Barbers: create requires manageStaff on the incoming tenantId',
+    check: () => rules.includes("hasTenantPermission(request.resource.data.tenantId, 'manageStaff')"),
   },
   {
     id: 'SA-7',
@@ -72,24 +71,58 @@ const tests = [
   },
   {
     id: 'SA-9',
-    description: 'Tenants: update/delete still requires membership (not just ownerUid)',
+    description: 'Tenants: update requires scoped authority and immutable server fields',
     check: () => {
       const lines = rules.split('\n');
-      const updateLine = lines.find(l => l.includes('allow update, delete') && l.includes('isMemberOfTenant'));
-      return !!updateLine;
+      return rules.includes('isTenantAuthority(tenantId)') && rules.includes('hasOnly(safeTenantUpdateFields())');
     },
   },
   {
     id: 'SA-10',
-    description: 'Tenants: create rule includes all 3 conditions (superadmin OR member OR ownerUid)',
+    description: 'Bookings: clients can read records addressed to their uid',
     check: () => {
-      const createSection = rules.split('allow create')[1]?.split(';')[0] || '';
-      return (
-        createSection.includes('isSuperAdmin') &&
-        createSection.includes('isMemberOfTenant') &&
-        createSection.includes('ownerUid')
-      );
+      return rules.includes('request.auth.uid == resource.data.clientId');
     },
+  },
+  {
+    id: 'SA-11',
+    description: 'Marketplace: membership permission calls use valid CEL argument syntax',
+    check: () => !/hasActiveLocationPermission\(\s*resource\.data\.brandId,\s*resource\.data\.locationId,\s*'manageStaff',\s*\)/s.test(rules),
+  },
+  {
+    id: 'SA-12',
+    description: 'Permission checks recognize deterministic legacy and marketplace location memberships',
+    check: () =>
+      rules.includes('function hasActiveLegacyMembership(tId)') &&
+      rules.includes('function marketplaceTenantMembershipPath(tId)') &&
+      rules.includes('function hasActiveMarketplaceTenantMembership(tId)') &&
+      rules.includes('function hasTenantPermission(tId, permission)'),
+  },
+  {
+    id: 'SA-13',
+    description: 'Public barber timestamps cannot carry nested maps',
+    check: () =>
+      rules.includes("!('createdAt' in data) || data.createdAt is timestamp || data.createdAt is number") &&
+      rules.includes("!('updatedAt' in data) || data.updatedAt is timestamp || data.updatedAt is number"),
+  },
+  {
+    id: 'SA-14',
+    description: 'Operational collections never authorize from membership presence alone',
+    check: () => {
+      const start = rules.indexOf('// 2. Scoped Business Operations Collections');
+      const end = rules.indexOf('match /business/{document=**}');
+      const operationalRules = rules.slice(start, end);
+      return start >= 0 && end > start && !operationalRules.includes('isMemberOfTenant(');
+    },
+  },
+  {
+    id: 'SA-15',
+    description: 'Operational rules use granular permissions and assigned-barber scope',
+    check: () =>
+      rules.includes('function hasTenantPermission(tId, permission)') &&
+      rules.includes('function isAssignedBarber(tId, barberId)') &&
+      ['manageBookings', 'manageStaff', 'removeWorkers', 'manageServices', 'manageInventory']
+        .every(permission => rules.includes(`hasTenantPermission(`) && rules.includes(`'${permission}'`)),
   },
 ];
 

@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useMemo, ReactNode } from 'react';
-import { db } from '../../lib/firebase';
+import { auth, db, functions } from '../../lib/firebase';
+import { httpsCallable } from 'firebase/functions';
 import { 
   collection, 
   onSnapshot, 
@@ -8,6 +9,7 @@ import {
   deleteDoc, 
   doc, 
   setDoc,
+  deleteField,
   query,
   orderBy,
   where,
@@ -17,6 +19,19 @@ import {
 import { toast } from 'sonner';
 import { useCallback } from 'react';
 import { useTenant } from './TenantContext';
+import { useAuth } from './AuthContext';
+import {
+  sanitizeBarberCreate,
+  sanitizeBarberUpdate,
+  sanitizeBusinessInfo,
+} from '../../lib/publicStaff';
+import { staffCreateActionForBooking } from '../../lib/bookingIntent';
+import {
+  assignedBarberRecordListenerScope,
+  bookingListenerScope,
+  tenantPermissionListenerAllowed,
+} from '../../lib/bookingAccess';
+import { runBestEffortAfterCommit } from '../../lib/truthfulAction';
 
 export interface Service {
   id: string;
@@ -39,7 +54,6 @@ export interface Barber {
   workingDays?: number[]; // 0 = Sunday, 1 = Monday, etc.
   phone?: string;
   email?: string;
-  password?: string;
   mainServiceId?: string;
   secondaryServiceId?: string;
   archived?: boolean;
@@ -102,13 +116,14 @@ export interface Booking {
   barberId: string;
   date: string;
   time: string;
-  status: 'pending' | 'approved' | 'rejected' | 'completed' | 'archived';
+  status: 'pending' | 'approved' | 'rejected' | 'completed' | 'cancelled' | 'archived';
   createdAt: string;
   pricePaid?: number;
   tip?: number;
   paymentMethod?: 'cash' | 'card';
   notes?: string;
   paymentStatus?: 'paid' | 'unpaid';
+  balanceSettledAt?: string;
   type?: 'avec-rdv' | 'sans-rdv';
   unreadAdmin?: boolean;
   unreadBarber?: boolean;
@@ -166,7 +181,6 @@ export interface BusinessInfo {
   phone: string;
   email: string;
   adminEmail?: string;
-  adminPassword?: string;
   hours: {
     weekdays: string;
     weekends: string;
@@ -196,6 +210,7 @@ export interface BusinessInfo {
     value: string;
     enabled: boolean;
   }[];
+  bookingPolicy?: 'manual' | 'automatic';
 }
 
 export interface Expense {
@@ -274,7 +289,7 @@ interface BusinessContextType {
   addBarber: (barber: Omit<Barber, 'id'>) => Promise<void>;
   updateBarber: (id: string, barber: Partial<Barber>) => Promise<void>;
   deleteBarber: (id: string) => Promise<void>;
-  addBooking: (booking: Omit<Booking, 'id' | 'createdAt'> & { status?: Booking['status'] }) => Promise<void>;
+  addBooking: (booking: Omit<Booking, 'id' | 'createdAt'> & { status?: Booking['status'] }) => Promise<{ bookingId: string; status: 'pending' | 'approved' | 'completed' }>;
   updateBookingStatus: (id: string, status: Booking['status'], actor?: 'admin' | 'barber') => Promise<void>;
   updateBooking: (id: string, updated: Partial<Booking>) => Promise<void>;
   deleteBooking: (id: string) => Promise<void>;
@@ -291,7 +306,7 @@ interface BusinessContextType {
   totalDeposits: number;
   caisseBalance: number;
   seedDatabase: () => Promise<void>;
-  sendPush: (recipientId: string, title: string, message: string, redirectUrl: string) => Promise<void>;
+  sendPush: (notificationId: string, ...unsupportedLegacyArguments: string[]) => Promise<void>;
   updateBarberStatus: (id: string, status: Barber['status']) => Promise<void>;
   getAvailableBarbers: (date: string, time: string, serviceId?: string) => Barber[];
   getAvailableTimeSlots: (date: string, barberId: string, serviceId?: string) => string[];
@@ -330,6 +345,7 @@ const BusinessContext = createContext<BusinessContextType | undefined>(undefined
 
 export function BusinessProvider({ children }: { children: ReactNode }) {
   const { tenantId, subdomain } = useTenant();
+  const { user } = useAuth();
   const [services, setServices] = useState<Service[]>([]);
   const [barbers, setBarbers] = useState<Barber[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -348,22 +364,125 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   const [clientNotes, setClientNotes] = useState<ClientNote[]>([]);
   const [clientsLoadError, setClientsLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const canLoadTenantCampaigns = tenantPermissionListenerAllowed(
+    user,
+    tenantId,
+    'manageServices',
+  );
 
-  const sendPush = async (recipientId: string, title: string, message: string, redirectUrl: string) => {
-    if (!recipientId) return;
+  const sendPush = async (notificationId: string, ...unsupportedLegacyArguments: string[]) => {
+    // Legacy callers supplied arbitrary recipient/content. Those requests are
+    // intentionally not sent; only server-issued notification IDs are valid.
+    if (unsupportedLegacyArguments.length > 0) return;
+    if (!notificationId || !tenantId || !auth.currentUser) return;
     try {
+      const idToken = await auth.currentUser.getIdToken();
       await fetch('/api/send-push', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer internal'
+          'Authorization': `Bearer ${idToken}`
         },
-        body: JSON.stringify({ recipientId, title, body: message, data: { url: redirectUrl } })
+        body: JSON.stringify({
+          notificationId,
+          tenantId,
+        })
       });
     } catch (e) {
       console.error('Push failed silently:', e);
       // Never throw — push failures must never break main flow
     }
+  };
+
+  const requestBookingTransition = async (id: string, status: string) => {
+    if (!tenantId || !auth.currentUser) throw new Error('Authenticated tenant required');
+    const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID?.trim();
+    if (!projectId) throw new Error('Firebase project is not configured');
+    const idToken = await auth.currentUser.getIdToken();
+    const response = await fetch(
+      `https://us-central1-${projectId}.cloudfunctions.net/transitionBookingStatus`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ bookingId: id, status }),
+      },
+    );
+    if (!response.ok) {
+      throw new Error((await response.text()) || 'Booking status update failed');
+    }
+    return response.json() as Promise<{ notificationIds?: string[] }>;
+  };
+
+  const requestBookingPayment = async (
+    id: string,
+    amount: number,
+    tip: number,
+    method: 'cash' | 'card',
+  ) => {
+    if (!auth.currentUser) throw new Error('Authenticated staff required');
+    const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID?.trim();
+    if (!projectId) throw new Error('Firebase project is not configured');
+    const idToken = await auth.currentUser.getIdToken();
+    const response = await fetch(
+      `https://us-central1-${projectId}.cloudfunctions.net/recordBookingPaymentRequest`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          bookingId: id,
+          payment: {
+            amountMinor: Math.round(amount * 100),
+            tipMinor: Math.round(tip * 100),
+            method,
+            evidence: { type: 'staff_cash_attestation' },
+          },
+        }),
+      },
+    );
+    if (!response.ok) {
+      throw new Error((await response.text()) || 'Payment recording failed');
+    }
+  };
+
+  const requestCompleteBookingPayment = async (
+    id: string,
+    amount: number,
+    tip: number,
+    method: 'cash' | 'card',
+  ) => {
+    if (!auth.currentUser) throw new Error('Authenticated staff required');
+    const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID?.trim();
+    if (!projectId) throw new Error('Firebase project is not configured');
+    const action = staffCreateActionForBooking({
+      status: 'completed',
+      paymentStatus: 'paid',
+      pricePaid: amount,
+      tip,
+      paymentMethod: method,
+    });
+    if (!action || action.status !== 'completed') throw new Error('Completion payment is invalid');
+    const idToken = await auth.currentUser.getIdToken();
+    const response = await fetch(
+      `https://us-central1-${projectId}.cloudfunctions.net/completeBookingPaymentRequest`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ bookingId: id, payment: action.payment }),
+      },
+    );
+    if (!response.ok) {
+      throw new Error((await response.text()) || 'Completion payment failed');
+    }
+    return response.json() as Promise<{ notificationIds?: string[] }>;
   };
 
   useEffect(() => {
@@ -393,7 +512,11 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       markLoaded('services');
     }, () => markLoaded('services'));
 
-    const unsubBarbers = onSnapshot(query(collection(db, 'barbers'), where('tenantId', '==', tenantId)), (snapshot) => {
+    const unsubBarbers = onSnapshot(query(
+      collection(db, 'barbers'),
+      where('tenantId', '==', tenantId),
+      where('publicCredentialSafe', '==', true),
+    ), (snapshot) => {
       setBarbers(snapshot.docs.map(d => {
         const data = d.data() as any;
         return {
@@ -408,15 +531,31 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
 
     // Business info is stored per-tenant under tenants/{tenantId}/businessInfo/info
     const unsubInfo = onSnapshot(doc(db, 'tenants', tenantId, 'businessInfo', 'info'), (snap) => {
-      if (snap.exists()) setBusinessInfo(snap.data() as BusinessInfo);
+      if (snap.exists()) {
+        setBusinessInfo(sanitizeBusinessInfo(snap.data()) as unknown as BusinessInfo);
+      }
       markLoaded('businessInfo');
     }, () => markLoaded('businessInfo'));
 
-    const unsubBookings = onSnapshot(query(collection(db, 'bookings'), where('tenantId', '==', tenantId)), (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Booking));
-      setBookings(data);
+    const bookingScope = bookingListenerScope(user);
+    let unsubBookings = () => {};
+    if (bookingScope.kind === 'none') {
+      setBookings([]);
       markLoaded();
-    }, () => markLoaded());
+    } else {
+      const bookingsQuery = bookingScope.kind === 'tenant'
+        ? query(collection(db, 'bookings'), where('tenantId', '==', tenantId))
+        : query(
+          collection(db, 'bookings'),
+          where('tenantId', '==', tenantId),
+          where(bookingScope.field, '==', bookingScope.value),
+        );
+      unsubBookings = onSnapshot(bookingsQuery, (snapshot) => {
+        const data = snapshot.docs.map(document => ({ id: document.id, ...document.data() } as Booking));
+        setBookings(data);
+        markLoaded();
+      }, () => markLoaded());
+    }
 
     const unsubGallery = onSnapshot(query(collection(db, 'gallery'), where('tenantId', '==', tenantId)), (snapshot) => {
       setGallery(snapshot.docs.map(d => {
@@ -440,15 +579,42 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       markLoaded();
     }, () => markLoaded());
 
-    const unsubAttendance = onSnapshot(query(collection(db, 'attendance'), where('tenantId', '==', tenantId)), (snapshot) => {
-      setAttendance(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Attendance)));
+    const assignedRecordScope = assignedBarberRecordListenerScope(user);
+    setAttendance([]);
+    setSettlements([]);
+    let unsubAttendance = () => {};
+    if (assignedRecordScope.kind === 'none') {
       markLoaded();
-    }, () => markLoaded());
+    } else {
+      const attendanceQuery = assignedRecordScope.kind === 'tenant'
+        ? query(collection(db, 'attendance'), where('tenantId', '==', tenantId))
+        : query(
+          collection(db, 'attendance'),
+          where('tenantId', '==', tenantId),
+          where(assignedRecordScope.field, '==', assignedRecordScope.value),
+        );
+      unsubAttendance = onSnapshot(attendanceQuery, (snapshot) => {
+        setAttendance(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Attendance)));
+        markLoaded();
+      }, () => markLoaded());
+    }
 
-    const unsubSettlements = onSnapshot(query(collection(db, 'settlements'), where('tenantId', '==', tenantId)), (snapshot) => {
-      setSettlements(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Settlement)));
+    let unsubSettlements = () => {};
+    if (assignedRecordScope.kind === 'none') {
       markLoaded();
-    }, () => markLoaded());
+    } else {
+      const settlementsQuery = assignedRecordScope.kind === 'tenant'
+        ? query(collection(db, 'settlements'), where('tenantId', '==', tenantId))
+        : query(
+          collection(db, 'settlements'),
+          where('tenantId', '==', tenantId),
+          where(assignedRecordScope.field, '==', assignedRecordScope.value),
+        );
+      unsubSettlements = onSnapshot(settlementsQuery, (snapshot) => {
+        setSettlements(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Settlement)));
+        markLoaded();
+      }, () => markLoaded());
+    }
 
     const unsubExpenses = onSnapshot(query(collection(db, 'expenses'), where('tenantId', '==', tenantId)), (snapshot) => {
       setExpenses(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Expense)));
@@ -470,10 +636,16 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       markLoaded();
     }, () => markLoaded());
 
-    const unsubCampaigns = onSnapshot(query(collection(db, 'campaigns'), where('tenantId', '==', tenantId)), (snapshot) => {
-      setCampaigns(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Campaign)));
+    let unsubCampaigns = () => {};
+    if (canLoadTenantCampaigns) {
+      unsubCampaigns = onSnapshot(query(collection(db, 'campaigns'), where('tenantId', '==', tenantId)), (snapshot) => {
+        setCampaigns(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Campaign)));
+        markLoaded();
+      }, () => markLoaded());
+    } else {
+      setCampaigns([]);
       markLoaded();
-    }, () => markLoaded());
+    }
 
     const unsubClients = onSnapshot(
       query(
@@ -504,7 +676,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       unsubGallery(); unsubProducts(); unsubSales(); unsubAttendance(); unsubSettlements(); unsubExpenses(); unsubDeposits();
       unsubPayrollReqs(); unsubPayrollPays(); unsubCampaigns(); unsubClients(); unsubNotes();
     };
-  }, [tenantId]);
+  }, [tenantId, user?.role, user?.uid, user?.barberId, canLoadTenantCampaigns]);
 
 
 
@@ -522,8 +694,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
 
   const addBarber = async (barber: Omit<Barber, 'id'>) => {
     const cleanedBarber = {
-      ...barber,
-      email: barber.email?.trim().toLowerCase() || '',
+      ...sanitizeBarberCreate(barber as unknown as Record<string, unknown>),
       archived: false,
       tenantId
     };
@@ -535,11 +706,14 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   };
 
   const updateBarber = async (id: string, updated: Partial<Barber>) => {
-    const cleanedUpdate = { ...updated };
-    if (cleanedUpdate.email) {
-      cleanedUpdate.email = cleanedUpdate.email.trim().toLowerCase();
-    }
-    await updateDoc(doc(db, 'barbers', id), cleanedUpdate);
+    const cleanedUpdate = sanitizeBarberUpdate(updated as Record<string, unknown>);
+    await updateDoc(doc(db, 'barbers', id), {
+      ...cleanedUpdate,
+      password: deleteField(),
+      temporaryPassword: deleteField(),
+      adminPassword: deleteField(),
+      credentials: deleteField(),
+    });
   };
 
   const deleteBarber = async (id: string) => {
@@ -574,14 +748,49 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    const docRef = await addDoc(collection(db, 'bookings'), {
-      ...booking,
-      status: booking.status || 'pending',
-      createdAt: new Date().toISOString(),
-      unreadAdmin: true,
-      unreadBarber: true,
-      tenantId
+    if (!tenantId) throw new Error('Tenant is required');
+    const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID?.trim();
+    if (!projectId) throw new Error('Firebase project is not configured');
+    const staffAction = staffCreateActionForBooking({
+      status: booking.status ?? 'pending',
+      paymentStatus: booking.paymentStatus,
+      pricePaid: Number(booking.pricePaid ?? 0),
+      tip: Number(booking.tip ?? 0),
+      paymentMethod: booking.paymentMethod ?? 'cash',
     });
+    const bookingPayload: Record<string, unknown> = { ...booking };
+    for (const serverOwnedField of [
+      'id', 'status', 'tenantId', 'locationId', 'clientId', 'createdAt',
+      'completedAt', 'statusUpdatedAt', 'statusUpdatedBy', 'unreadAdmin', 'unreadBarber',
+      'paymentStatus', 'pricePaid', 'tip', 'paymentMethod',
+    ]) {
+      delete bookingPayload[serverOwnedField];
+    }
+    if (!auth.currentUser) throw new Error('Authentication is required to create a booking');
+    const idToken = await auth.currentUser.getIdToken();
+    const response = await fetch(
+      `https://us-central1-${projectId}.cloudfunctions.net/createBookingRequest`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          tenantId,
+          booking: bookingPayload,
+          ...(staffAction ? { staffAction } : {}),
+        }),
+      },
+    );
+    if (!response.ok) {
+      throw new Error((await response.text()) || 'Booking creation failed');
+    }
+    const created = await response.json() as {
+      bookingId: string;
+      status: 'pending' | 'approved' | 'completed';
+    };
+    const { bookingId } = created;
 
     try {
       const targetService = services.find(s => s.id === booking.serviceId);
@@ -592,7 +801,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
         type: 'NEW_RESERVATION',
         title: 'Nouvelle Réservation',
         message: `${booking.clientName} a réservé pour le ${booking.date} à ${booking.time}`,
-        reservationId: docRef.id,
+        reservationId: bookingId,
         read: false,
         createdAt: Date.now(),
         expiresAt: Date.now() + (30 * 24 * 60 * 60 * 1000),
@@ -606,7 +815,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
           type: 'NEW_RESERVATION',
           title: 'Nouvelle Réservation',
           message: `${booking.clientName} a réservé pour le ${booking.date} à ${booking.time}`,
-          reservationId: docRef.id,
+          reservationId: bookingId,
           read: false,
           createdAt: Date.now(),
           expiresAt: Date.now() + (30 * 24 * 60 * 60 * 1000),
@@ -633,78 +842,85 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error("Error creating booking notifications:", error);
     }
+    return created;
   };
 
   const updateBookingStatus = async (id: string, status: Booking['status'], actor?: 'admin' | 'barber') => {
-    const updateData: any = { status };
-    if (actor === 'admin') updateData.unreadBarber = true;
-    if (actor === 'barber') updateData.unreadAdmin = true;
-    await updateDoc(doc(db, 'bookings', id), updateData);
-
-    try {
-      const booking = bookings.find(b => b.id === id);
-      if (booking && (status === 'approved' || status === 'rejected' || status === 'completed')) {
-        const clientAlias = booking.clientId || booking.clientEmail || booking.clientPhone;
-        
-        // Write to Notifications
-        if (clientAlias) {
-          await addDoc(collection(db, 'notifications'), {
-            recipientId: clientAlias,
-            type: status.toUpperCase(),
-            title: status === 'approved' ? 'Réservation Confirmée' : 'Réservation Rejetée',
-            message: status === 'approved' ? `Votre rdv du ${booking.date} est confirmé!` : `Désolé, votre rdv a été rejeté.`,
-            reservationId: id,
-            read: false,
-            createdAt: Date.now(),
-            expiresAt: Date.now() + (30 * 24 * 60 * 60 * 1000),
-            tenantId
-          });
-        }
-
-        // Push Notifications
-        try {
-          if (status === 'approved' && booking.clientId) {
-            await sendPush(
-              booking.clientId,
-              '✅ Réservation confirmée',
-              `Votre réservation est confirmée pour le ${booking.date} à ${booking.time}`,
-              `/client`
-            );
-          } else if (status === 'rejected' && booking.clientId) {
-            await sendPush(
-              booking.clientId,
-              '❌ Réservation annulée',
-              `Votre réservation du ${booking.date} à ${booking.time} a été annulée`,
-              `/client`
-            );
-          } else if (status === 'completed') {
-            await sendPush(
-              booking.barberId,
-              '💰 Service enregistré',
-              `Service ${booking.pricePaid ? `€${booking.pricePaid}` : ''} ajouté à votre portefeuille`,
-              `/barber/gains`
-            );
-          }
-        } catch (e) {
-          console.error("Error sending push on status update:", e);
-        }
-      }
-    } catch (e) {
-      console.error('Failed to trigger push notification:', e);
+    const result = await requestBookingTransition(id, status);
+    if (actor === 'admin' || actor === 'barber') {
+      await runBestEffortAfterCommit(
+        () => updateDoc(doc(db, 'bookings', id), actor === 'admin'
+          ? { unreadBarber: true }
+          : { unreadAdmin: true }),
+        error => console.warn('Booking committed; unread marker update failed:', error),
+      );
+    }
+    for (const notificationId of result.notificationIds ?? []) {
+      await sendPush(notificationId);
     }
   };
 
   const updateBooking = async (id: string, updated: Partial<Booking>) => {
-    await updateDoc(doc(db, 'bookings', id), updated);
+    const {
+      status,
+      paymentStatus,
+      pricePaid,
+      tip,
+      paymentMethod,
+      ...nonTransitionFields
+    } = updated;
+    delete (nonTransitionFields as Record<string, unknown>).completedAt;
+    const hasPaymentIntent = (
+      paymentStatus !== undefined
+      || pricePaid !== undefined
+      || tip !== undefined
+      || paymentMethod !== undefined
+    );
+    if (status === 'completed' && hasPaymentIntent) {
+      if (paymentStatus !== undefined && paymentStatus !== 'paid') {
+        throw new Error('Only recording a completed payment is supported');
+      }
+      const result = await requestCompleteBookingPayment(
+        id,
+        Number(pricePaid ?? 0),
+        Number(tip ?? 0),
+        paymentMethod ?? 'cash',
+      );
+      for (const notificationId of result.notificationIds ?? []) {
+        await sendPush(notificationId);
+      }
+    } else {
+      if (status) await updateBookingStatus(id, status);
+      if (hasPaymentIntent) {
+        if (paymentStatus !== undefined && paymentStatus !== 'paid') {
+          throw new Error('Only recording a completed payment is supported');
+        }
+        await requestBookingPayment(
+          id,
+          Number(pricePaid ?? 0),
+          Number(tip ?? 0),
+          paymentMethod ?? 'cash',
+        );
+      }
+    }
+    if (Object.keys(nonTransitionFields).length > 0) {
+      await updateDoc(doc(db, 'bookings', id), nonTransitionFields);
+    }
   };
 
   const deleteBooking = async (id: string) => {
-    await deleteDoc(doc(db, 'bookings', id));
+    await requestBookingTransition(id, 'cancelled');
   };
 
   const updateBusinessInfo = async (info: Partial<BusinessInfo>) => {
-    // Write to tenant-scoped path to keep each salon's data isolated
-    await setDoc(doc(db, 'tenants', tenantId, 'businessInfo', 'info'), { ...businessInfo, ...info }, { merge: true });
+    const sanitized = sanitizeBusinessInfo({ ...businessInfo, ...info });
+    const publicInfo = { ...sanitized };
+    delete publicInfo.publicCredentialSafe;
+    const updateBusinessInfoCallable = httpsCallable<
+      { tenantId: string; info: Record<string, unknown> },
+      { tenantId: string }
+    >(functions, 'updateBusinessInfo');
+    await updateBusinessInfoCallable({ tenantId, info: publicInfo });
   };
 
   const addToGallery = async (url: string) => {
@@ -815,9 +1031,9 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
 
   const resetBarberBalance = async (barberId: string) => {
     try {
-      const barberBookings = bookings.filter(b => b.barberId === barberId && (b.status === 'completed' || b.status === 'approved'));
+      const barberBookings = bookings.filter(b => b.barberId === barberId && !b.balanceSettledAt && (b.status === 'completed' || b.status === 'approved'));
       for (const b of barberBookings) {
-        await updateDoc(doc(db, 'bookings', b.id), { status: 'archived' });
+        await updateDoc(doc(db, 'bookings', b.id), { balanceSettledAt: new Date().toISOString() });
       }
     } catch (error) {
       console.error("Error resetting balance:", error);
@@ -827,9 +1043,9 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
 
   const resetAllBalances = async () => {
     try {
-      const activeBookings = bookings.filter(b => b.status === 'completed' || b.status === 'approved');
+      const activeBookings = bookings.filter(b => !b.balanceSettledAt && (b.status === 'completed' || b.status === 'approved'));
       for (const b of activeBookings) {
-        await updateDoc(doc(db, 'bookings', b.id), { status: 'archived' });
+        await updateDoc(doc(db, 'bookings', b.id), { balanceSettledAt: new Date().toISOString() });
       }
     } catch (error) {
       console.error("Error resetting all balances:", error);
@@ -1012,7 +1228,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     const rate = (barber?.commissionRate || 50) / 100;
     
     const earned = (bookings || [])
-      .filter(b => b.barberId === barberId && b.status === 'completed')
+      .filter(b => b.barberId === barberId && b.status === 'completed' && !b.balanceSettledAt)
       .reduce((sum, b) => {
         const commission = Number(b.pricePaid || 0) * rate;
         const tip = Number(b.tip || 0);

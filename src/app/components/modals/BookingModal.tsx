@@ -1,23 +1,39 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { X, Calendar, User, Phone, Mail, CheckCircle2, ChevronRight, ChevronLeft } from 'lucide-react';
 import { useBusiness, toLocalYYYYMMDD } from '../context/BusinessContext';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'sonner';
 import PhoneInput from 'react-phone-input-2';
 import 'react-phone-input-2/lib/style.css';
+import { useNavigate } from 'react-router';
+import { useTenant } from '../context/TenantContext';
+import { clearBookingDraft, loadBookingDraft, saveBookingDraft } from '../../lib/bookingDraft';
+import { loginPathForProtectedRoute } from '../../lib/authReturn';
 
 export default function BookingModal({ onClose }: { onClose: () => void }) {
   const { services, barbers, bookings, addBooking, getAvailableTimeSlots, getAvailableBarbers, businessInfo } = useBusiness();
   const { user } = useAuth();
+  const { tenantId } = useTenant();
+  const navigate = useNavigate();
+  const restoredDraft = useMemo(
+    () => loadBookingDraft(window.sessionStorage, tenantId),
+    [tenantId],
+  );
 
-  const [step, setStep] = useState(1);
-  const [selectedServiceId, setSelectedServiceId] = useState('');
-  const [selectedBarberId, setSelectedBarberId] = useState('any');
-  const [selectedDate, setSelectedDate] = useState(toLocalYYYYMMDD(new Date()));
-  const [selectedTime, setSelectedTime] = useState('');
-  const [clientInfo, setClientInfo] = useState({ name: '', email: '', phone: '' });
+  const [step, setStep] = useState(restoredDraft ? 4 : 1);
+  const [selectedServiceId, setSelectedServiceId] = useState(restoredDraft?.selectedServiceId ?? '');
+  const [selectedBarberId, setSelectedBarberId] = useState(restoredDraft?.selectedBarberId ?? 'any');
+  const [selectedDate, setSelectedDate] = useState(restoredDraft?.selectedDate ?? toLocalYYYYMMDD(new Date()));
+  const [selectedTime, setSelectedTime] = useState(restoredDraft?.selectedTime ?? '');
+  const [clientInfo, setClientInfo] = useState(restoredDraft?.clientInfo ?? { name: '', email: '', phone: '' });
   const [isSuccess, setIsSuccess] = useState(false);
+  const [createdStatus, setCreatedStatus] = useState<'pending' | 'approved' | 'completed'>('pending');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
+  const pendingSubmission = useRef<Promise<{
+    bookingId: string;
+    status: 'pending' | 'approved' | 'completed';
+  }> | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -105,7 +121,25 @@ export default function BookingModal({ onClose }: { onClose: () => void }) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting || !clientInfo.name || !clientInfo.email || !clientInfo.phone) return;
+    if (!user) {
+      try {
+        saveBookingDraft(window.sessionStorage, tenantId, {
+          selectedServiceId,
+          selectedBarberId,
+          selectedDate,
+          selectedTime,
+          clientInfo,
+        });
+        navigate(loginPathForProtectedRoute('/book'));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Impossible de conserver la réservation';
+        setSubmissionError(message);
+        toast.error(message);
+      }
+      return;
+    }
     setIsSubmitting(true);
+    setSubmissionError(null);
     
     try {
       let finalBarberId = selectedBarberId;
@@ -135,12 +169,17 @@ export default function BookingModal({ onClose }: { onClose: () => void }) {
         clientId: user?.uid || null,
       };
 
-      // Wrap in a promise race to prevent infinite hanging if Firebase connection drops
-      await Promise.race([
-        addBooking(bookingData),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 8000))
+      // A retry waits on the same in-flight write after a timeout, preventing duplicate bookings.
+      const bookingOperation = pendingSubmission.current ?? addBooking(bookingData);
+      pendingSubmission.current = bookingOperation;
+      const created = await Promise.race([
+        bookingOperation,
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 8000))
       ]);
-      
+
+      pendingSubmission.current = null;
+      clearBookingDraft(window.sessionStorage);
+      setCreatedStatus(created.status);
       setIsSuccess(true);
       toast.success('✅ Réservation envoyée avec succès !');
       setTimeout(() => {
@@ -149,13 +188,14 @@ export default function BookingModal({ onClose }: { onClose: () => void }) {
       }, 3000);
     } catch (error) {
       console.error(error);
-      // Even on timeout, the booking might be created locally. We still show success for UX.
-      setIsSuccess(true);
-      toast.success('✅ Réservation enregistrée !');
-      setTimeout(() => {
-        setIsSuccess(false);
-        onClose();
-      }, 3000);
+      const message = error instanceof Error && error.message === 'Timeout'
+        ? 'La réservation prend plus de temps que prévu. Vérifiez votre connexion puis réessayez.'
+        : 'La réservation n’a pas pu être confirmée. Corrigez le problème puis réessayez.';
+      if (!(error instanceof Error && error.message === 'Timeout')) {
+        pendingSubmission.current = null;
+      }
+      setSubmissionError(message);
+      toast.error(message);
     } finally {
       setIsSubmitting(false);
     }
@@ -171,7 +211,7 @@ export default function BookingModal({ onClose }: { onClose: () => void }) {
           </div>
           <h2 style={{ fontSize: 24, fontWeight: 700, color: 'white', marginBottom: 12 }}>Réservation Reçue !</h2>
           <p style={{ color: 'rgba(255,255,255,0.6)', marginBottom: 24 }}>
-            Merci {clientInfo.name}. Votre rendez-vous le {selectedDate} à {selectedTime} est en attente de confirmation.
+            Merci {clientInfo.name}. Votre rendez-vous le {selectedDate} à {selectedTime} est {createdStatus === 'approved' ? 'confirmé' : 'en attente de confirmation'}.
           </p>
           <button onClick={onClose} style={{ width: '100%', padding: '12px 24px', background: 'linear-gradient(to right, #D4AF37, #FFD700)', color: 'black', borderRadius: 12, fontWeight: 700, border: 'none', cursor: 'pointer' }}>
             Fermer
@@ -471,6 +511,18 @@ export default function BookingModal({ onClose }: { onClose: () => void }) {
           {/* Step 4: Client Info */}
           {step === 4 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {submissionError && (
+                <div role="alert" style={{ padding: 14, borderRadius: 12, border: '1px solid rgba(239,68,68,0.35)', background: 'rgba(239,68,68,0.1)', color: '#fca5a5', fontSize: 14 }}>
+                  <p style={{ marginBottom: 10 }}>{submissionError}</p>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    style={{ padding: '9px 14px', border: '1px solid rgba(252,165,165,0.45)', borderRadius: 9, background: 'rgba(239,68,68,0.12)', color: 'white', fontWeight: 700, cursor: isSubmitting ? 'wait' : 'pointer' }}
+                  >
+                    {isSubmitting ? 'Nouvelle tentative…' : 'Réessayer'}
+                  </button>
+                </div>
+              )}
               {[
                 { label: 'Nom complet', key: 'name', type: 'text', placeholder: 'Votre nom', Icon: User },
                 { label: 'Email', key: 'email', type: 'email', placeholder: 'votre@email.com', Icon: Mail },

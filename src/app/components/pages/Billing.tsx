@@ -4,6 +4,7 @@ import { useTenant } from '../context/TenantContext';
 import { motion } from 'motion/react';
 import { CreditCard, Check, ShieldAlert, Sparkles, Loader2, Calendar } from 'lucide-react';
 import { toast } from 'sonner';
+import { auth } from '../../lib/firebase';
 
 type PlanId = 'basic' | 'pro';
 
@@ -27,22 +28,26 @@ export default function Billing() {
   const handleSelectPlan = async (planId: PlanId) => {
     setLoadingPlan(planId);
     try {
-      const hostname = window.location.hostname;
-      let subdomain = 'elite-cuts-default';
-      const parts = hostname.split('.');
-      if (parts.length > 2 && hostname !== 'localhost' && hostname !== '127.0.0.1') {
-        subdomain = parts[0];
+      if (!auth.currentUser) {
+        throw new Error('Votre session a expiré. Veuillez vous reconnecter.');
       }
 
-      const response = await fetch('https://us-central1-elite-cuts-app.cloudfunctions.net/createCheckoutSession', {
+      const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID?.trim();
+      if (!projectId) {
+        throw new Error('Le service de paiement n’est pas configuré.');
+      }
+
+      const idToken = await auth.currentUser.getIdToken();
+      const checkoutEndpoint = `https://us-central1-${projectId}.cloudfunctions.net/createCheckoutSession`;
+      const response = await fetch(checkoutEndpoint, {
         method: 'POST',
         headers: {
+          'Authorization': `Bearer ${idToken}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           tenantId,
-          planId,
-          subdomain
+          planId
         })
       });
 

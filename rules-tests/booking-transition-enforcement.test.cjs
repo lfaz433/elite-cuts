@@ -1,0 +1,173 @@
+const {
+  initializeTestEnvironment,
+  assertFails,
+  assertSucceeds,
+} = require('@firebase/rules-unit-testing');
+const { readFileSync } = require('node:fs');
+const { addDoc, collection, doc, setDoc, updateDoc } = require('firebase/firestore');
+
+const PROJECT_ID = 'demo-elite-cuts-booking-transition';
+const RULES = readFileSync('./firestore.rules', 'utf8');
+let testEnv;
+
+beforeAll(async () => {
+  testEnv = await initializeTestEnvironment({
+    projectId: PROJECT_ID,
+    firestore: { rules: RULES, host: '127.0.0.1', port: 8080 },
+  });
+});
+
+afterAll(async () => testEnv.cleanup());
+beforeEach(async () => testEnv.clearFirestore());
+
+async function seedBooking() {
+  await testEnv.withSecurityRulesDisabled(async context => {
+    await Promise.all([
+      setDoc(doc(context.firestore(), 'tenants', 'tenant-a'), {
+        brandId: 'tenant-a',
+        ownerUid: 'principal-a',
+      }),
+      setDoc(doc(context.firestore(), 'memberships', 'tenant-a__manager-a'), {
+        userId: 'manager-a',
+        brandId: 'tenant-a',
+        locationId: 'tenant-a',
+        role: 'salon_admin',
+        status: 'active',
+        permissions: { manageBookings: true },
+      }),
+      setDoc(doc(context.firestore(), 'bookings', 'booking-a'), {
+        tenantId: 'tenant-a',
+        locationId: 'tenant-a',
+        status: 'pending',
+        clientName: 'Client',
+      }),
+    ]);
+  });
+}
+
+test('a tenant member cannot bypass the transition endpoint with a direct status write', async () => {
+  await seedBooking();
+  const db = testEnv.authenticatedContext('manager-a', {
+    sub: 'manager-a',
+    tenantId: 'tenant-a',
+  }).firestore();
+
+  await assertFails(updateDoc(doc(db, 'bookings', 'booking-a'), {
+    status: 'completed',
+  }));
+});
+
+test('a tenant member may still update a non-transition booking field', async () => {
+  await seedBooking();
+  const db = testEnv.authenticatedContext('manager-a', {
+    sub: 'manager-a',
+    tenantId: 'tenant-a',
+  }).firestore();
+
+  await assertSucceeds(updateDoc(doc(db, 'bookings', 'booking-a'), {
+    unreadAdmin: false,
+  }));
+});
+
+test('a tenant member cannot move a booking to another tenant or location', async () => {
+  await seedBooking();
+  const db = testEnv.authenticatedContext('manager-a', {
+    sub: 'manager-a',
+    tenantId: 'tenant-a',
+  }).firestore();
+
+  await assertFails(updateDoc(doc(db, 'bookings', 'booking-a'), {
+    tenantId: 'tenant-b',
+    locationId: 'tenant-b',
+  }));
+});
+
+test('a client cannot forge a server-issued push notification', async () => {
+  const db = testEnv.authenticatedContext('manager-a', {
+    sub: 'manager-a',
+    tenantId: 'tenant-a',
+  }).firestore();
+
+  await assertFails(addDoc(collection(db, 'notifications'), {
+    serverIssued: true,
+    tenantId: 'tenant-a',
+    recipientId: 'victim',
+    title: 'Forged title',
+    message: 'Forged content',
+    redirectUrl: '/client',
+  }));
+});
+
+test('a client cannot promote its own notification into a server-issued push target', async () => {
+  await testEnv.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'notifications', 'client-notification'), {
+      tenantId: 'tenant-a',
+      recipientId: 'manager-a',
+      title: 'Client title',
+      message: 'Client content',
+    });
+  });
+  const db = testEnv.authenticatedContext('manager-a', {
+    sub: 'manager-a',
+    tenantId: 'tenant-a',
+  }).firestore();
+
+  await assertFails(updateDoc(doc(db, 'notifications', 'client-notification'), {
+    serverIssued: true,
+  }));
+});
+
+test('an unauthenticated client cannot create a booking with arbitrary scope and status', async () => {
+  const db = testEnv.unauthenticatedContext().firestore();
+
+  await assertFails(setDoc(doc(db, 'bookings', 'forged-booking'), {
+    tenantId: 'tenant-victim',
+    locationId: 'location-victim',
+    status: 'completed',
+    clientName: 'Forged',
+  }));
+});
+
+test('a tenant member cannot directly delete a booking', async () => {
+  await seedBooking();
+  const db = testEnv.authenticatedContext('manager-a', {
+    sub: 'manager-a',
+    tenantId: 'tenant-a',
+  }).firestore();
+
+  const { deleteDoc } = require('firebase/firestore');
+  await assertFails(deleteDoc(doc(db, 'bookings', 'booking-a')));
+});
+
+test('a tenant member cannot directly mark a booking paid or change amounts', async () => {
+  await seedBooking();
+  const db = testEnv.authenticatedContext('manager-a', {
+    sub: 'manager-a',
+    tenantId: 'tenant-a',
+  }).firestore();
+
+  await assertFails(updateDoc(doc(db, 'bookings', 'booking-a'), {
+    paymentStatus: 'paid',
+    pricePaid: 9999,
+    tip: 9999,
+    paymentMethod: 'cash',
+  }));
+});
+
+test('a tenant manager cannot forge referral eligibility timestamps or test status', async () => {
+  await seedBooking();
+  const db = testEnv.authenticatedContext('manager-a', {
+    sub: 'manager-a',
+    tenantId: 'tenant-a',
+  }).firestore();
+
+  await assertFails(updateDoc(doc(db, 'bookings', 'booking-a'), {
+    completedAt: new Date('2000-01-01T00:00:00.000Z'),
+  }));
+  await assertFails(updateDoc(doc(db, 'bookings', 'booking-a'), {
+    isTest: true,
+  }));
+  await assertFails(updateDoc(doc(db, 'bookings', 'booking-a'), {
+    isTest: false,
+  }));
+});
