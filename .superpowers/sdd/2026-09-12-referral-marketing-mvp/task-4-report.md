@@ -4,9 +4,9 @@ Implemented the protected `Marketing & parrainage` Super Admin tab, the trusted 
 
 ## Integrity follow-up
 
-Before approval, the reward review transaction now re-reads and validates the completed booking, the caller's referral attribution, the referral code, the referral program, and the invited client's complete booking history. It refuses approval unless the booking is the only completed non-test booking for that client, all identifiers link exactly, the code remains active and owned by the inviter, the program exists, and the referral is not self-referred. Rejection still only requires the existing review validation and a reason, so invalid pending records remain rejectable without issuing a credit.
+Before approval, the reward review transaction now re-reads and validates the completed booking, the caller's referral attribution, the referral code, the referral program, and the invited client's complete booking history. It refuses approval unless the booking is the client's earliest positive-paid completed booking with `isTest === false`, all identifiers link exactly, the code remains active and owned by the inviter, the program exists, and the referral is not self-referred. Missing or non-boolean `isTest` values fail closed and neither earn a reward nor suppress a later canonical booking. Rejection still only requires the existing review validation and a reason, so invalid pending records remain rejectable without issuing a credit.
 
-The new regression initially failed because the prior review approved a reward when the invited client already had another completed booking:
+The new regression initially failed because the prior review approved a reward when the invited client already had an earlier positive-paid completed booking with `isTest === false`:
 
 ```text
 Received promise resolved instead of rejected

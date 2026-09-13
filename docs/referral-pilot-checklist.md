@@ -33,7 +33,8 @@ completed step. Pilot only against `elite-cuts-staging`; do not use production.
 - [ ] Create a cancelled, declined, refunded, missing/unpaid, free/zero-value,
   or test booking for the attributed invited client. Confirm no referral reward
   is created and that it does not consume the eligible-first-booking slot.
-- [ ] Transition the invited client's first positive-paid, non-test booking from
+- [ ] Transition the invited client's earliest positive-paid booking with
+  `isTest === false` from
   `confirmed` (or legacy `approved`) to `completed`. Confirm exactly one
   pending reward pair is created after any earlier ineligible booking, and the
   completion remains successful if no valid referral is present. Add a second
@@ -44,8 +45,9 @@ completed step. Pilot only against `elite-cuts-staging`; do not use production.
   directly backdate or otherwise change `completedAt` or `isTest`; normal
   server completion/payment workflows must remain able to record them.
   Confirm the newly created canonical booking contains immutable
-  `isTest: false`. A pre-rollout booking with no `isTest` field must neither
-  earn a reward nor suppress a later positive-paid canonical booking.
+  `isTest: false`. A pre-rollout booking with a missing or non-boolean `isTest`
+  value must fail closed and neither earn a reward nor suppress a later
+  positive-paid canonical booking.
 - [ ] Retry the same completed-booking event. Confirm the deterministic reward
   is returned or retained and no duplicate reward or credit ledger entry is
   created.

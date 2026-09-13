@@ -53,7 +53,7 @@ type RewardStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
 // `${programId}__${invitedUserId}`; reject self-attribution and inactive programs.
 ```
 
-Validate code length/characters, program country/status/date, caller identity, first completed non-test booking, duplicate reward key, and all state transitions. Create `auditEvents` for program changes and reward review. Export callable wrappers from `functions/src/index.ts`.
+Validate code length/characters, program country/status/date, caller identity, the earliest positive-paid completed booking with `isTest === false`, duplicate reward key, and all state transitions. Missing or non-boolean `isTest` values must fail closed and neither earn a reward nor suppress a later canonical booking. Create `auditEvents` for program changes and reward review. Export callable wrappers from `functions/src/index.ts`.
 
 - [ ] **Step 4: Run focused tests and Functions build**
 
