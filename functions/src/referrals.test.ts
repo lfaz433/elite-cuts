@@ -22,12 +22,161 @@ function snapshot(value, id = '') {
   return { exists: value !== undefined, id, data: () => value };
 }
 
-function firestoreState(initial, { retryFirstTransaction = false } = {}) {
+function seedReferralProjectionFixture(initial) {
   const state = structuredClone(initial);
+  state.referralPrograms ??= {};
+  state.referralCodes ??= {};
+  state.referralAttributions ??= {};
+  state.referralRewards ??= {};
+  state.referralMarketingSummaries ??= {};
+  state.referralProgramSummaries ??= {};
+  state.referralOwnerSummaries ??= {};
+  state.referralReferrerSummaries ??= {};
+  state.referralOwnerProgramCodes ??= {};
+  for (const programState of Object.values(state.referralProgramState ?? {})) {
+    programState.summaryVersion ??= 1;
+    programState.summaryEpoch ??= 'referral-v3';
+  }
+  const generatedGlobal = state.referralMarketingSummaries.overview === undefined;
+  if (generatedGlobal) state.referralMarketingSummaries.overview = emptyMarketingSummary();
+  const global = state.referralMarketingSummaries.overview;
+  for (const [programId, program] of Object.entries(state.referralPrograms)) {
+    program.summaryVersion ??= 1;
+    program.summaryEpoch ??= 'referral-v3';
+    if (!state.referralProgramSummaries[programId]) {
+      state.referralProgramSummaries[programId] = programSummary(programId, program);
+      if (generatedGlobal) global.programCount += 1;
+    }
+  }
+  const ensureOwner = (type, id) => {
+    const key = `${type}__${id}`;
+    state.referralOwnerSummaries[key] ??= ownerSummary(type, id);
+    return state.referralOwnerSummaries[key];
+  };
+  const ensureReferrer = (type, id) => {
+    const key = `${type}__${id}`;
+    state.referralReferrerSummaries[key] ??= referrerSummary(type, id);
+    return state.referralReferrerSummaries[key];
+  };
+  for (const [code, value] of Object.entries(state.referralCodes)) {
+    if (!['client', 'freelancer', 'brand'].includes(value.ownerType) || typeof value.ownerId !== 'string'
+      || typeof value.programId !== 'string') continue;
+    value.summaryVersion ??= 1;
+    value.summaryEpoch ??= 'referral-v3';
+    const lookupId = `v1__${value.ownerType}__${value.ownerId.length}__${value.ownerId}__${value.programId}`;
+    state.referralOwnerProgramCodes[lookupId] ??= {
+      ownerType: value.ownerType, ownerId: value.ownerId, programId: value.programId, code,
+      summaryVersion: 1, summaryEpoch: 'referral-v3',
+    };
+    const owner = ensureOwner(value.ownerType, value.ownerId);
+    if (owner.codeCount === 0) {
+      owner.codeCount = 1;
+      owner.currentCode = { code, programId: value.programId, status: value.status };
+    }
+    if (generatedGlobal) global.codeCount += 1;
+    const program = state.referralProgramSummaries[value.programId];
+    if (program && program.codeCount === 0) program.codeCount += 1;
+  }
+  for (const attribution of Object.values(state.referralAttributions)) {
+    const code = state.referralCodes[attribution.code];
+    const type = attribution.inviterOwnerType ?? code?.ownerType;
+    const inviterId = attribution.inviterId ?? code?.ownerId;
+    if (!['client', 'freelancer', 'brand'].includes(type) || typeof inviterId !== 'string'
+      || typeof attribution.programId !== 'string') continue;
+    attribution.inviterOwnerType ??= type;
+    attribution.summaryVersion ??= 1;
+    attribution.summaryEpoch ??= 'referral-v3';
+    ensureOwner(type, inviterId).attributionCount += 1;
+    ensureReferrer(type, inviterId).attributionCount += 1;
+    if (generatedGlobal) global.attributionCount += 1;
+    const program = state.referralProgramSummaries[attribution.programId];
+    if (program) program.attributionCount += 1;
+  }
+  const canonicalReward = (id, reward) => reward.rewardId === id
+    && id === `${reward.programId}__${reward.invitedUserId}`
+    && reward.inviterId === reward.inviterOwnerId && reward.invitedUserId === reward.invitedOwnerId
+    && ['client', 'freelancer', 'brand'].includes(reward.inviterOwnerType)
+    && reward.invitedOwnerType === 'client' && ['pending', 'approved', 'rejected', 'cancelled'].includes(reward.status)
+    && Number.isSafeInteger(reward.eligibleCompletedAtMs) && reward.eligibilityEvidenceVersion === 1;
+  for (const [rewardId, reward] of Object.entries(state.referralRewards)) {
+    if (!canonicalReward(rewardId, reward)) continue;
+    reward.summaryVersion ??= 1;
+    reward.summaryEpoch ??= 'referral-v3';
+    const referrer = ensureReferrer(reward.inviterOwnerType, reward.inviterId);
+    const inviter = ensureOwner(reward.inviterOwnerType, reward.inviterId).inviter;
+    const invitee = ensureOwner('client', reward.invitedUserId).invitee;
+    const program = state.referralProgramSummaries[reward.programId];
+    const statusField = `${reward.status}Count`;
+    referrer.rewardCount += 1;
+    referrer[statusField] += 1;
+    inviter[statusField] += 1;
+    invitee[statusField] += 1;
+    if (generatedGlobal) {
+      global.rewardCount += 1;
+      global[`${reward.status}RewardCount`] += 1;
+    }
+    if (program) {
+      program.rewardCount += 1;
+      program[`${reward.status}RewardCount`] += 1;
+    }
+    if (reward.status === 'pending' || reward.status === 'approved') {
+      const amountField = reward.status === 'pending' ? 'pendingMinor' : 'approvedMinor';
+      inviter.creditTotalsByCurrency[reward.currency] ??= { pendingMinor: 0, approvedMinor: 0 };
+      invitee.creditTotalsByCurrency[reward.currency] ??= { pendingMinor: 0, approvedMinor: 0 };
+      inviter.creditTotalsByCurrency[reward.currency][amountField] += reward.inviterCreditMinor;
+      invitee.creditTotalsByCurrency[reward.currency][amountField] += reward.invitedDiscountMinor;
+    }
+    if (reward.status === 'approved') {
+      referrer.approvedCreditTotalsByCurrency[reward.currency] =
+        (referrer.approvedCreditTotalsByCurrency[reward.currency] ?? 0) + reward.inviterCreditMinor;
+      if (generatedGlobal) global.approvedCreditTotalsByCurrency[reward.currency] =
+        (global.approvedCreditTotalsByCurrency[reward.currency] ?? 0) + reward.inviterCreditMinor + reward.invitedDiscountMinor;
+      if (program) program.approvedCreditTotalsByCurrency[reward.currency] =
+        (program.approvedCreditTotalsByCurrency[reward.currency] ?? 0) + reward.inviterCreditMinor + reward.invitedDiscountMinor;
+    }
+    if (reward.status === 'pending' && reward.fraudFlag?.status === 'flagged') {
+      referrer.flaggedPendingCount += 1;
+      inviter.flaggedPendingCount += 1;
+      invitee.flaggedPendingCount += 1;
+      if (generatedGlobal) global.flaggedPendingRewardCount += 1;
+      if (program) program.flaggedPendingRewardCount += 1;
+    }
+  }
+  for (const telemetry of Object.values(state.referralTelemetry ?? {})) {
+    telemetry.schemaVersion ??= 1;
+    telemetry.summaryEpoch ??= 'referral-v3';
+  }
+  for (const evidence of Object.values(state.referralBookingEvidence ?? {})) {
+    if (evidence.eligibilityEvidenceVersion === 1 && typeof evidence.rewardId === 'string') {
+      evidence.summaryVersion ??= 1;
+      evidence.summaryEpoch ??= 'referral-v3';
+    }
+  }
+  for (const history of Object.values(state.referralOwnerHistory ?? {})) {
+    history.schemaVersion ??= 1;
+    history.summaryEpoch ??= 'referral-v3';
+  }
+  for (const audit of Object.values(state.referralAudit ?? {})) {
+    if (typeof audit.action === 'string' && audit.action.startsWith('REFERRAL_')) {
+      audit.summaryVersion ??= 1;
+      audit.summaryEpoch ??= 'referral-v3';
+    }
+  }
+  return state;
+}
+
+function firestoreState(initial, { retryFirstTransaction = false, retryCallbackBeforeCommit = false, seedReferralProjection = true } = {}) {
+  const state = seedReferralProjection ? seedReferralProjectionFixture(initial) : structuredClone(initial);
   let nextId = 0;
   let retryUsed = false;
+  let callbackRetryUsed = false;
   const versions = new Map();
   const readLog = [];
+  const queryLog = [];
+  const collectionScanLog = [];
+  const fieldValue = (data, field, id) => String(field) === '__name__'
+    ? id
+    : String(field).split('.').reduce((current, segment) => current?.[segment], data);
   const keyFor = ref => `${ref.collectionName}/${ref.id}`;
   const reference = (collectionName, id) => {
     const resolvedId = id ?? `${collectionName}-${++nextId}`;
@@ -42,34 +191,39 @@ function firestoreState(initial, { retryFirstTransaction = false } = {}) {
       },
     };
   };
-  const query = (collectionName, filters = [], order = undefined, maximum = undefined, afterId = undefined) => ({
+  const query = (collectionName, filters = [], orders = [], maximum = undefined, afterId = undefined) => ({
     collectionName,
     isQuery: true,
     filters,
-    order,
+    orders,
     maximum,
     where(field, operator, value) {
-      return query(collectionName, [...filters, [field, operator, value]], order, maximum);
+      return query(collectionName, [...filters, [field, operator, value]], orders, maximum, afterId);
     },
     orderBy(field, direction = 'asc') {
-      return query(collectionName, filters, [field, direction], maximum);
+      return query(collectionName, filters, [...orders, [field, direction]], maximum, afterId);
     },
     limit(value) {
-      return query(collectionName, filters, order, value, afterId);
+      return query(collectionName, filters, orders, value, afterId);
     },
     startAfter(cursor) {
-      return query(collectionName, filters, order, maximum, cursor.id);
+      return query(collectionName, filters, orders, maximum, cursor.id);
     },
     async get() {
+      queryLog.push({ collectionName, filters, orders, maximum, afterId });
       const entries = Object.entries(state[collectionName] ?? {})
-        .filter(([, data]) => filters.every(([field, operator, value]) => (
-          operator === '==' && data[field] === value
+        .filter(([id, data]) => filters.every(([field, operator, value]) => (
+          operator === '==' ? fieldValue(data, field, id) === value
+            : operator === '>' && fieldValue(data, field, id) > value
         )));
-      if (order) {
-        const [field, direction] = order;
-        entries.sort(([, left], [, right]) => {
-          const comparison = String(left[field] ?? '').localeCompare(String(right[field] ?? ''));
-          return direction === 'desc' ? -comparison : comparison;
+      if (orders.length) {
+        entries.sort(([leftId, left], [rightId, right]) => {
+          for (const [field, direction] of orders) {
+            const comparison = String(fieldValue(left, field, leftId) ?? '')
+              .localeCompare(String(fieldValue(right, field, rightId) ?? ''));
+            if (comparison !== 0) return direction === 'desc' ? -comparison : comparison;
+          }
+          return 0;
         });
       }
       const startIndex = afterId === undefined ? 0 : entries.findIndex(([id]) => id === afterId) + 1;
@@ -82,13 +236,15 @@ function firestoreState(initial, { retryFirstTransaction = false } = {}) {
   return {
     state,
     readLog,
+    queryLog,
+    collectionScanLog,
     firestore: {
       collection(collectionName) {
         return {
           doc(id) { return reference(collectionName, id); },
-          get() { return query(collectionName).get(); },
+          get() { collectionScanLog.push(collectionName); return query(collectionName).get(); },
           where(field, operator, value) { return query(collectionName, [[field, operator, value]]); },
-          orderBy(field, direction) { return query(collectionName, [], [field, direction]); },
+          orderBy(field, direction) { return query(collectionName, [], [[field, direction]]); },
         };
       },
       async runTransaction(callback) {
@@ -98,17 +254,21 @@ function firestoreState(initial, { retryFirstTransaction = false } = {}) {
           const transactionState = structuredClone(state);
           const read = async ref => {
             if (ref.isQuery) {
+              queryLog.push({ collectionName: ref.collectionName, filters: ref.filters, orders: ref.orders, maximum: ref.maximum, transaction: true });
               const docs = Object.entries(transactionState[ref.collectionName] ?? {})
-              .filter(([, data]) => ref.filters.every(([field, operator, value]) => (
-                operator === '==' && data[field] === value
+              .filter(([id, data]) => ref.filters.every(([field, operator, value]) => (
+                operator === '==' ? fieldValue(data, field, id) === value
+                  : operator === '>' && fieldValue(data, field, id) > value
               )))
-              .sort(([, left], [, right]) => {
-                if (!ref.order) return 0;
-                const [field, direction] = ref.order;
-                const comparison = String(left[field] ?? '').localeCompare(String(right[field] ?? ''));
-                return direction === 'desc' ? -comparison : comparison;
+              .sort(([leftId, left], [rightId, right]) => {
+                for (const [field, direction] of ref.orders) {
+                  const comparison = String(fieldValue(left, field, leftId) ?? '')
+                    .localeCompare(String(fieldValue(right, field, rightId) ?? ''));
+                  if (comparison !== 0) return direction === 'desc' ? -comparison : comparison;
+                }
+                return 0;
               })
-              .slice(0, ref.maximum)
+              .slice(0, ref.maximum === undefined ? undefined : ref.maximum)
               .map(([id, data]) => snapshot(data, id));
               return { docs, empty: docs.length === 0 };
             }
@@ -123,6 +283,10 @@ function firestoreState(initial, { retryFirstTransaction = false } = {}) {
             set(ref, value) { writes.push({ operation: 'set', ref, value }); },
             update(ref, value) { writes.push({ operation: 'update', ref, value }); },
           });
+          if (retryCallbackBeforeCommit && !callbackRetryUsed) {
+            callbackRetryUsed = true;
+            continue;
+          }
           if ([...reads].some(([key, version]) => (versions.get(key) ?? 0) !== version)) continue;
           for (const write of writes) {
             state[write.ref.collectionName] ??= {};
@@ -152,6 +316,46 @@ const activeProgram = {
   eligibilityEvidenceVersion: 1,
   eligibilityEvidenceNotBeforeAt: '2026-09-01T00:00:00.000Z',
 };
+
+const emptyRoleSummary = () => ({
+  rewardCount: 0, pendingCount: 0, approvedCount: 0, rejectedCount: 0,
+  cancelledCount: 0, flaggedPendingCount: 0, creditTotalsByCurrency: {},
+});
+
+function emptyMarketingSummary(values = {}) {
+  return {
+    schemaVersion: 1, summaryEpoch: 'referral-v3', programCount: 0, codeCount: 0,
+    attributionCount: 0, rewardCount: 0, pendingRewardCount: 0, approvedRewardCount: 0,
+    rejectedRewardCount: 0, cancelledRewardCount: 0, flaggedPendingRewardCount: 0,
+    approvedCreditTotalsByCurrency: {}, updatedAt: '2026-09-12T12:00:00.000Z', ...values,
+  };
+}
+
+function programSummary(programId, values = {}) {
+  return {
+    schemaVersion: 1, summaryEpoch: 'referral-v3', programId,
+    ...activeProgram, codeCount: 0, attributionCount: 0, validatedVisitCount: 0,
+    rewardCount: 0, pendingRewardCount: 0, approvedRewardCount: 0,
+    rejectedRewardCount: 0, cancelledRewardCount: 0, flaggedPendingRewardCount: 0,
+    approvedCreditTotalsByCurrency: {}, updatedAt: '2026-09-12T12:00:00.000Z', ...values,
+  };
+}
+
+function ownerSummary(ownerType, ownerId, values = {}) {
+  return {
+    schemaVersion: 1, summaryEpoch: 'referral-v3', ownerType, ownerId,
+    codeCount: 0, attributionCount: 0, inviter: emptyRoleSummary(), invitee: emptyRoleSummary(), ...values,
+  };
+}
+
+function referrerSummary(inviterOwnerType, inviterId, values = {}) {
+  return {
+    schemaVersion: 1, summaryEpoch: 'referral-v3', inviterOwnerType, inviterId,
+    attributionCount: 0, rewardCount: 0, pendingCount: 0, approvedCount: 0,
+    rejectedCount: 0, cancelledCount: 0, flaggedPendingCount: 0,
+    approvedCreditTotalsByCurrency: {}, updatedAt: '2026-09-12T12:00:00.000Z', ...values,
+  };
+}
 
 function trustedReferralCompletion(eventId = 'event-1', at = '2026-09-12T12:00:00.000Z') {
   return { version: 1, eventId, updateTimeMs: Date.parse(at) };
@@ -208,16 +412,14 @@ describe('referral domain', () => {
     });
 
     await expect(getReferralMarketingOverview('admin-a', {}, firestore)).resolves.toMatchObject({
-      programs: [{
+      contractVersion: 3,
+      programs: { items: [{
         id: 'program-a', status: 'active', countryCodes: ['FR'], currency: 'EUR', inviterCreditMinor: 500,
         invitedDiscountMinor: 300, startsAt: '2026-09-01T00:00:00.000Z', endsAt: '2026-10-01T00:00:00.000Z',
-      }],
+      }], truncated: false },
       funnel: { codes: 1, attributions: 1, rewards: 1, pending: 1, approved: 0, rejected: 0 },
-      topReferrers: [{ inviterId: 'inviter-a', inviterOwnerType: 'client', referrals: 1, rewards: 1, approvedCreditTotals: [] }],
-      pendingRewards: [{
-        id: 'program-a__invited-a', programId: 'program-a', bookingId: 'booking-a', inviterId: 'inviter-a', invitedUserId: 'invited-a',
-        inviterCreditMinor: 500, invitedDiscountMinor: 300, currency: 'EUR', status: 'pending', createdAt: '2026-09-12T10:00:00.000Z',
-      }],
+      topReferrers: { items: [{ inviterId: 'inviter-a', inviterOwnerType: 'client', referrals: 1, rewards: 1, approvedCreditTotals: [] }] },
+      pendingRewards: { items: [], truncated: false },
     });
   });
 
@@ -243,11 +445,11 @@ describe('referral domain', () => {
     });
 
     await expect(getReferralMarketingOverview('admin-a', {}, firestore)).resolves.toMatchObject({
-      funnel: { attributions: 3, rewards: 2, approved: 2 },
-      topReferrers: [
-        { inviterId: 'X', inviterOwnerType: 'brand', referrals: 1, rewards: 1, approvedCreditTotals: [{ currency: 'EUR', amountMinor: 700 }] },
-        { inviterId: 'X', inviterOwnerType: 'client', referrals: 1, rewards: 1, approvedCreditTotals: [{ currency: 'EUR', amountMinor: 500 }] },
-      ],
+      funnel: { attributions: 0, rewards: 2, approved: 2 },
+      topReferrers: { items: [
+        { inviterId: 'X', inviterOwnerType: 'brand', referrals: 0, rewards: 1, approvedCreditTotals: [{ currency: 'EUR', amountMinor: 700 }] },
+        { inviterId: 'X', inviterOwnerType: 'client', referrals: 0, rewards: 1, approvedCreditTotals: [{ currency: 'EUR', amountMinor: 500 }] },
+      ] },
     });
   });
 
@@ -275,13 +477,13 @@ describe('referral domain', () => {
     });
 
     await expect(getReferralMarketingOverview('admin-a', {}, firestore)).resolves.toMatchObject({
-      topReferrers: [{
+      topReferrers: { items: [{
         inviterId: 'X', inviterOwnerType: 'client', referrals: 2, rewards: 2,
         approvedCreditTotals: [
           { currency: 'EUR', amountMinor: 500 },
           { currency: 'USD', amountMinor: 700 },
         ],
-      }],
+      }] },
     });
   });
 
@@ -592,8 +794,8 @@ describe('referral domain', () => {
 
   test('returns the retry result when another transaction creates the reward', async () => {
     const { processReferralBookingCompletion } = loadModule();
-    const { firestore } = firestoreState({
-      bookings: { 'booking-1': { clientId: 'new-client', status: 'completed', isTest: false, paymentStatus: 'paid', pricePaidMinor: 2500 } },
+    const { firestore, state } = firestoreState({
+      bookings: { 'booking-1': { clientId: 'new-client', status: 'completed', isTest: false, paymentStatus: 'paid', pricePaidMinor: 2500, completedAt: '2026-09-12T10:00:00.000Z' } },
       referralPrograms: { 'program-a': activeProgram },
       referralCodes: {
         FRIEND: { code: 'FRIEND', programId: 'program-a', ownerType: 'client', ownerId: 'inviter-a', status: 'active' },
@@ -606,6 +808,8 @@ describe('referral domain', () => {
 
     await expect(processReferralBookingCompletion('booking-1', firestore, new Date('2026-09-12T12:00:00Z'), trustedReferralCompletion('event-booking-1')))
       .resolves.toEqual({ created: false });
+    expect(state.referralMarketingSummaries.overview).toMatchObject({ rewardCount: 1, pendingRewardCount: 1 });
+    expect(state.referralProgramSummaries['program-a']).toMatchObject({ rewardCount: 1, pendingRewardCount: 1 });
   });
 
   test('creates at most one reward when two eligible completions are processed concurrently', async () => {
@@ -741,6 +945,15 @@ describe('referral domain', () => {
     const { getReferralMarketingOverview } = loadModule();
     const { firestore } = firestoreState({
       users: { 'admin-a': { role: 'superadmin' } }, referralPrograms: {}, referralCodes: {}, referralTelemetry: {},
+      referralMarketingSummaries: { overview: emptyMarketingSummary({
+        rewardCount: 2, approvedRewardCount: 2, approvedCreditTotalsByCurrency: { EUR: 500 },
+      }) },
+      referralReferrerSummaries: {
+        'brand__wrong-owner': referrerSummary('brand', 'wrong-owner', { attributionCount: 1, rewardCount: 1, approvedCount: 1 }),
+        'client__inviter-a': referrerSummary('client', 'inviter-a', {
+          attributionCount: 1, rewardCount: 1, approvedCount: 1, approvedCreditTotalsByCurrency: { EUR: 500 },
+        }),
+      },
       referralAttributions: {
         valid: { inviterId: 'inviter-a', inviterOwnerType: 'client' },
         corrupt: { inviterId: 'wrong-owner', inviterOwnerType: 'brand' },
@@ -765,15 +978,15 @@ describe('referral domain', () => {
         },
       },
       referralAudit: {},
-    });
+    }, { seedReferralProjection: false });
 
     const overview = await getReferralMarketingOverview('admin-a', {}, firestore);
     expect(overview).toMatchObject({
       approvedCreditTotals: [{ currency: 'EUR', amountMinor: 500 }],
-      topReferrers: [
+      topReferrers: { items: [
         { inviterId: 'wrong-owner', inviterOwnerType: 'brand', approvedCreditTotals: [] },
         { inviterId: 'inviter-a', inviterOwnerType: 'client', approvedCreditTotals: [{ currency: 'EUR', amountMinor: 500 }] },
-      ],
+      ] },
     });
   });
 
@@ -793,12 +1006,12 @@ describe('referral domain', () => {
         },
       },
       referralAudit: {},
-    });
+    }, { seedReferralProjection: false });
 
     await expect(getReferralMarketingOverview('admin-a', {}, firestore)).resolves.toMatchObject({
       funnel: { rewards: 0, eligibleFirstBookings: 0, approved: 0, approvedRewards: 0 },
       approvedCreditTotals: [],
-      topReferrers: [],
+      topReferrers: { items: [] },
     });
   });
 
@@ -910,6 +1123,7 @@ describe('referral domain', () => {
     const { firestore } = firestoreState({
       users: { 'inviter-a': { uid: 'inviter-a' } },
       memberships: {}, freelancerProfiles: {},
+      referralPrograms: { 'program-a': activeProgram },
       referralCodes: { FRIEND: { code: 'FRIEND', ownerId: 'inviter-a', ownerType: 'client', programId: 'program-a', status: 'active' } },
       referralOwnerSummaries: {
         'client__inviter-a': {
@@ -1069,7 +1283,7 @@ describe('referral domain', () => {
         b: { inviterId: 'brand-b', inviterOwnerId: 'brand-b', inviterOwnerType: 'brand', invitedUserId: 'client-b', invitedOwnerId: 'client-b', invitedOwnerType: 'client', inviterCreditMinor: 700, invitedDiscountMinor: 300, currency: 'EUR', status: 'approved' },
       },
       creditLedgers: { a: { ownerId: 'brand-a', ownerType: 'brand', amountMinor: 500, currency: 'EUR', status: 'approved' } },
-    });
+    }, { seedReferralProjection: false });
 
     await expect(getMyReferralWorkspace('principal-a', { scope: { type: 'brand', brandId: 'brand-a' } }, firestore))
       .resolves.toMatchObject({ contractVersion: 3, scope: { type: 'brand', brandId: 'brand-a' }, summary: { state: 'unavailable' } });
@@ -1120,8 +1334,10 @@ describe('referral domain', () => {
       schemaVersion: 1, summaryEpoch: 'referral-v3', ownerType: 'client', ownerId: 'client-a', codeCount: 1,
       currentCode: { code: 'CLIENT-A1', programId: 'program-a', status: 'active' },
     });
+    expect(state.referralMarketingSummaries.overview.codeCount).toBe(1);
+    expect(state.referralProgramSummaries['program-a'].codeCount).toBe(1);
     await expect(getReferralMarketingOverview('admin-a', { code: 'client-a1', limit: 1 }, firestore)).resolves.toMatchObject({
-      auditTrail: [{ action: 'REFERRAL_CODE_CREATED', code: 'CLIENT-A1', actorUid: 'client-a' }],
+      auditTrail: { items: [{ action: 'REFERRAL_CODE_CREATED', code: 'CLIENT-A1', actorUid: 'client-a' }] },
     });
     await expect(createMyReferralCode('client-a', { code: 'FORGED-A1' }, firestore, now, () => 'UNUSED-2'))
       .rejects.toMatchObject({ code: 'invalid-argument' });
@@ -1341,12 +1557,14 @@ describe('referral domain', () => {
     expect(state.referralTelemetry['program-a__FRIEND']).toMatchObject({
       code: 'FRIEND', programId: 'program-a', countryCode: 'FR', validatedVisitCount: 1,
     });
+    expect(state.referralProgramSummaries['program-a'].validatedVisitCount).toBe(1);
     expect(state.referralRewards).toEqual({});
     expect(state.creditLedgers).toEqual({});
     state.referralTelemetry['program-a__FRIEND'].validatedVisitCount = 10_000;
     await expect(recordReferralVisit({ code: 'friend' }, firestore, new Date('2026-09-12T12:00:00Z')))
       .resolves.toEqual({ code: 'FRIEND', status: 'active', recorded: false });
     expect(state.referralTelemetry['program-a__FRIEND'].validatedVisitCount).toBe(10_000);
+    expect(state.referralProgramSummaries['program-a'].validatedVisitCount).toBe(1);
     state.referralTelemetry['program-a__FRIEND'].validatedVisitCount = 1;
     state.referralTelemetry.overview.validatedVisitCount = 1_000_000;
     readLog.length = 0;
@@ -1354,6 +1572,7 @@ describe('referral domain', () => {
       .resolves.toEqual({ code: 'FRIEND', status: 'active', recorded: false });
     expect(state.referralTelemetry.overview.validatedVisitCount).toBe(1_000_000);
     expect(state.referralTelemetry['program-a__FRIEND'].validatedVisitCount).toBe(1);
+    expect(state.referralProgramSummaries['program-a'].validatedVisitCount).toBe(1);
     expect(readLog).not.toContain('referralTelemetry/program-a__FRIEND');
   });
 
@@ -1442,15 +1661,14 @@ describe('referral domain', () => {
     });
 
     await expect(getReferralMarketingOverview('admin-a', { rewardId: 'program-a__invited', limit: 1 }, firestore)).resolves.toMatchObject({
-      contractVersion: 2,
+      contractVersion: 3,
       funnel: {
         validatedVisits: 2, attributedSignups: 1, eligibleFirstBookings: 2,
         pendingRewards: 1, approvedRewards: 1,
       },
       approvedCreditTotals: [{ currency: 'EUR', amountMinor: 800 }],
-      topReferrers: [{ inviterId: 'X', inviterOwnerType: 'client', referrals: 1, rewards: 2 }],
-      flaggedRewards: [{ id: 'program-a__invited', fraudFlag: { status: 'flagged', reason: 'Duplicate device signal' } }],
-      auditTrail: [{ rewardId: 'program-a__invited', action: 'REFERRAL_REWARD_FLAGGED' }],
+      topReferrers: { items: [{ inviterId: 'X', inviterOwnerType: 'client', referrals: 1, rewards: 2 }] },
+      auditTrail: { items: [{ rewardId: 'program-a__invited', action: 'REFERRAL_REWARD_FLAGGED' }] },
     });
     await expect(getReferralMarketingOverview('admin-a', { rewardId: 'program-a__invited', limit: 51 }, firestore))
       .rejects.toMatchObject({ code: 'invalid-argument' });
@@ -1476,5 +1694,209 @@ describe('referral domain', () => {
 
     await expect(recordReferralVisitFunction.run({ code: 'FRIEND' }, {}))
       .rejects.toMatchObject({ code: 'unauthenticated' });
+  });
+
+  test('reads the V3 admin overview only from exact summaries and explicitly bounded pages', async () => {
+    const { getReferralMarketingOverview } = loadModule();
+    const pendingReward = {
+      ...canonicalOverviewReward('program-a__invited-a', {
+        inviterId: 'owner-x', inviterOwnerType: 'brand', status: 'pending',
+        createdAt: '2026-09-12T10:00:00.000Z', fraudFlag: { status: 'flagged', reason: 'Manual review' },
+      }),
+      summaryVersion: 1, summaryEpoch: 'referral-v3',
+    };
+    const { firestore, collectionScanLog, queryLog } = firestoreState({
+      users: { 'admin-a': { role: 'superadmin' } },
+      referralMarketingSummaries: { overview: emptyMarketingSummary({
+        programCount: 2, codeCount: 4, attributionCount: 3, rewardCount: 2,
+        pendingRewardCount: 1, approvedRewardCount: 1, flaggedPendingRewardCount: 1,
+        approvedCreditTotalsByCurrency: { EUR: 800, USD: 1000 },
+      }) },
+      referralProgramSummaries: {
+        'program-a': programSummary('program-a', { codeCount: 2, attributionCount: 2, rewardCount: 2, pendingRewardCount: 1, approvedRewardCount: 1 }),
+        'program-b': programSummary('program-b', { currency: 'USD', updatedAt: '2026-09-13T12:00:00.000Z' }),
+      },
+      referralReferrerSummaries: {
+        'brand__owner-x': referrerSummary('brand', 'owner-x', {
+          attributionCount: 2, rewardCount: 2, pendingCount: 1, approvedCount: 1,
+          approvedCreditTotalsByCurrency: { EUR: 500, USD: 600 },
+        }),
+        'client__owner-x': referrerSummary('client', 'owner-x', { attributionCount: 1, rewardCount: 0 }),
+      },
+      referralTelemetry: { overview: { schemaVersion: 1, summaryEpoch: 'referral-v3', validatedVisitCount: 12 } },
+      referralRewards: { 'program-a__invited-a': pendingReward },
+      bookings: { 'booking-a': { clientId: 'invited-a', status: 'completed', isTest: false, paymentStatus: 'paid', pricePaidMinor: 2500, completedAt: '2026-09-12T10:00:00.000Z' } },
+      referralBookingEvidence: { 'booking-a': { ...pendingReward } },
+      referralAttributions: { 'invited-a': {
+        code: 'FRIEND', programId: 'program-a', inviterId: 'owner-x', inviterOwnerType: 'brand',
+        expiresAt: '2026-09-20T00:00:00.000Z', summaryVersion: 1, summaryEpoch: 'referral-v3',
+      } },
+      referralCodes: { FRIEND: {
+        code: 'FRIEND', programId: 'program-a', ownerId: 'owner-x', ownerType: 'brand', status: 'active',
+        summaryVersion: 1, summaryEpoch: 'referral-v3',
+      } },
+      referralPrograms: { 'program-a': { ...activeProgram, summaryVersion: 1, summaryEpoch: 'referral-v3' } },
+      referralAudit: {
+        newer: { action: 'REFERRAL_REWARD_FLAGGED', rewardId: 'program-a__invited-a', createdAt: '2026-09-13T00:00:00.000Z', summaryVersion: 1, summaryEpoch: 'referral-v3' },
+        older: { action: 'REFERRAL_ATTRIBUTED', code: 'FRIEND', createdAt: '2026-09-12T00:00:00.000Z', summaryVersion: 1, summaryEpoch: 'referral-v3' },
+      },
+    }, { seedReferralProjection: false });
+
+    const overview = await getReferralMarketingOverview('admin-a', {
+      programLimit: 1, pendingLimit: 1, flaggedLimit: 1, auditLimit: 1,
+    }, firestore);
+
+    expect(overview).toMatchObject({
+      contractVersion: 3, state: 'ready', summaryEpoch: 'referral-v3',
+      telemetry: { state: 'verified', validatedVisits: 12, capped: false },
+      funnel: { codes: 4, attributions: 3, rewards: 2, pending: 1, approved: 1, rejected: 0 },
+      approvedCreditTotals: [{ currency: 'EUR', amountMinor: 800 }, { currency: 'USD', amountMinor: 1000 }],
+      programs: { truncated: true, nextPageToken: 'program-b' },
+      topReferrers: { items: [
+        { inviterId: 'owner-x', inviterOwnerType: 'brand', referrals: 2, rewards: 2,
+          approvedCreditTotals: [{ currency: 'EUR', amountMinor: 500 }, { currency: 'USD', amountMinor: 600 }] },
+        { inviterId: 'owner-x', inviterOwnerType: 'client', referrals: 1, rewards: 0 },
+      ], truncated: false },
+      pendingRewards: { items: [{ id: 'program-a__invited-a' }], truncated: false },
+      flaggedRewards: { items: [{ id: 'program-a__invited-a', fraudFlag: { status: 'flagged', reason: 'Manual review' } }], truncated: false },
+      auditTrail: { items: [{ id: 'newer' }], truncated: true, nextPageToken: 'newer' },
+    });
+    expect(collectionScanLog).toEqual([]);
+    expect(queryLog.every(query => Number.isSafeInteger(query.maximum) && query.maximum <= 21)).toBe(true);
+    expect(queryLog.some(query => query.collectionName === 'referralCodes' || query.collectionName === 'referralAttributions'
+      || query.collectionName === 'creditLedgers')).toBe(false);
+
+    const continuation = await getReferralMarketingOverview('admin-a', {
+      programLimit: 1, programPageToken: overview.programs.nextPageToken,
+      pendingLimit: 1, flaggedLimit: 1, auditLimit: 1, auditPageToken: overview.auditTrail.nextPageToken,
+    }, firestore);
+    expect(continuation.programs).toMatchObject({ items: [{ id: 'program-a' }], truncated: false });
+    expect(continuation.auditTrail).toMatchObject({ items: [{ id: 'older' }], truncated: false });
+    expect(new Set([...overview.programs.items, ...continuation.programs.items].map(item => item.id)).size).toBe(2);
+    expect(new Set([...overview.auditTrail.items, ...continuation.auditTrail.items].map(item => item.id)).size).toBe(2);
+  });
+
+  test('returns a safe migration-required V3 overview without trusting historical raw rows', async () => {
+    const { getReferralMarketingOverview } = loadModule();
+    const { firestore, collectionScanLog, queryLog } = firestoreState({
+      users: { 'admin-a': { role: 'superadmin' } },
+      referralPrograms: { legacy: activeProgram },
+      referralCodes: { LEGACY: { code: 'LEGACY', programId: 'legacy', ownerId: 'owner', ownerType: 'client', status: 'active' } },
+      referralAttributions: { invited: { code: 'LEGACY', programId: 'legacy', inviterId: 'owner' } },
+      referralRewards: { legacy: { status: 'approved', currency: 'EUR', inviterCreditMinor: 999999 } },
+      creditLedgers: { legacy: { status: 'approved', amountMinor: 999999, currency: 'EUR' } },
+    }, { seedReferralProjection: false });
+
+    await expect(getReferralMarketingOverview('admin-a', {}, firestore)).resolves.toMatchObject({
+      contractVersion: 3, state: 'migrationRequired', summaryEpoch: 'referral-v3',
+      funnel: { codes: 0, validatedVisits: 0, attributions: 0, rewards: 0, pending: 0, approved: 0, rejected: 0 },
+      approvedCreditTotals: [],
+      programs: { items: [], truncated: false }, topReferrers: { items: [], truncated: false },
+      pendingRewards: { items: [], truncated: false }, flaggedRewards: { items: [], truncated: false },
+      auditTrail: { items: [], truncated: false },
+    });
+    expect(collectionScanLog).toEqual([]);
+    expect(queryLog).toEqual([]);
+  });
+
+  test('increments capped telemetry projections exactly once when Firestore retries the callback', async () => {
+    const { recordReferralVisit } = loadModule();
+    const { firestore, state } = firestoreState({
+      referralCodes: { FRIEND: {
+        code: 'FRIEND', programId: 'program-a', ownerId: 'inviter-a', ownerType: 'client', status: 'active',
+        summaryVersion: 1, summaryEpoch: 'referral-v3',
+      } },
+      referralPrograms: { 'program-a': { ...activeProgram, summaryVersion: 1, summaryEpoch: 'referral-v3' } },
+      referralProgramSummaries: { 'program-a': programSummary('program-a') },
+      referralTelemetry: {},
+    }, { retryCallbackBeforeCommit: true });
+
+    await expect(recordReferralVisit({ code: 'friend' }, firestore, new Date('2026-09-12T12:00:00Z')))
+      .resolves.toEqual({ code: 'FRIEND', status: 'active', recorded: true });
+    expect(state.referralTelemetry.overview.validatedVisitCount).toBe(1);
+    expect(state.referralTelemetry['program-a__FRIEND'].validatedVisitCount).toBe(1);
+    expect(state.referralProgramSummaries['program-a'].validatedVisitCount).toBe(1);
+  });
+
+  test('maintains typed and currency-partitioned overview projections across retries, reviews, and flags', async () => {
+    const {
+      createReferralProgram, reserveReferralCode, attributeReferral, processReferralBookingCompletion,
+      reviewReferralReward, setReferralRewardFlag,
+    } = loadModule();
+    const { firestore, state } = firestoreState({
+      users: {
+        'admin-a': { role: 'superadmin' }, manager: { uid: 'manager' }, X: { uid: 'X' }, Y: { uid: 'Y' }, Z: { uid: 'Z' },
+      },
+      memberships: { 'X__principal__manager': { userId: 'manager', brandId: 'X', role: 'principal_admin', status: 'active' } },
+      brands: { X: { name: 'Brand X' } }, freelancerProfiles: {},
+      referralMarketingSummaries: { overview: emptyMarketingSummary() },
+      referralPrograms: {}, referralProgramSummaries: {}, referralProgramState: {}, referralCodes: {},
+      referralAttributions: {}, referralRewards: {}, referralBookingEvidence: {}, creditLedgers: {},
+      referralOwnerSummaries: {}, referralReferrerSummaries: {}, referralOwnerProgramCodes: {},
+      referralOwnerHistory: {}, referralTelemetry: {}, referralAudit: {}, auditEvents: {}, bookings: {},
+    });
+    const now = new Date('2026-09-12T12:00:00.000Z');
+    const programInput = {
+      programId: 'program-a', status: 'active', countryCodes: ['FR'], currency: 'EUR',
+      inviterCreditMinor: 500, invitedDiscountMinor: 300,
+      startsAt: '2026-09-01T00:00:00.000Z', endsAt: '2026-10-01T00:00:00.000Z',
+    };
+
+    await createReferralProgram('admin-a', programInput, firestore, now);
+    await reserveReferralCode('manager', { programId: 'program-a', code: 'BRAND-X', ownerType: 'brand', brandId: 'X' }, firestore, now);
+    await attributeReferral('X', { code: 'BRAND-X' }, firestore, now);
+    state.bookings.x = { clientId: 'X', status: 'completed', isTest: false, paymentStatus: 'paid', pricePaidMinor: 2500, completedAt: '2026-09-12T12:00:00.000Z' };
+    await expect(processReferralBookingCompletion('x', firestore, now, trustedReferralCompletion('event-x'))).resolves.toEqual({ created: true });
+    await expect(reviewReferralReward('admin-a', { rewardId: 'program-a__X', decision: 'approve' }, firestore))
+      .resolves.toEqual({ rewardId: 'program-a__X', status: 'approved' });
+    await expect(reviewReferralReward('admin-a', { rewardId: 'program-a__X', decision: 'approve' }, firestore))
+      .rejects.toMatchObject({ code: 'failed-precondition' });
+
+    await createReferralProgram('admin-a', { ...programInput, status: 'paused' }, firestore, now);
+    expect(state.referralProgramState.active.programId).toBeNull();
+    expect(state.referralProgramSummaries['program-a']).toMatchObject({
+      status: 'paused', rewardCount: 1, approvedRewardCount: 1,
+      approvedCreditTotalsByCurrency: { EUR: 800 },
+    });
+    await createReferralProgram('admin-a', {
+      ...programInput, currency: 'USD', inviterCreditMinor: 600, invitedDiscountMinor: 400,
+    }, firestore, now);
+    await attributeReferral('Y', { code: 'BRAND-X' }, firestore, now);
+    state.bookings.y = { clientId: 'Y', status: 'completed', isTest: false, paymentStatus: 'paid', pricePaidMinor: 2500, completedAt: '2026-09-12T12:30:00.000Z' };
+    await processReferralBookingCompletion('y', firestore, now, trustedReferralCompletion('event-y', '2026-09-12T12:30:00.000Z'));
+    await reviewReferralReward('admin-a', { rewardId: 'program-a__Y', decision: 'approve' }, firestore);
+
+    await attributeReferral('Z', { code: 'BRAND-X' }, firestore, now);
+    state.bookings.z = { clientId: 'Z', status: 'completed', isTest: false, paymentStatus: 'paid', pricePaidMinor: 2500, completedAt: '2026-09-12T13:00:00.000Z' };
+    await processReferralBookingCompletion('z', firestore, now, trustedReferralCompletion('event-z', '2026-09-12T13:00:00.000Z'));
+    await setReferralRewardFlag('admin-a', { rewardId: 'program-a__Z', flagged: true, reason: 'Review' }, firestore);
+    await setReferralRewardFlag('admin-a', { rewardId: 'program-a__Z', flagged: true, reason: 'Still review' }, firestore);
+    expect(state.referralMarketingSummaries.overview.flaggedPendingRewardCount).toBe(1);
+    await setReferralRewardFlag('admin-a', { rewardId: 'program-a__Z', flagged: false, reason: 'Cleared' }, firestore);
+    await setReferralRewardFlag('admin-a', { rewardId: 'program-a__Z', flagged: false, reason: 'Still clear' }, firestore);
+    await setReferralRewardFlag('admin-a', { rewardId: 'program-a__Z', flagged: true, reason: 'Final review' }, firestore);
+    await reviewReferralReward('admin-a', { rewardId: 'program-a__Z', decision: 'reject', reason: 'Ineligible signal' }, firestore);
+
+    expect(state.referralMarketingSummaries.overview).toMatchObject({
+      programCount: 1, codeCount: 1, attributionCount: 3, rewardCount: 3,
+      pendingRewardCount: 0, approvedRewardCount: 2, rejectedRewardCount: 1,
+      flaggedPendingRewardCount: 0, approvedCreditTotalsByCurrency: { EUR: 800, USD: 1000 },
+    });
+    expect(state.referralProgramSummaries['program-a']).toMatchObject({
+      currency: 'USD', codeCount: 1, attributionCount: 3, rewardCount: 3,
+      pendingRewardCount: 0, approvedRewardCount: 2, rejectedRewardCount: 1,
+      approvedCreditTotalsByCurrency: { EUR: 800, USD: 1000 },
+    });
+    expect(state.referralOwnerSummaries['brand__X'].inviter.creditTotalsByCurrency).toEqual({
+      EUR: { pendingMinor: 0, approvedMinor: 500 },
+      USD: { pendingMinor: 0, approvedMinor: 600 },
+    });
+    expect(state.referralOwnerSummaries['client__X'].invitee.creditTotalsByCurrency).toEqual({
+      EUR: { pendingMinor: 0, approvedMinor: 300 },
+    });
+    expect(state.referralReferrerSummaries['brand__X']).toMatchObject({
+      attributionCount: 3, rewardCount: 3, pendingCount: 0, approvedCount: 2, rejectedCount: 1,
+      approvedCreditTotalsByCurrency: { EUR: 500, USD: 600 },
+    });
   });
 });
