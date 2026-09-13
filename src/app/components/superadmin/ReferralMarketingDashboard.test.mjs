@@ -57,6 +57,11 @@ function overviewFixture() {
   };
 }
 
+function detachFlaggedReward(fixture) {
+  fixture.flaggedRewards = [structuredClone(fixture.flaggedRewards[0])];
+  return fixture;
+}
+
 test('calculates referral funnel conversion rates from real counts', () => {
   const { funnelRate } = loadDashboard();
   assert.equal(funnelRate(5, 20), 25);
@@ -120,6 +125,44 @@ test('rejects inconsistent pending and flagged reward collections', () => {
   assert.equal(parseReferralMarketingOverview(unknownFlaggedEntry), null);
 });
 
+test('rejects blank, untrimmed, and oversized fraud flag reasons', () => {
+  const { parseReferralMarketingOverview } = loadDashboard();
+  for (const reason of ['   ', ' motif avec espaces ', 'x'.repeat(501)]) {
+    const malformed = overviewFixture();
+    malformed.pendingRewards[0].fraudFlag.reason = reason;
+    assert.equal(parseReferralMarketingOverview(malformed), null, `accepted invalid flag reason: ${reason.length}`);
+  }
+});
+
+test('rejects a flagged row whose identity or program references differ from pending', () => {
+  const { parseReferralMarketingOverview } = loadDashboard();
+  for (const [label, mutate] of [
+    ['inviter', reward => { reward.inviterId = 'another-inviter'; }],
+    ['invitee', reward => { reward.invitedUserId = 'another-invitee'; }],
+    ['program', reward => { reward.programId = 'another-program'; }],
+    ['booking', reward => { reward.bookingId = 'another-booking'; }],
+  ]) {
+    const malformed = detachFlaggedReward(overviewFixture());
+    mutate(malformed.flaggedRewards[0]);
+    assert.equal(parseReferralMarketingOverview(malformed), null, `accepted mismatched ${label}`);
+  }
+});
+
+test('rejects a flagged row whose amount, currency, date, or reason differs from pending', () => {
+  const { parseReferralMarketingOverview } = loadDashboard();
+  for (const [label, mutate] of [
+    ['inviter amount', reward => { reward.inviterCreditMinor = 700; }],
+    ['invitee amount', reward => { reward.invitedDiscountMinor = 100; }],
+    ['currency', reward => { reward.currency = 'USD'; }],
+    ['date', reward => { reward.createdAt = '2026-09-11T08:30:00.000Z'; }],
+    ['reason', reward => { reward.fraudFlag.reason = 'Autre motif'; }],
+  ]) {
+    const malformed = detachFlaggedReward(overviewFixture());
+    mutate(malformed.flaggedRewards[0]);
+    assert.equal(parseReferralMarketingOverview(malformed), null, `accepted mismatched ${label}`);
+  }
+});
+
 test('rejects malformed optional audit data, dates, and oversized audit results', () => {
   const { parseReferralMarketingOverview } = loadDashboard();
   const malformedDate = overviewFixture();
@@ -165,4 +208,21 @@ test('invalidates stale overview work when a newer request begins or the compone
   assert.equal(second(), true);
   coordinator.cancel();
   assert.equal(second(), false);
+  const lateRequest = coordinator.begin();
+  assert.equal(lateRequest(), false);
+});
+
+test('keeps reward A locked while reward B starts and settles independently', () => {
+  const { createRewardActionTracker } = loadDashboard();
+  const tracker = createRewardActionTracker();
+
+  assert.equal(tracker.begin('reward-a'), true);
+  assert.equal(tracker.begin('reward-b'), true);
+  assert.equal(tracker.has('reward-a'), true);
+  assert.equal(tracker.begin('reward-a'), false);
+  tracker.end('reward-b');
+  assert.equal(tracker.has('reward-a'), true);
+  assert.deepEqual(tracker.snapshot(), ['reward-a']);
+  tracker.end('reward-a');
+  assert.equal(tracker.has('reward-a'), false);
 });

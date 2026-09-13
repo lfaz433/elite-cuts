@@ -177,7 +177,10 @@ function parseProgram(value: unknown): Program | null {
 function parseFraudFlag(value: unknown): FraudFlag | null {
   const candidate = object(value);
   if (!candidate || (candidate.status !== 'flagged' && candidate.status !== 'cleared')
-    || typeof candidate.reason !== 'string') return null;
+    || typeof candidate.reason !== 'string'
+    || candidate.reason.length === 0
+    || candidate.reason.length > MAX_REASON_LENGTH
+    || candidate.reason.trim() !== candidate.reason) return null;
   return { status: candidate.status, reason: candidate.reason };
 }
 
@@ -214,6 +217,21 @@ function parseReward(value: unknown): Reward | null {
     ...(candidate.createdAt === undefined ? {} : { createdAt: candidate.createdAt as string }),
     ...(fraudFlag ? { fraudFlag } : {}),
   };
+}
+
+function rewardsAreCanonicalMatches(left: Reward, right: Reward): boolean {
+  return left.id === right.id
+    && left.programId === right.programId
+    && left.bookingId === right.bookingId
+    && left.inviterId === right.inviterId
+    && left.invitedUserId === right.invitedUserId
+    && left.inviterCreditMinor === right.inviterCreditMinor
+    && left.invitedDiscountMinor === right.invitedDiscountMinor
+    && left.currency === right.currency
+    && left.status === right.status
+    && left.createdAt === right.createdAt
+    && left.fraudFlag?.status === right.fraudFlag?.status
+    && left.fraudFlag?.reason === right.fraudFlag?.reason;
 }
 
 function parseAudit(value: unknown): Audit | null {
@@ -325,6 +343,7 @@ export function parseReferralMarketingOverview(value: unknown): ReferralMarketin
     typedPendingRewards.filter(item => item.fraudFlag?.status === 'flagged').map(item => item.id),
   );
   const flaggedCollectionIds = new Set(typedFlaggedRewards.map(item => item.id));
+  const pendingRewardsById = new Map(typedPendingRewards.map(item => [item.id, item]));
   if (
     new Set((programs as Program[]).map(item => item.id)).size !== programs.length
     || new Set(typedTopReferrers.map(referrerKey)).size !== typedTopReferrers.length
@@ -333,6 +352,10 @@ export function parseReferralMarketingOverview(value: unknown): ReferralMarketin
     || new Set((auditTrail as Audit[]).map(item => item.id)).size !== auditTrail.length
     || flaggedPendingIds.size !== flaggedCollectionIds.size
     || [...flaggedPendingIds].some(id => !flaggedCollectionIds.has(id))
+    || typedFlaggedRewards.some(item => {
+      const pending = pendingRewardsById.get(item.id);
+      return !pending || !rewardsAreCanonicalMatches(pending, item);
+    })
   ) return null;
 
   return {
@@ -406,15 +429,47 @@ export function validateActionReason(action: ReviewAction, rawReason: string): s
 export function createLatestRequestCoordinator(): {
   begin: () => () => boolean;
   cancel: () => void;
+  isActive: () => boolean;
 } {
   let version = 0;
+  let active = true;
   return {
     begin() {
+      if (!active) return () => false;
       const requestVersion = ++version;
-      return () => requestVersion === version;
+      return () => active && requestVersion === version;
     },
     cancel() {
+      active = false;
       version += 1;
+    },
+    isActive() {
+      return active;
+    },
+  };
+}
+
+export function createRewardActionTracker(): {
+  begin: (rewardId: string) => boolean;
+  end: (rewardId: string) => void;
+  has: (rewardId: string) => boolean;
+  snapshot: () => string[];
+} {
+  const activeRewardIds = new Set<string>();
+  return {
+    begin(rewardId) {
+      if (activeRewardIds.has(rewardId)) return false;
+      activeRewardIds.add(rewardId);
+      return true;
+    },
+    end(rewardId) {
+      activeRewardIds.delete(rewardId);
+    },
+    has(rewardId) {
+      return activeRewardIds.has(rewardId);
+    },
+    snapshot() {
+      return [...activeRewardIds];
     },
   };
 }
@@ -468,10 +523,11 @@ export default function ReferralMarketingDashboard() {
   const [startsAt, setStartsAt] = useState(todayWithOffset(0));
   const [endsAt, setEndsAt] = useState(todayWithOffset(365));
   const [savingProgram, setSavingProgram] = useState(false);
-  const [actingRewardId, setActingRewardId] = useState<string | null>(null);
+  const [actingRewardIds, setActingRewardIds] = useState<Set<string>>(() => new Set());
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
   const requestCoordinator = useRef(createLatestRequestCoordinator());
+  const rewardActionTracker = useRef(createRewardActionTracker());
   const activeFilter = useRef<Record<string, unknown>>({});
 
   const selectedProgram = useMemo(
@@ -480,7 +536,9 @@ export default function ReferralMarketingDashboard() {
   );
 
   const loadOverview = async (filter: Record<string, unknown> = activeFilter.current) => {
+    if (!requestCoordinator.current.isActive()) return;
     const isCurrent = requestCoordinator.current.begin();
+    if (!isCurrent()) return;
     setLoading(true);
     setLoadError(null);
     try {
@@ -499,8 +557,10 @@ export default function ReferralMarketingDashboard() {
   };
 
   useEffect(() => {
+    const coordinator = createLatestRequestCoordinator();
+    requestCoordinator.current = coordinator;
     void loadOverview();
-    return () => requestCoordinator.current.cancel();
+    return () => coordinator.cancel();
   }, []);
 
   const selectProgram = (programId: string) => {
@@ -527,6 +587,8 @@ export default function ReferralMarketingDashboard() {
 
   const saveProgram = async (event: FormEvent) => {
     event.preventDefault();
+    const lifecycle = requestCoordinator.current;
+    if (!lifecycle.isActive()) return;
     const normalizedCountries = countryCodes.split(',').map(value => value.trim().toUpperCase()).filter(Boolean);
     const normalizedCurrency = currency.trim().toUpperCase();
     const inviterCreditMinor = Math.round(Number(inviterCredit) * 100);
@@ -562,31 +624,36 @@ export default function ReferralMarketingDashboard() {
         startsAt: `${startsAt}T00:00:00.000Z`,
         endsAt: `${endsAt}T23:59:59.999Z`,
       });
+      if (!lifecycle.isActive()) return;
       toast.success(selectedProgram
         ? 'Programme de parrainage mis à jour.'
         : 'Programme de parrainage créé.');
       await loadOverview();
     } catch (reason) {
+      if (!lifecycle.isActive()) return;
       console.error('Unable to save referral program', reason);
       toast.error('Impossible d’enregistrer ce programme. Vérifiez son statut et sa période.');
     } finally {
-      setSavingProgram(false);
+      if (lifecycle.isActive()) setSavingProgram(false);
     }
   };
 
   const performRewardAction = async (rewardId: string, action: ReviewAction) => {
+    const lifecycle = requestCoordinator.current;
+    if (!lifecycle.isActive()) return;
     const rawReason = reasons[rewardId] ?? '';
     const validationError = validateActionReason(action, rawReason);
     if (validationError) {
       setActionErrors(current => ({ ...current, [rewardId]: validationError }));
       return;
     }
+    if (!rewardActionTracker.current.begin(rewardId)) return;
     setActionErrors(current => {
       const next = { ...current };
       delete next[rewardId];
       return next;
     });
-    setActingRewardId(rewardId);
+    setActingRewardIds(new Set(rewardActionTracker.current.snapshot()));
     try {
       const reason = rawReason.trim();
       if (action === 'approve' || action === 'reject') {
@@ -598,6 +665,7 @@ export default function ReferralMarketingDashboard() {
       } else {
         await flagCall({ rewardId, flagged: action === 'flag', reason });
       }
+      if (!lifecycle.isActive()) return;
       toast.success(action === 'approve'
         ? 'Crédit plateforme accordé après revue.'
         : action === 'reject'
@@ -608,13 +676,17 @@ export default function ReferralMarketingDashboard() {
       setReasons(current => ({ ...current, [rewardId]: '' }));
       await loadOverview();
     } catch (reason) {
+      if (!lifecycle.isActive()) return;
       console.error('Unable to perform referral reward action', reason);
       setActionErrors(current => ({
         ...current,
         [rewardId]: 'Cette action a échoué. Vérifiez que le crédit est toujours en attente, puis réessayez.',
       }));
     } finally {
-      setActingRewardId(null);
+      rewardActionTracker.current.end(rewardId);
+      if (lifecycle.isActive()) {
+        setActingRewardIds(new Set(rewardActionTracker.current.snapshot()));
+      }
     }
   };
 
@@ -704,7 +776,7 @@ export default function ReferralMarketingDashboard() {
         </div>
         <button
           type="button"
-          disabled={actingRewardId === reward.id}
+          disabled={actingRewardIds.has(reward.id)}
           onClick={() => void performRewardAction(reward.id, activelyFlagged ? 'clear' : 'flag')}
           className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-amber-300/30 px-3 text-sm font-bold text-amber-100 disabled:opacity-50"
         >
@@ -713,7 +785,7 @@ export default function ReferralMarketingDashboard() {
         </button>
         <button
           type="button"
-          disabled={actingRewardId === reward.id}
+          disabled={actingRewardIds.has(reward.id)}
           onClick={() => void performRewardAction(reward.id, 'reject')}
           className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-rose-400/30 px-3 text-sm font-bold text-rose-200 disabled:opacity-50"
         >
@@ -721,7 +793,7 @@ export default function ReferralMarketingDashboard() {
         </button>
         <button
           type="button"
-          disabled={actingRewardId === reward.id || activelyFlagged}
+          disabled={actingRewardIds.has(reward.id) || activelyFlagged}
           onClick={() => void performRewardAction(reward.id, 'approve')}
           className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-emerald-400 px-3 text-sm font-black text-black disabled:opacity-40"
         >
