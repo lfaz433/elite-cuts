@@ -281,3 +281,22 @@ npm --prefix functions exec jest -- src/referrals.test.ts --runInBand
 ```
 
 Result: Functions TypeScript build passed (including the compile-only contract test); referral domain tests passed (59).
+
+## Final-release integrity remediation: trusted approval source and canonical issued-credit reporting
+
+Pending reward approval is now fail-closed. The approval transaction requires the exact deterministic reward document ID `{programId}__{invitedUserId}`, then re-reads `referralBookingEvidence/{bookingId}` and validates its deterministic reward link, booking, program, normalized code, inviter ID and typed owner namespace, invited client identity, currency, both minor-unit terms, completed timestamp, trigger event/version/timestamp, and program rollout marker. It verifies those values exactly against the pending reward and the currently trusted booking, attribution, code, and program records. Ledger values are derived from the trusted evidence record, never from the mutable reward document. A cloned, altered, or incomplete pending reward cannot change status or write credits on approval, but it remains safely rejectable through the existing manual review action.
+
+Completion processing now evaluates program date availability against the trusted Firestore trigger event timestamp rather than handler wall-clock time. This preserves a positive-paid completion that occurred just before a program’s end date when trigger delivery runs later. Approval uses that same persisted evidence timestamp for program-date availability, while still requiring the current program/code state and exact terms to remain valid.
+
+The Super Admin overview now derives both platform issued totals and typed top-referrer issued-credit totals from the same canonical approved `creditLedgers` legs. A ledger must have its deterministic `{rewardId}__inviter` or `{rewardId}__invited` ID, valid leg kind/typed owner/currency/amount, and match a deterministic approved reward's matching owner namespace, currency, and exact leg amount. Corrupt, cloned, mismatched-owner, or orphan records are excluded from money totals. `topReferrers[].rewards` remains an explicit reward-document count, so it can be nonzero while its ledger-derived `approvedCreditTotals` is empty for malformed historical data.
+
+Verification for this remediation:
+
+```bash
+npm --prefix functions exec jest -- src/referrals.test.ts --runInBand
+npm --prefix functions exec jest -- src/bookings.test.ts --runInBand
+npm --prefix functions run build
+firebase emulators:exec --only firestore "PATH=/opt/homebrew/bin:$PATH /opt/homebrew/bin/node ./node_modules/jest/bin/jest.js --config='{\"testEnvironment\":\"node\",\"rootDir\":\".\",\"transform\":{}}' --runInBand --runTestsByPath rules-tests/referral.rules.test.cjs rules-tests/booking-transition-enforcement.test.cjs"
+```
+
+Result: referral domain tests passed (62), booking lifecycle tests passed (22), Functions TypeScript build passed, and the focused Firestore rule suites passed (10).

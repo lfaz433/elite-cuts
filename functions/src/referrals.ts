@@ -301,6 +301,75 @@ function samePrincipal(
     && leftId === rightId && ownerType(leftType) === ownerType(rightType);
 }
 
+type TrustedReferralQualification = {
+  rewardId: string;
+  programId: string;
+  bookingId: string;
+  code: string;
+  inviterId: string;
+  inviterOwnerId: string;
+  inviterOwnerType: OwnerType;
+  invitedUserId: string;
+  invitedOwnerId: string;
+  invitedOwnerType: 'client';
+  currency: string;
+  inviterCreditMinor: number;
+  invitedDiscountMinor: number;
+  eligibleCompletedAtMs: number;
+  eligibilityEvidenceVersion: number;
+  eligibilityEvidenceEventId: string;
+  eligibilityEvidenceUpdateTimeMs: number;
+  eligibilityProgramNotBeforeAtMs: number;
+};
+
+function qualificationMatchesRecord(recordValue: RecordValue | undefined, qualification: TrustedReferralQualification): boolean {
+  return recordValue !== undefined
+    && Object.entries(qualification).every(([key, value]) => recordValue[key] === value);
+}
+
+function trustedQualificationFromEvidence(evidence: RecordValue | undefined): TrustedReferralQualification | null {
+  if (!evidence
+    || typeof evidence.rewardId !== 'string' || !DOCUMENT_ID_PATTERN.test(evidence.rewardId)
+    || typeof evidence.programId !== 'string' || !DOCUMENT_ID_PATTERN.test(evidence.programId)
+    || typeof evidence.bookingId !== 'string' || !DOCUMENT_ID_PATTERN.test(evidence.bookingId)
+    || typeof evidence.code !== 'string' || !CODE_PATTERN.test(evidence.code)
+    || typeof evidence.inviterId !== 'string' || !DOCUMENT_ID_PATTERN.test(evidence.inviterId)
+    || typeof evidence.inviterOwnerId !== 'string' || !DOCUMENT_ID_PATTERN.test(evidence.inviterOwnerId)
+    || !ownerType(evidence.inviterOwnerType)
+    || typeof evidence.invitedUserId !== 'string' || !DOCUMENT_ID_PATTERN.test(evidence.invitedUserId)
+    || typeof evidence.invitedOwnerId !== 'string' || !DOCUMENT_ID_PATTERN.test(evidence.invitedOwnerId)
+    || evidence.invitedOwnerType !== 'client'
+    || typeof evidence.currency !== 'string' || !CURRENCY_PATTERN.test(evidence.currency)
+    || !Number.isSafeInteger(evidence.inviterCreditMinor) || (evidence.inviterCreditMinor as number) < 0
+    || !Number.isSafeInteger(evidence.invitedDiscountMinor) || (evidence.invitedDiscountMinor as number) < 0
+    || !Number.isSafeInteger(evidence.eligibleCompletedAtMs)
+    || evidence.eligibilityEvidenceVersion !== REFERRAL_ELIGIBILITY_EVIDENCE_VERSION
+    || typeof evidence.eligibilityEvidenceEventId !== 'string' || evidence.eligibilityEvidenceEventId.length === 0
+    || !Number.isSafeInteger(evidence.eligibilityEvidenceUpdateTimeMs)
+    || !Number.isSafeInteger(evidence.eligibilityProgramNotBeforeAtMs)
+  ) return null;
+  return {
+    rewardId: evidence.rewardId,
+    programId: evidence.programId,
+    bookingId: evidence.bookingId,
+    code: evidence.code,
+    inviterId: evidence.inviterId,
+    inviterOwnerId: evidence.inviterOwnerId,
+    inviterOwnerType: evidence.inviterOwnerType as OwnerType,
+    invitedUserId: evidence.invitedUserId,
+    invitedOwnerId: evidence.invitedOwnerId,
+    invitedOwnerType: 'client',
+    currency: evidence.currency,
+    inviterCreditMinor: evidence.inviterCreditMinor as number,
+    invitedDiscountMinor: evidence.invitedDiscountMinor as number,
+    eligibleCompletedAtMs: evidence.eligibleCompletedAtMs as number,
+    eligibilityEvidenceVersion: REFERRAL_ELIGIBILITY_EVIDENCE_VERSION,
+    eligibilityEvidenceEventId: evidence.eligibilityEvidenceEventId,
+    eligibilityEvidenceUpdateTimeMs: evidence.eligibilityEvidenceUpdateTimeMs as number,
+    eligibilityProgramNotBeforeAtMs: evidence.eligibilityProgramNotBeforeAtMs as number,
+  };
+}
+
 function principalKey(ownerId: string, ownerTypeValue: OwnerType): string {
   return `${ownerTypeValue}:${ownerId}`;
 }
@@ -802,57 +871,47 @@ export async function processReferralBookingCompletion(
     const program = programSnapshot.data() as RecordValue | undefined;
     const code = codeSnapshot.data() as RecordValue | undefined;
     const countryCode = typeof attribution.countryCode === 'string' ? attribution.countryCode : 'FR';
-    if (!validProgram(program, countryCode, currentTime)) return false;
+    // The trigger's immutable update time, rather than delayed handler wall time,
+    // decides whether this completion occurred while the program was available.
+    if (!validProgram(program, countryCode, new Date(completionEvidence.updateTimeMs))) return false;
     const programEvidence = programEligibilityEvidence(program);
     if (!programEvidence || !isTrustedCompletionEvidence(completionEvidence, completedAtMs, programEvidence)) return false;
     const inviterOwnerType = ownerType(code?.ownerType);
     if (
-      !codeSnapshot.exists || !code || code.status !== 'active' || code.programId !== attribution.programId
+      !codeSnapshot.exists || !code || code.code !== attribution.code || code.status !== 'active' || code.programId !== attribution.programId
       || code.ownerId !== attribution.inviterId || typeof attribution.inviterId !== 'string'
       || !inviterOwnerType || samePrincipal(code.ownerId, inviterOwnerType, booking.clientId, 'client')
       || (attribution.inviterOwnerType !== undefined && attribution.inviterOwnerType !== inviterOwnerType)
     ) return false;
-    const existingEligibilityEvidence = eligibilityEvidenceSnapshot.data() as RecordValue | undefined;
-    if (
-      eligibilityEvidenceSnapshot.exists
-      && (
-        existingEligibilityEvidence?.version !== completionEvidence.version
-        || existingEligibilityEvidence?.eventId !== completionEvidence.eventId
-        || existingEligibilityEvidence?.updateTimeMs !== completionEvidence.updateTimeMs
-        || existingEligibilityEvidence?.programId !== attribution.programId
-        || existingEligibilityEvidence?.programNotBeforeAtMs !== programEvidence.notBeforeAtMs
-      )
-    ) return false;
-    if (attribution.inviterOwnerType === undefined) transaction.update(attributionRef, { inviterOwnerType });
-    const now = admin.firestore.FieldValue.serverTimestamp();
-    if (!eligibilityEvidenceSnapshot.exists) {
-      transaction.create(eligibilityEvidenceRef, {
-        version: completionEvidence.version,
-        eventId: completionEvidence.eventId,
-        updateTimeMs: completionEvidence.updateTimeMs,
-        programId: attribution.programId,
-        programNotBeforeAtMs: programEvidence.notBeforeAtMs,
-        createdAt: now,
-      });
-    }
-    transaction.create(rewardRef, {
+    const qualification: TrustedReferralQualification = {
+      rewardId: rewardRef.id,
       programId: attribution.programId,
       bookingId,
       code: attribution.code,
       inviterId: attribution.inviterId,
-      inviterOwnerId: code.ownerId,
+      inviterOwnerId: code.ownerId as string,
       inviterOwnerType,
       invitedUserId: booking.clientId,
       invitedOwnerId: booking.clientId,
       invitedOwnerType: 'client',
+      currency: (program as RecordValue).currency as string,
+      inviterCreditMinor: (program as RecordValue).inviterCreditMinor as number,
+      invitedDiscountMinor: (program as RecordValue).invitedDiscountMinor as number,
       eligibleCompletedAtMs: completedAtMs,
       eligibilityEvidenceVersion: completionEvidence.version,
       eligibilityEvidenceEventId: completionEvidence.eventId,
       eligibilityEvidenceUpdateTimeMs: completionEvidence.updateTimeMs,
       eligibilityProgramNotBeforeAtMs: programEvidence.notBeforeAtMs,
-      inviterCreditMinor: program?.inviterCreditMinor,
-      invitedDiscountMinor: program?.invitedDiscountMinor,
-      currency: program?.currency,
+    };
+    const existingEligibilityEvidence = eligibilityEvidenceSnapshot.data() as RecordValue | undefined;
+    if (eligibilityEvidenceSnapshot.exists && !qualificationMatchesRecord(existingEligibilityEvidence, qualification)) return false;
+    if (attribution.inviterOwnerType === undefined) transaction.update(attributionRef, { inviterOwnerType });
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    if (!eligibilityEvidenceSnapshot.exists) {
+      transaction.create(eligibilityEvidenceRef, { ...qualification, createdAt: now });
+    }
+    transaction.create(rewardRef, {
+      ...qualification,
       status: 'pending' as RewardStatus,
       createdAt: now,
       updatedAt: now,
@@ -911,64 +970,84 @@ export async function reviewReferralReward(
         || !Number.isSafeInteger(reward.inviterCreditMinor) || (reward.inviterCreditMinor as number) < 0
         || !Number.isSafeInteger(reward.invitedDiscountMinor) || (reward.invitedDiscountMinor as number) < 0
       ) error('failed-precondition', 'Referral reward is invalid');
-      const approval = {
-        programId: reward.programId, bookingId: reward.bookingId, code: reward.code,
-        inviterId: reward.inviterId, invitedUserId: reward.invitedUserId, currency: reward.currency,
-        inviterCreditMinor: reward.inviterCreditMinor as number, invitedDiscountMinor: reward.invitedDiscountMinor as number,
+      if (rewardId !== `${reward.programId}__${reward.invitedUserId}`) {
+        error('failed-precondition', 'Referral reward is invalid');
+      }
+      // These fields select trusted source documents only. Credit terms are never
+      // taken from the mutable pending reward document.
+      const linkage = {
+        programId: reward.programId as string,
+        bookingId: reward.bookingId as string,
+        code: reward.code as string,
+        invitedUserId: reward.invitedUserId as string,
       };
-      const bookingRef = firestore.collection('bookings').doc(approval.bookingId);
-      const eligibilityEvidenceRef = firestore.collection('referralBookingEvidence').doc(approval.bookingId);
-      const attributionRef = firestore.collection('referralAttributions').doc(approval.invitedUserId);
-      const codeRef = firestore.collection('referralCodes').doc(approval.code);
-      const programRef = firestore.collection('referralPrograms').doc(approval.programId);
+      const bookingRef = firestore.collection('bookings').doc(linkage.bookingId);
+      const eligibilityEvidenceRef = firestore.collection('referralBookingEvidence').doc(linkage.bookingId);
+      const attributionRef = firestore.collection('referralAttributions').doc(linkage.invitedUserId);
+      const codeRef = firestore.collection('referralCodes').doc(linkage.code);
+      const programRef = firestore.collection('referralPrograms').doc(linkage.programId);
       const [bookingSnapshot, eligibilityEvidenceSnapshot, attributionSnapshot, codeSnapshot, programSnapshot, clientBookings] = await Promise.all([
         transaction.get(bookingRef),
         transaction.get(eligibilityEvidenceRef),
         transaction.get(attributionRef),
         transaction.get(codeRef),
         transaction.get(programRef),
-        transaction.get(firestore.collection('bookings').where('clientId', '==', approval.invitedUserId)),
+        transaction.get(firestore.collection('bookings').where('clientId', '==', linkage.invitedUserId)),
       ]);
       const booking = bookingSnapshot.data() as RecordValue | undefined;
       const attribution = attributionSnapshot.data() as RecordValue | undefined;
       const code = codeSnapshot.data() as RecordValue | undefined;
       const program = programSnapshot.data() as RecordValue | undefined;
       const eligibilityEvidence = eligibilityEvidenceSnapshot.data() as RecordValue | undefined;
-      const inviterOwnerType = ownerType(code?.ownerType);
       const earliestBooking = earliestPositivePaidCompletion(clientBookings.docs as Array<{ id: string; data(): RecordValue }>);
       const completedAtMs = positivePaidCompletionAt(booking);
       const programEvidence = programEligibilityEvidence(program);
-      const rewardCompletionEvidence = referralCompletionEvidence({
-        version: reward.eligibilityEvidenceVersion,
-        eventId: reward.eligibilityEvidenceEventId,
-        updateTimeMs: reward.eligibilityEvidenceUpdateTimeMs,
-      });
+      const qualification = trustedQualificationFromEvidence(eligibilityEvidence);
+      const rewardCompletionEvidence = qualification ? referralCompletionEvidence({
+        version: qualification.eligibilityEvidenceVersion,
+        eventId: qualification.eligibilityEvidenceEventId,
+        updateTimeMs: qualification.eligibilityEvidenceUpdateTimeMs,
+      }) : null;
+      const inviterOwnerType = ownerType(code?.ownerType);
+      const countryCode = typeof attribution?.countryCode === 'string' ? attribution.countryCode : 'FR';
       if (
         !bookingSnapshot.exists || !isPositivePaidBooking(booking)
-        || booking.clientId !== approval.invitedUserId
-        || !earliestBooking || completedAtMs === undefined || earliestBooking.id !== approval.bookingId
-        || reward.eligibleCompletedAtMs !== completedAtMs
+        || booking.clientId !== linkage.invitedUserId
+        || !earliestBooking || completedAtMs === undefined || earliestBooking.id !== linkage.bookingId
+        || !qualification || qualification.rewardId !== rewardId
+        || qualification.programId !== linkage.programId || qualification.bookingId !== linkage.bookingId
+        || qualification.code !== linkage.code || qualification.invitedUserId !== linkage.invitedUserId
+        || qualification.inviterOwnerId !== qualification.inviterId
+        || qualification.invitedOwnerId !== qualification.invitedUserId
+        || qualification.eligibleCompletedAtMs !== completedAtMs
         || !isTrustedCompletionEvidence(rewardCompletionEvidence, completedAtMs, programEvidence)
-        || reward.eligibilityProgramNotBeforeAtMs !== programEvidence?.notBeforeAtMs
         || !eligibilityEvidenceSnapshot.exists || !eligibilityEvidence
-        || eligibilityEvidence.version !== rewardCompletionEvidence?.version
-        || eligibilityEvidence.eventId !== rewardCompletionEvidence?.eventId
-        || eligibilityEvidence.updateTimeMs !== rewardCompletionEvidence?.updateTimeMs
-        || eligibilityEvidence.programId !== approval.programId
-        || eligibilityEvidence.programNotBeforeAtMs !== programEvidence?.notBeforeAtMs
-        || !attributionSnapshot.exists || !attribution || attribution.programId !== approval.programId
-        || attribution.code !== approval.code || attribution.inviterId !== approval.inviterId
+        || !qualificationMatchesRecord(eligibilityEvidence, qualification)
+        || !qualificationMatchesRecord(reward, qualification)
+        || !attributionSnapshot.exists || !attribution || attribution.programId !== qualification.programId
+        || attribution.code !== qualification.code || attribution.inviterId !== qualification.inviterId
         || (attribution.inviterOwnerType !== undefined && attribution.inviterOwnerType !== inviterOwnerType)
-        || !codeSnapshot.exists || !code || code.status !== 'active' || code.programId !== approval.programId
-        || code.ownerId !== approval.inviterId || !inviterOwnerType
-        || samePrincipal(approval.inviterId, inviterOwnerType, approval.invitedUserId, 'client')
-        || (reward.inviterOwnerId !== undefined && reward.inviterOwnerId !== approval.inviterId)
-        || (reward.inviterOwnerType !== undefined && reward.inviterOwnerType !== inviterOwnerType)
-        || (reward.invitedOwnerId !== undefined && reward.invitedOwnerId !== approval.invitedUserId)
-        || (reward.invitedOwnerType !== undefined && reward.invitedOwnerType !== 'client')
         || !programSnapshot.exists || !program
+        || !validProgram(program, countryCode, new Date(qualification.eligibilityEvidenceUpdateTimeMs))
+        || program.currency !== qualification.currency
+        || program.inviterCreditMinor !== qualification.inviterCreditMinor
+        || program.invitedDiscountMinor !== qualification.invitedDiscountMinor
+        || programEvidence?.notBeforeAtMs !== qualification.eligibilityProgramNotBeforeAtMs
+        || !codeSnapshot.exists || !code || code.code !== qualification.code || code.status !== 'active' || code.programId !== qualification.programId
+        || code.ownerId !== qualification.inviterId || inviterOwnerType !== qualification.inviterOwnerType
+        || samePrincipal(qualification.inviterId, qualification.inviterOwnerType, qualification.invitedUserId, 'client')
       ) error('failed-precondition', 'Referral reward eligibility is no longer valid');
-      approvedReward = { ...approval, inviterOwnerType };
+      approvedReward = {
+        programId: qualification.programId,
+        bookingId: qualification.bookingId,
+        code: qualification.code,
+        inviterId: qualification.inviterId,
+        invitedUserId: qualification.invitedUserId,
+        inviterOwnerType: qualification.inviterOwnerType,
+        currency: qualification.currency,
+        inviterCreditMinor: qualification.inviterCreditMinor,
+        invitedDiscountMinor: qualification.invitedDiscountMinor,
+      };
       }
     const now = admin.firestore.FieldValue.serverTimestamp();
     transaction.update(rewardRef, {
@@ -1315,19 +1394,62 @@ function safePendingRewardForOverview(id: string, reward: RecordValue): Referral
   };
 }
 
+type CanonicalApprovedCreditLedger = {
+  rewardId: string;
+  ownerId: string;
+  ownerType: OwnerType;
+  currency: string;
+  amountMinor: number;
+  kind: 'referral_inviter_credit' | 'referral_invited_discount';
+};
+
+function canonicalApprovedCreditLedgerForOverview(
+  snapshot: { id: string; data(): RecordValue },
+  rewardsById: Map<string, RecordValue>,
+): CanonicalApprovedCreditLedger | null {
+  const ledger = snapshot.data();
+  const kind = ledger.kind;
+  const ownerTypeValue = ownerType(ledger.ownerType);
+  if (
+    ledger.status !== 'approved'
+    || (kind !== 'referral_inviter_credit' && kind !== 'referral_invited_discount')
+    || typeof ledger.rewardId !== 'string' || !DOCUMENT_ID_PATTERN.test(ledger.rewardId)
+    || typeof ledger.ownerId !== 'string' || !DOCUMENT_ID_PATTERN.test(ledger.ownerId)
+    || !ownerTypeValue
+    || typeof ledger.currency !== 'string' || !CURRENCY_PATTERN.test(ledger.currency)
+    || !Number.isSafeInteger(ledger.amountMinor) || (ledger.amountMinor as number) < 0
+    || snapshot.id !== `${ledger.rewardId}__${kind === 'referral_inviter_credit' ? 'inviter' : 'invited'}`
+  ) return null;
+  const reward = rewardsById.get(ledger.rewardId);
+  if (
+    !reward || reward.status !== 'approved'
+    || reward.rewardId !== ledger.rewardId
+    || typeof reward.programId !== 'string' || typeof reward.invitedUserId !== 'string'
+    || ledger.rewardId !== `${reward.programId}__${reward.invitedUserId}`
+  ) return null;
+  const expectedOwnerId = kind === 'referral_inviter_credit' ? reward.inviterOwnerId : reward.invitedOwnerId;
+  const expectedOwnerType = kind === 'referral_inviter_credit' ? ownerType(reward.inviterOwnerType) : ownerType(reward.invitedOwnerType);
+  const expectedAmount = kind === 'referral_inviter_credit' ? reward.inviterCreditMinor : reward.invitedDiscountMinor;
+  if (
+    typeof expectedOwnerId !== 'string' || expectedOwnerId !== ledger.ownerId || expectedOwnerType !== ownerTypeValue
+    || reward.currency !== ledger.currency || expectedAmount !== ledger.amountMinor
+  ) return null;
+  return {
+    rewardId: ledger.rewardId,
+    ownerId: ledger.ownerId,
+    ownerType: ownerTypeValue,
+    currency: ledger.currency,
+    amountMinor: ledger.amountMinor as number,
+    kind,
+  };
+}
+
 function approvedCreditTotalsForOverview(
-  snapshots: Array<{ data(): RecordValue }>,
+  ledgers: CanonicalApprovedCreditLedger[],
 ): ReferralCreditTotal[] {
   const totals = new Map<string, number>();
-  for (const snapshot of snapshots) {
-    const ledger = snapshot.data();
-    if (
-      ledger.status !== 'approved'
-      || (ledger.kind !== 'referral_inviter_credit' && ledger.kind !== 'referral_invited_discount')
-      || typeof ledger.currency !== 'string' || !CURRENCY_PATTERN.test(ledger.currency)
-      || !Number.isSafeInteger(ledger.amountMinor) || (ledger.amountMinor as number) < 0
-    ) continue;
-    totals.set(ledger.currency, (totals.get(ledger.currency) ?? 0) + (ledger.amountMinor as number));
+  for (const ledger of ledgers) {
+    totals.set(ledger.currency, (totals.get(ledger.currency) ?? 0) + ledger.amountMinor);
   }
   return [...totals.entries()].map(([currency, amountMinor]) => ({ currency, amountMinor }))
     .sort((left, right) => String(left.currency).localeCompare(String(right.currency)));
@@ -1395,6 +1517,9 @@ export async function getReferralMarketingOverview(
   let rejected = 0;
   const pendingRewards: ReferralPendingRewardOverview[] = [];
   const flaggedRewards: Array<ReferralPendingRewardOverview & { fraudFlag: { status: 'flagged'; reason: string } }> = [];
+  const rewardsById = new Map<string, RecordValue>(rewardsSnapshot.docs.map(snapshot => (
+    [snapshot.id, snapshot.data() as RecordValue]
+  )));
   const referrerTotals = new Map<string, {
     inviterId: string; inviterOwnerType: OwnerType; rewards: number; approvedCredits: Map<string, number>;
   }>();
@@ -1421,13 +1546,24 @@ export async function getReferralMarketingOverview(
       inviterId: reward.inviterId, inviterOwnerType, rewards: 0, approvedCredits: new Map<string, number>(),
     };
     current.rewards += 1;
-    const inviterCreditMinor = reward.inviterCreditMinor as number;
-    if (reward.status === 'approved' && Number.isSafeInteger(inviterCreditMinor) && inviterCreditMinor >= 0) {
-      current.approvedCredits.set(
-        reward.currency,
-        (current.approvedCredits.get(reward.currency) ?? 0) + inviterCreditMinor,
-      );
-    }
+    referrerTotals.set(key, current);
+  }
+  const canonicalApprovedCreditLedgers = ledgersSnapshot.docs.flatMap(snapshot => {
+    const ledger = canonicalApprovedCreditLedgerForOverview(
+      snapshot as { id: string; data(): RecordValue }, rewardsById,
+    );
+    return ledger ? [ledger] : [];
+  });
+  for (const ledger of canonicalApprovedCreditLedgers) {
+    if (ledger.kind !== 'referral_inviter_credit') continue;
+    const key = principalKey(ledger.ownerId, ledger.ownerType);
+    const current = referrerTotals.get(key) ?? {
+      inviterId: ledger.ownerId, inviterOwnerType: ledger.ownerType, rewards: 0, approvedCredits: new Map<string, number>(),
+    };
+    current.approvedCredits.set(
+      ledger.currency,
+      (current.approvedCredits.get(ledger.currency) ?? 0) + ledger.amountMinor,
+    );
     referrerTotals.set(key, current);
   }
   const topReferrers = new Map<string, ReferralTopReferrer>();
@@ -1482,7 +1618,7 @@ export async function getReferralMarketingOverview(
       approvedRewards: approved,
       rejected,
     },
-    approvedCreditTotals: approvedCreditTotalsForOverview(ledgersSnapshot.docs as Array<{ data(): RecordValue }>),
+    approvedCreditTotals: approvedCreditTotalsForOverview(canonicalApprovedCreditLedgers),
     topReferrers: [...topReferrers.values()]
       .sort((left, right) => right.referrals - left.referrals || right.rewards - left.rewards
         || left.inviterOwnerType.localeCompare(right.inviterOwnerType) || left.inviterId.localeCompare(right.inviterId))
