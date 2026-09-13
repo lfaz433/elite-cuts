@@ -1630,7 +1630,7 @@ export async function getMyReferralWorkspace(
     history: {
       role: input.role,
       items: items.flatMap(item => item ? [item] : []),
-      ...(projectionRows.length > input.limit ? { nextPageToken: pageRows.at(-1)?.id } : {}),
+      ...(projectionRows.length > input.limit ? { nextPageToken: projectionRows[input.limit - 1].id } : {}),
       truncated: projectionRows.length > input.limit,
     },
   };
