@@ -15,7 +15,7 @@ interface WalletModalProps {
 
 const WalletModal: React.FC<WalletModalProps> = ({ onClose, currentBarber }) => {
   const { tenantId } = useTenant();
-  const { bookings, payrollPayments, payrollRequests, getBarberWalletBalance, sendPush } = useBusiness();
+  const { bookings, payrollPayments, payrollRequests, getBarberWalletBalance } = useBusiness();
   const [requestAmount, setRequestAmount] = useState<number | ''>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -54,24 +54,22 @@ const WalletModal: React.FC<WalletModalProps> = ({ onClose, currentBarber }) => 
         requestedAt: Date.now()
       });
       
-      // Notify admin UI
-      await addDoc(collection(db, 'notifications'), {
-        tenantId,
-        recipientId: 'admin',
-        title: 'Nouvelle demande de paiement',
-        message: `💰 ${currentBarber.name} demande un paiement de €${requestAmount}`,
-        type: 'payroll',
-        createdAt: new Date().toISOString(),
-        read: false
-      });
-
-      // Notify via Push
-      await sendPush(
-        'admin',
-        '💰 Demande de paiement',
-        `${currentBarber.name} demande un paiement de €${requestAmount}`,
-        `/admin/paie`
-      );
+      // Notify admin UI. The request is already saved, so a failed notice must
+      // not report the whole request as failed.
+      try {
+        await addDoc(collection(db, 'notifications'), {
+          tenantId,
+          recipientId: 'admin',
+          senderBarberId: currentBarber.id,
+          title: 'Nouvelle demande de paiement',
+          message: `💰 ${currentBarber.name} demande un paiement de €${requestAmount}`,
+          type: 'payroll',
+          createdAt: new Date().toISOString(),
+          read: false
+        });
+      } catch (notifyError) {
+        console.warn('Payroll request saved but admin notification failed', notifyError);
+      }
 
       toast.success('Demande envoyée ✓');
       setRequestAmount('');

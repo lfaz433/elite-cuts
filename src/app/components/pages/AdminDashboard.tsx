@@ -690,13 +690,20 @@ export default function AdminDashboard() {
         isPayroll: true,
       });
       
-      // Step 4: Notify barber (non-fatal — push failure must not break the flow)
-      await sendPush(
-        request.barberId,
-        '✅ Paiement approuvé',
-        `Votre demande de €${approvedAmount} a été approuvée`,
-        `/barber/gains`
-      );
+      // Step 4: Notify barber in-app (non-fatal — the payout is already recorded)
+      try {
+        await addDoc(collection(db, 'notifications'), {
+          tenantId: resolvedTenantId,
+          recipientId: request.barberId,
+          title: 'Paiement approuvé',
+          message: `✅ Votre demande de €${Number(approvedAmount).toFixed(2)} a été approuvée`,
+          type: 'payroll',
+          createdAt: new Date().toISOString(),
+          read: false
+        });
+      } catch (notifyError) {
+        console.warn('Payout recorded but barber notification failed', notifyError);
+      }
 
       toast.success('Paiement approuvé');
     } catch (error: any) {

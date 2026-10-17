@@ -626,15 +626,36 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       markLoaded();
     }, () => markLoaded());
 
-    const unsubPayrollReqs = onSnapshot(query(collection(db, 'payroll_requests'), where('tenantId', '==', tenantId)), (snapshot) => {
-      setPayrollRequests(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as PayrollRequest)));
-      markLoaded();
-    }, () => markLoaded());
+    // Barbers may only read their own payroll docs, so their queries must be
+    // filtered by barberId or the rules reject the whole listener.
+    const payrollQuery = (collectionName: 'payroll_requests' | 'payroll_payments') => (
+      assignedRecordScope.kind === 'barber'
+        ? query(
+          collection(db, collectionName),
+          where('tenantId', '==', tenantId),
+          where(assignedRecordScope.field, '==', assignedRecordScope.value),
+        )
+        : query(collection(db, collectionName), where('tenantId', '==', tenantId))
+    );
 
-    const unsubPayrollPays = onSnapshot(query(collection(db, 'payroll_payments'), where('tenantId', '==', tenantId)), (snapshot) => {
-      setPayrollPayments(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as PayrollPayment)));
+    setPayrollRequests([]);
+    setPayrollPayments([]);
+    let unsubPayrollReqs = () => {};
+    let unsubPayrollPays = () => {};
+    if (assignedRecordScope.kind === 'none') {
       markLoaded();
-    }, () => markLoaded());
+      markLoaded();
+    } else {
+      unsubPayrollReqs = onSnapshot(payrollQuery('payroll_requests'), (snapshot) => {
+        setPayrollRequests(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as PayrollRequest)));
+        markLoaded();
+      }, () => markLoaded());
+
+      unsubPayrollPays = onSnapshot(payrollQuery('payroll_payments'), (snapshot) => {
+        setPayrollPayments(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as PayrollPayment)));
+        markLoaded();
+      }, () => markLoaded());
+    }
 
     let unsubCampaigns = () => {};
     if (canLoadTenantCampaigns) {
