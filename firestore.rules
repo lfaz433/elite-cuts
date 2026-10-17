@@ -613,8 +613,24 @@ service cloud.firestore {
           || (request.auth != null && request.auth.uid == data.recipientId);
       }
 
+      // Lets a barber tell the salon admins about their own payout request.
+      function isBarberPayrollNoticeToAdmin(data) {
+        return data.get('recipientId', '') == 'admin'
+          && data.get('type', '') == 'payroll'
+          && isAssignedBarber(data.tenantId, data.get('senderBarberId', ''))
+          && data.keys().hasOnly([
+            'tenantId', 'recipientId', 'senderBarberId', 'title', 'message', 'type', 'createdAt', 'read'
+          ])
+          && data.get('read', false) == false
+          && data.get('title', '') is string && data.get('title', '').size() <= 200
+          && data.get('message', '') is string && data.get('message', '').size() <= 1000;
+      }
+
       allow read, delete: if canAccessNotification(resource.data);
-      allow create: if canAccessNotification(request.resource.data)
+      allow create: if (
+          canAccessNotification(request.resource.data)
+          || isBarberPayrollNoticeToAdmin(request.resource.data)
+        )
         && request.resource.data.get('serverIssued', false) != true;
       allow update: if canAccessNotification(resource.data)
         && request.resource.data.get('serverIssued', false) == resource.data.get('serverIssued', false)
@@ -625,15 +641,38 @@ service cloud.firestore {
     }
 
     // 5. Payroll Collections
+    // A barber may file a pending payout request for their own barberId only.
+    // Approval, rejection and payments stay with manageStaff.
+    function isOwnPendingPayrollRequest(data) {
+      return isAssignedBarber(data.tenantId, data.get('barberId', ''))
+        && data.keys().hasOnly([
+          'tenantId', 'barberId', 'barberName', 'amount', 'status', 'requestedAt'
+        ])
+        && data.keys().hasAll(['tenantId', 'barberId', 'amount', 'status', 'requestedAt'])
+        && data.status == 'pending'
+        && data.amount is number
+        && data.amount > 0
+        && data.amount <= 1000000
+        && data.requestedAt is number
+        && (!('barberName' in data) || (data.barberName is string && data.barberName.size() <= 200));
+    }
+
     match /payroll_requests/{requestId} {
-      allow read, update, delete: if isSuperAdmin()
+      allow read: if isSuperAdmin()
+        || hasTenantPermission(resource.data.tenantId, 'manageStaff')
+        || isAssignedBarber(resource.data.tenantId, resource.data.get('barberId', ''));
+      allow update, delete: if isSuperAdmin()
         || hasTenantPermission(resource.data.tenantId, 'manageStaff');
       allow create: if isSuperAdmin()
-        || hasTenantPermission(request.resource.data.tenantId, 'manageStaff');
+        || hasTenantPermission(request.resource.data.tenantId, 'manageStaff')
+        || isOwnPendingPayrollRequest(request.resource.data);
     }
 
     match /payroll_payments/{paymentId} {
-      allow read, update, delete: if isSuperAdmin()
+      allow read: if isSuperAdmin()
+        || hasTenantPermission(resource.data.tenantId, 'manageStaff')
+        || isAssignedBarber(resource.data.tenantId, resource.data.get('barberId', ''));
+      allow update, delete: if isSuperAdmin()
         || hasTenantPermission(resource.data.tenantId, 'manageStaff');
       allow create: if isSuperAdmin()
         || hasTenantPermission(request.resource.data.tenantId, 'manageStaff');
