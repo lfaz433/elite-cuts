@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useMemo, ReactNode } from 'react';
 import { auth, db, functions } from '../../lib/firebase';
+import { firebaseFunctionUrl } from '../../lib/firebaseEnvironment';
 import { httpsCallable } from 'firebase/functions';
 import { 
   collection, 
@@ -396,11 +397,9 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
 
   const requestBookingTransition = async (id: string, status: string) => {
     if (!tenantId || !auth.currentUser) throw new Error('Authenticated tenant required');
-    const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID?.trim();
-    if (!projectId) throw new Error('Firebase project is not configured');
     const idToken = await auth.currentUser.getIdToken();
     const response = await fetch(
-      `https://us-central1-${projectId}.cloudfunctions.net/transitionBookingStatus`,
+      firebaseFunctionUrl('transitionBookingStatus'),
       {
         method: 'POST',
         headers: {
@@ -423,11 +422,9 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     method: 'cash' | 'card',
   ) => {
     if (!auth.currentUser) throw new Error('Authenticated staff required');
-    const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID?.trim();
-    if (!projectId) throw new Error('Firebase project is not configured');
     const idToken = await auth.currentUser.getIdToken();
     const response = await fetch(
-      `https://us-central1-${projectId}.cloudfunctions.net/recordBookingPaymentRequest`,
+      firebaseFunctionUrl('recordBookingPaymentRequest'),
       {
         method: 'POST',
         headers: {
@@ -457,8 +454,6 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     method: 'cash' | 'card',
   ) => {
     if (!auth.currentUser) throw new Error('Authenticated staff required');
-    const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID?.trim();
-    if (!projectId) throw new Error('Firebase project is not configured');
     const action = staffCreateActionForBooking({
       status: 'completed',
       paymentStatus: 'paid',
@@ -469,7 +464,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     if (!action || action.status !== 'completed') throw new Error('Completion payment is invalid');
     const idToken = await auth.currentUser.getIdToken();
     const response = await fetch(
-      `https://us-central1-${projectId}.cloudfunctions.net/completeBookingPaymentRequest`,
+      firebaseFunctionUrl('completeBookingPaymentRequest'),
       {
         method: 'POST',
         headers: {
@@ -749,8 +744,6 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     }
 
     if (!tenantId) throw new Error('Tenant is required');
-    const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID?.trim();
-    if (!projectId) throw new Error('Firebase project is not configured');
     const staffAction = staffCreateActionForBooking({
       status: booking.status ?? 'pending',
       paymentStatus: booking.paymentStatus,
@@ -769,7 +762,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     if (!auth.currentUser) throw new Error('Authentication is required to create a booking');
     const idToken = await auth.currentUser.getIdToken();
     const response = await fetch(
-      `https://us-central1-${projectId}.cloudfunctions.net/createBookingRequest`,
+      firebaseFunctionUrl('createBookingRequest'),
       {
         method: 'POST',
         headers: {

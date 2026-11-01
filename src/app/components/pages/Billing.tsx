@@ -1,21 +1,14 @@
-import { useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { useTenant } from '../context/TenantContext';
 import { motion } from 'motion/react';
-import { CreditCard, Check, ShieldAlert, Sparkles, Loader2, Calendar } from 'lucide-react';
-import { toast } from 'sonner';
-import { auth } from '../../lib/firebase';
-
-type PlanId = 'basic' | 'pro';
+import { CreditCard, Check, ShieldAlert, Sparkles, Calendar } from 'lucide-react';
 
 export default function Billing() {
   const tenant = useTenant();
   const [searchParams] = useSearchParams();
   const success = searchParams.get('success') === 'true';
   const expired = searchParams.get('expired') === 'true';
-  const [loadingPlan, setLoadingPlan] = useState<PlanId | null>(null);
-
-  const { tenantId, subscription } = tenant;
+  const { subscription } = tenant;
   const currentPlan = subscription?.planId || 'basic';
   const status = subscription?.status || 'trialing';
 
@@ -24,51 +17,6 @@ export default function Billing() {
   const daysRemaining = trialEndsAt 
     ? Math.max(0, Math.ceil((trialEndsAt - Date.now()) / (1000 * 60 * 60 * 24)))
     : 0;
-
-  const handleSelectPlan = async (planId: PlanId) => {
-    setLoadingPlan(planId);
-    try {
-      if (!auth.currentUser) {
-        throw new Error('Votre session a expiré. Veuillez vous reconnecter.');
-      }
-
-      const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID?.trim();
-      if (!projectId) {
-        throw new Error('Le service de paiement n’est pas configuré.');
-      }
-
-      const idToken = await auth.currentUser.getIdToken();
-      const checkoutEndpoint = `https://us-central1-${projectId}.cloudfunctions.net/createCheckoutSession`;
-      const response = await fetch(checkoutEndpoint, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${idToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          tenantId,
-          planId
-        })
-      });
-
-      if (!response.ok) {
-        const errMsg = await response.text();
-        throw new Error(errMsg || 'Erreur lors de la création de la session de paiement.');
-      }
-
-      const data = await response.json();
-      if (data.url) {
-        window.location.href = data.url;
-      } else {
-        throw new Error('URL de paiement introuvable.');
-      }
-    } catch (err: any) {
-      console.error('Stripe Checkout session initiation failed:', err);
-      toast.error(err.message || 'Une erreur est survenue lors de la redirection vers Stripe.');
-    } finally {
-      setLoadingPlan(null);
-    }
-  };
 
   const getStatusColor = (s: string) => {
     switch (s) {
@@ -232,20 +180,17 @@ export default function Billing() {
 
             <div className="pt-8">
               <button
-                onClick={() => handleSelectPlan('basic')}
-                disabled={loadingPlan !== null || (currentPlan === 'basic' && status === 'active')}
+                disabled
                 className={`w-full py-4 rounded-xl font-bold text-xs uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-2 ${
                   currentPlan === 'basic' && status === 'active'
                     ? 'bg-white/5 border border-white/10 text-white/40 cursor-default'
                     : 'bg-white/5 hover:bg-white/10 border border-white/10 text-white'
                 }`}
               >
-                {loadingPlan === 'basic' ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : currentPlan === 'basic' && status === 'active' ? (
+                {currentPlan === 'basic' && status === 'active' ? (
                   'Formule Active'
                 ) : (
-                  'Choisir ce plan'
+                  'Paiements bientôt disponibles'
                 )}
               </button>
             </div>
@@ -306,20 +251,17 @@ export default function Billing() {
 
             <div className="pt-8">
               <button
-                onClick={() => handleSelectPlan('pro')}
-                disabled={loadingPlan !== null || (currentPlan === 'pro' && status === 'active')}
+                disabled
                 className={`w-full py-4 rounded-xl font-black text-xs uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-2 ${
                   currentPlan === 'pro' && status === 'active'
                     ? 'bg-white/5 border border-white/10 text-white/40 cursor-default'
                     : 'bg-[#D4AF37] text-black hover:bg-[#FFD700] hover:shadow-lg hover:shadow-[#D4AF37]/10'
                 }`}
               >
-                {loadingPlan === 'pro' ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : currentPlan === 'pro' && status === 'active' ? (
+                {currentPlan === 'pro' && status === 'active' ? (
                   'Formule Active'
                 ) : (
-                  'Choisir ce plan'
+                  'Paiements bientôt disponibles'
                 )}
               </button>
             </div>
@@ -334,7 +276,7 @@ export default function Billing() {
             <div>
               <h4 className="font-extrabold text-sm uppercase tracking-wider">Abonnement non régularisé</h4>
               <p className="text-xs text-white/60 mt-1.5 leading-relaxed">
-                Votre accès au tableau de bord d'administration est temporairement limité car votre abonnement Stripe a expiré ou est en retard de paiement. Veuillez sélectionner l'une des formules ci-dessus pour restaurer immédiatement tous vos services.
+                Votre abonnement nécessite une mise à jour. Les paiements en ligne seront activés après la mise en production de la facturation sécurisée.
               </p>
             </div>
           </div>
