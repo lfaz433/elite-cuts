@@ -5,8 +5,8 @@ const require = createRequire(import.meta.url);
 const { EXPECTED_FIREBASE_PROJECTS, assertFirebaseAliases } = require('./lib/firebase-targets.cjs');
 const target = process.argv[2];
 
-if (target !== 'staging' && target !== 'production') {
-  console.error('Firebase deploy target must be staging or production.');
+if (target !== 'launch') {
+  console.error('Firebase deploy target must be launch.');
   process.exit(2);
 }
 
@@ -18,11 +18,8 @@ try {
   process.exit(2);
 }
 
-if (
-  target === 'production'
-  && process.env.CONFIRM_PRODUCTION_PROJECT !== EXPECTED_FIREBASE_PROJECTS.production
-) {
-  console.error(`Production deploy refused. Set CONFIRM_PRODUCTION_PROJECT=${EXPECTED_FIREBASE_PROJECTS.production}.`);
+if (process.env.CONFIRM_LAUNCH_PROJECT !== EXPECTED_FIREBASE_PROJECTS.launch) {
+  console.error(`Launch deploy refused. Set CONFIRM_LAUNCH_PROJECT=${EXPECTED_FIREBASE_PROJECTS.launch}.`);
   process.exit(2);
 }
 

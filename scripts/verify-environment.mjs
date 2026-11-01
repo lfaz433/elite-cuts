@@ -1,4 +1,4 @@
-const expected = { staging: 'elite-cuts-staging', production: 'elite-cuts-app' };
+const expected = { launch: 'elitecuts-2fb0a' };
 const target = process.argv[2];
 
 if (!Object.hasOwn(expected, target)) {

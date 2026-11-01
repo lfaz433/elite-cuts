@@ -3,7 +3,7 @@ const { readFileSync } = require('node:fs');
 const { resolve } = require('node:path');
 
 const verifier = resolve(__dirname, '..', 'scripts', 'verify-environment.mjs');
-const productionGuard = resolve(__dirname, '..', 'scripts', 'guard-production-deploy.mjs');
+const targetGuardScript = resolve(__dirname, '..', 'scripts', 'guard-firebase-target.mjs');
 const targetGuard = require(resolve(__dirname, '..', 'scripts', 'lib', 'firebase-targets.cjs'));
 
 test('environment verifier rejects an unsupported target even when the project id is absent', () => {
@@ -14,12 +14,9 @@ test('environment verifier rejects an unsupported target even when the project i
   expect(result.stderr.toString()).toContain('Unsupported environment target');
 });
 
-test.each([
-  ['staging', 'elite-cuts-staging'],
-  ['production', 'elite-cuts-app'],
-])('environment verifier accepts %s only with its project', (target, projectId) => {
-  expect(() => execFileSync(process.execPath, [verifier, target], {
-    env: { ...process.env, VITE_FIREBASE_PROJECT_ID: projectId },
+test('environment verifier accepts the launch environment only for the founder-owned project', () => {
+  expect(() => execFileSync(process.execPath, [verifier, 'launch'], {
+    env: { ...process.env, VITE_FIREBASE_PROJECT_ID: 'elitecuts-2fb0a' },
   })).not.toThrow();
 });
 
@@ -41,37 +38,37 @@ test('registration availability reads the reservation collection', () => {
   expect(source).not.toContain("where('subdomain', '==', subdomain)");
 });
 
-test('implicit Firebase CLI target is staging and deploy scripts name their target', () => {
+test('Firebase CLI defaults to the launch project and deploy scripts name their target', () => {
   const firebaseRc = JSON.parse(readFileSync(resolve(__dirname, '..', '.firebaserc'), 'utf8'));
   const functionsPackage = JSON.parse(readFileSync(resolve(__dirname, '..', 'functions/package.json'), 'utf8'));
 
-  expect(firebaseRc.projects.default).toBe('elite-cuts-staging');
-  expect(firebaseRc.projects.staging).toBe('elite-cuts-staging');
-  expect(firebaseRc.projects.production).toBe('elite-cuts-app');
+  expect(firebaseRc.projects.default).toBe('elitecuts-2fb0a');
+  expect(firebaseRc.projects.launch).toBe('elitecuts-2fb0a');
+  expect(Object.keys(firebaseRc.projects).sort()).toEqual(['default', 'launch']);
   expect(functionsPackage.scripts).not.toHaveProperty('deploy');
-  expect(functionsPackage.scripts['deploy:staging']).toContain('--project staging');
-  expect(functionsPackage.scripts['deploy:staging']).toContain('guard-firebase-target.mjs staging');
-  expect(functionsPackage.scripts['deploy:staging']).toContain('--only firestore:rules,firestore:indexes,functions');
-  expect(functionsPackage.scripts['deploy:production']).toContain('--project production');
-  expect(functionsPackage.scripts['deploy:production']).toContain('guard-firebase-target.mjs production');
-  expect(functionsPackage.scripts['deploy:production']).toContain('--only firestore:rules,firestore:indexes,functions');
+  expect(functionsPackage.scripts).toHaveProperty('deploy:launch');
+  expect(functionsPackage.scripts).not.toHaveProperty('deploy:staging');
+  expect(functionsPackage.scripts).not.toHaveProperty('deploy:production');
+  expect(functionsPackage.scripts['deploy:launch']).toContain('--project launch');
+  expect(functionsPackage.scripts['deploy:launch']).toContain('guard-firebase-target.mjs launch');
+  expect(functionsPackage.scripts['deploy:launch']).toContain('--only firestore:rules,firestore:indexes,functions');
 });
 
-test('Firebase target guard rejects any staging or production alias remap', () => {
+test('Firebase target guard rejects any default or launch alias remap', () => {
   expect(() => targetGuard.assertFirebaseAliases({
-    projects: { default: 'elite-cuts-staging', staging: 'elite-cuts-app', production: 'elite-cuts-app' },
-  })).toThrow('staging alias');
+    projects: { default: 'attacker-project', launch: 'elitecuts-2fb0a' },
+  })).toThrow('default alias');
   expect(() => targetGuard.assertFirebaseAliases({
-    projects: { default: 'elite-cuts-staging', staging: 'elite-cuts-staging', production: 'attacker-project' },
-  })).toThrow('production alias');
+    projects: { default: 'elitecuts-2fb0a', launch: 'attacker-project' },
+  })).toThrow('launch alias');
 });
 
-test('production deploy requires an exact explicit confirmation', () => {
-  const rejected = spawnSync(process.execPath, [productionGuard], {
-    env: { ...process.env, CONFIRM_PRODUCTION_PROJECT: '' },
+test('launch deploy requires an exact explicit confirmation', () => {
+  const rejected = spawnSync(process.execPath, [targetGuardScript, 'launch'], {
+    env: { ...process.env, CONFIRM_LAUNCH_PROJECT: '' },
   });
-  const accepted = spawnSync(process.execPath, [productionGuard], {
-    env: { ...process.env, CONFIRM_PRODUCTION_PROJECT: 'elite-cuts-app' },
+  const accepted = spawnSync(process.execPath, [targetGuardScript, 'launch'], {
+    env: { ...process.env, CONFIRM_LAUNCH_PROJECT: 'elitecuts-2fb0a' },
   });
 
   expect(rejected.status).not.toBe(0);
