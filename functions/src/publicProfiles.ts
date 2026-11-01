@@ -1,5 +1,6 @@
 import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions';
+import { europeFunctions } from './runtime';
 
 export type CityId = 'fr-paris' | 'fr-grenoble' | 'fr-mulhouse';
 
@@ -297,13 +298,13 @@ function requestedProfileId(value: unknown): string {
   return profileId;
 }
 
-export const listPublicCitiesFunction = functions.https.onCall(async () => listEnabledPublicCities());
+export const listPublicCitiesFunction = europeFunctions.https.onCall(async () => listEnabledPublicCities());
 
-export const listPublicProfilesFunction = functions.https.onCall(async data => (
+export const listPublicProfilesFunction = europeFunctions.https.onCall(async data => (
   listApprovedPublicProfiles(requestedCityId(data))
 ));
 
-export const getPublicProfileFunction = functions.https.onCall(async data => {
+export const getPublicProfileFunction = europeFunctions.https.onCall(async data => {
   const profileId = requestedProfileId(data);
   return getApprovedPublicProfile(profileId);
 });

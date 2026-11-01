@@ -1,4 +1,5 @@
 import * as functions from 'firebase-functions';
+import { europeFunctions } from './runtime';
 import * as admin from 'firebase-admin';
 import Stripe from 'stripe';
 import { requireMembership } from './authz';
@@ -232,7 +233,7 @@ export const createCheckoutSessionHandler = async (
   }
 };
 
-export const createCheckoutSession = functions.https.onRequest(createCheckoutSessionHandler);
+export const createCheckoutSession = europeFunctions.https.onRequest(createCheckoutSessionHandler);
 
 export const createBookingHandler = async (
   req: functions.https.Request,
@@ -276,7 +277,7 @@ export const createBookingHandler = async (
   }
 };
 
-export const createBookingRequest = functions.https.onRequest(createBookingHandler);
+export const createBookingRequest = europeFunctions.https.onRequest(createBookingHandler);
 
 export const recordBookingPaymentHandler = async (
   req: functions.https.Request,
@@ -333,7 +334,7 @@ export const recordBookingPaymentHandler = async (
   }
 };
 
-export const recordBookingPaymentRequest = functions.https.onRequest(recordBookingPaymentHandler);
+export const recordBookingPaymentRequest = europeFunctions.https.onRequest(recordBookingPaymentHandler);
 
 export const completeBookingPaymentHandler = async (
   req: functions.https.Request,
@@ -402,7 +403,7 @@ export const completeBookingPaymentHandler = async (
   }
 };
 
-export const completeBookingPaymentRequest = functions.https.onRequest(completeBookingPaymentHandler);
+export const completeBookingPaymentRequest = europeFunctions.https.onRequest(completeBookingPaymentHandler);
 
 export const transitionBookingStatusHandler = async (
   req: functions.https.Request,
@@ -578,7 +579,7 @@ export const transitionBookingStatusHandler = async (
   }
 };
 
-export const transitionBookingStatus = functions.https.onRequest(transitionBookingStatusHandler);
+export const transitionBookingStatus = europeFunctions.https.onRequest(transitionBookingStatusHandler);
 
 export const stripeWebhookHandler = async (
   req: functions.https.Request,
@@ -678,4 +679,4 @@ export const stripeWebhookHandler = async (
   }
 };
 
-export const stripeWebhook = functions.https.onRequest(stripeWebhookHandler);
+export const stripeWebhook = europeFunctions.https.onRequest(stripeWebhookHandler);

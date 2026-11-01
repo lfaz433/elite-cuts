@@ -1,5 +1,6 @@
 import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions';
+import { europeFunctions } from './runtime';
 import { locationMembershipId } from './memberships';
 
 type InvitationRole = 'salon_admin' | 'worker' | 'chair_renter';
@@ -510,14 +511,14 @@ export async function respondToInvitation(
   });
 }
 
-export const createWorkerInvitationFunction = functions.https.onCall(async (data, context) => {
+export const createWorkerInvitationFunction = europeFunctions.https.onCall(async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Authentication is required');
   }
   return createWorkerInvitation(context.auth.uid, data);
 });
 
-export const respondToInvitationFunction = functions.https.onCall(async (data, context) => {
+export const respondToInvitationFunction = europeFunctions.https.onCall(async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Authentication is required');
   }

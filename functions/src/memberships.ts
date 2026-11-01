@@ -1,5 +1,6 @@
 import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions';
+import { europeFunctions } from './runtime';
 
 export type PermissionKey =
   | 'manageBookings'
@@ -414,21 +415,21 @@ export async function updateMembershipPermissions(
   return { membershipId: input.membershipId, permissions: input.permissions };
 }
 
-export const bootstrapBrandOwnerFunction = functions.https.onCall(async (data, context) => {
+export const bootstrapBrandOwnerFunction = europeFunctions.https.onCall(async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Authentication is required');
   }
   return bootstrapBrandOwner(context.auth.uid, data);
 });
 
-export const createSalonLocationFunction = functions.https.onCall(async (data, context) => {
+export const createSalonLocationFunction = europeFunctions.https.onCall(async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Authentication is required');
   }
   return createSalonLocation(context.auth.uid, data);
 });
 
-export const updateMembershipPermissionsFunction = functions.https.onCall(async (data, context) => {
+export const updateMembershipPermissionsFunction = europeFunctions.https.onCall(async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Authentication is required');
   }

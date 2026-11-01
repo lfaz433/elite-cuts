@@ -1,5 +1,6 @@
 import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions';
+import { europeFunctions } from './runtime';
 
 type Firestore = admin.firestore.Firestore;
 type RecordValue = Record<string, unknown>;
@@ -88,6 +89,6 @@ export async function createConfirmedDeposit(
   );
 }
 
-export const createConfirmedDepositFunction = functions.https.onCall((data, context) => (
+export const createConfirmedDepositFunction = europeFunctions.https.onCall((data, context) => (
   createConfirmedDeposit(context.auth?.uid ?? null, data)
 ));

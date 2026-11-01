@@ -1,5 +1,6 @@
 import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions';
+import { europeFunctions } from './runtime';
 
 type Firestore = admin.firestore.Firestore;
 type RecordValue = Record<string, unknown>;
@@ -527,19 +528,19 @@ export async function reviewJobApplication(
   return result;
 }
 
-export const createJobPostFunction = functions.https.onCall((data, context) => (
+export const createJobPostFunction = europeFunctions.https.onCall((data, context) => (
   createJobPost(context.auth?.uid ?? null, data)
 ));
 
-export const listCityJobsFunction = functions.https.onCall((data, context) => (
+export const listCityJobsFunction = europeFunctions.https.onCall((data, context) => (
   listCityJobs(context.auth?.uid ?? null, data)
 ));
 
-export const listSalonHiringWorkspaceFunction = functions.https.onCall((data, context) => (
+export const listSalonHiringWorkspaceFunction = europeFunctions.https.onCall((data, context) => (
   listSalonHiringWorkspace(context.auth?.uid ?? null, data)
 ));
 
-export const applyToJobFunction = functions.https.onCall((data, context) => (
+export const applyToJobFunction = europeFunctions.https.onCall((data, context) => (
   applyToJob({
     uid: context.auth?.uid ?? '',
     email: typeof context.auth?.token.email === 'string' ? context.auth.token.email : undefined,
@@ -547,6 +548,6 @@ export const applyToJobFunction = functions.https.onCall((data, context) => (
   }, data)
 ));
 
-export const reviewJobApplicationFunction = functions.https.onCall((data, context) => (
+export const reviewJobApplicationFunction = europeFunctions.https.onCall((data, context) => (
   reviewJobApplication(context.auth?.uid ?? null, data)
 ));

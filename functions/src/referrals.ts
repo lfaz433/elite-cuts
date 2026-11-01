@@ -1,5 +1,6 @@
 import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions';
+import { europeFunctions } from './runtime';
 import { createHash, randomBytes } from 'node:crypto';
 
 type Firestore = admin.firestore.Firestore;
@@ -2661,15 +2662,15 @@ function requirePlatformAdminContext(context: functions.https.CallableContext): 
   return uid;
 }
 
-export const createReferralProgramFunction = functions.https.onCall((data, context) => (
+export const createReferralProgramFunction = europeFunctions.https.onCall((data, context) => (
   createReferralProgram(requirePlatformAdminContext(context), data, admin.firestore(), new Date(), true)
 ));
 
-export const initializeReferralMarketingV3Function = functions.https.onCall((data, context) => (
+export const initializeReferralMarketingV3Function = europeFunctions.https.onCall((data, context) => (
   initializeReferralMarketingV3(requirePlatformAdminContext(context), data, admin.firestore(), true)
 ));
 
-export const createMyReferralCodeFunction = functions.https.onCall((data, context) => (
+export const createMyReferralCodeFunction = europeFunctions.https.onCall((data, context) => (
   createMyReferralCode(
     context.auth?.uid ?? null,
     data,
@@ -2680,7 +2681,7 @@ export const createMyReferralCodeFunction = functions.https.onCall((data, contex
   )
 ));
 
-export const attributeReferralFunction = functions.https.onCall((data, context) => (
+export const attributeReferralFunction = europeFunctions.https.onCall((data, context) => (
   attributeReferral(
     context.auth?.uid ?? null,
     data,
@@ -2690,23 +2691,23 @@ export const attributeReferralFunction = functions.https.onCall((data, context) 
   )
 ));
 
-export const reviewReferralRewardFunction = functions.https.onCall((data, context) => (
+export const reviewReferralRewardFunction = europeFunctions.https.onCall((data, context) => (
   reviewReferralReward(requirePlatformAdminContext(context), data, admin.firestore(), true)
 ));
 
-export const setReferralRewardFlagFunction = functions.https.onCall((data, context) => (
+export const setReferralRewardFlagFunction = europeFunctions.https.onCall((data, context) => (
   setReferralRewardFlag(requirePlatformAdminContext(context), data, admin.firestore(), true)
 ));
 
-export const getMyReferralWorkspaceFunction = functions.https.onCall((data, context) => (
+export const getMyReferralWorkspaceFunction = europeFunctions.https.onCall((data, context) => (
   getMyReferralWorkspace(context.auth?.uid ?? null, data)
 ));
 
-export const getPublicReferralCodeFunction = functions.https.onCall(data => (
+export const getPublicReferralCodeFunction = europeFunctions.https.onCall(data => (
   getPublicReferralCode(data)
 ));
 
-export const recordReferralVisitFunction = functions.runWith(referralVisitCallableOptions).https.onCall((data, context) => {
+export const recordReferralVisitFunction = europeFunctions.runWith(referralVisitCallableOptions).https.onCall((data, context) => {
   if (!context.app) {
     error('unauthenticated', 'Firebase App Check is required for referral telemetry');
   }
@@ -2716,6 +2717,6 @@ export const recordReferralVisitFunction = functions.runWith(referralVisitCallab
   return recordReferralVisit(data);
 });
 
-export const getReferralMarketingOverviewFunction = functions.https.onCall((data, context) => (
+export const getReferralMarketingOverviewFunction = europeFunctions.https.onCall((data, context) => (
   getReferralMarketingOverview(requirePlatformAdminContext(context), data, admin.firestore(), true)
 ));

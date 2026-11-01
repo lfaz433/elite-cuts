@@ -1,5 +1,6 @@
 import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions';
+import { europeFunctions } from './runtime';
 
 type Firestore = admin.firestore.Firestore;
 type RecordValue = Record<string, unknown>;
@@ -418,15 +419,15 @@ export async function deleteFreelancerPortfolioItem(
   return { portfolioItemId };
 }
 
-export const saveFreelancerProfileFunction = functions.https.onCall((data, context) => (
+export const saveFreelancerProfileFunction = europeFunctions.https.onCall((data, context) => (
   saveFreelancerProfile(context.auth?.uid ?? null, data)
 ));
 
-export const createFreelancerPortfolioItemFunction = functions.https.onCall((data, context) => (
+export const createFreelancerPortfolioItemFunction = europeFunctions.https.onCall((data, context) => (
   createFreelancerPortfolioItem(context.auth?.uid ?? null, data)
 ));
 
-export const deleteFreelancerPortfolioItemFunction = functions.https.onCall((data, context) => {
+export const deleteFreelancerPortfolioItemFunction = europeFunctions.https.onCall((data, context) => {
   const input = inputRecord(data, new Set(['portfolioItemId']), 'portfolioItemId is required');
   return deleteFreelancerPortfolioItem(
     context.auth?.uid ?? null,

@@ -1,5 +1,6 @@
 import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions';
+import { europeFunctions } from './runtime';
 
 type Firestore = admin.firestore.Firestore;
 type RecordValue = Record<string, unknown>;
@@ -210,6 +211,6 @@ export async function listClientCampaigns(
     .sort((left, right) => left.id.localeCompare(right.id));
 }
 
-export const listClientCampaignsFunction = functions.https.onCall((data, context) => (
+export const listClientCampaignsFunction = europeFunctions.https.onCall((data, context) => (
   listClientCampaigns(context.auth?.uid ?? null, data)
 ));

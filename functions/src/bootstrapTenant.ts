@@ -1,5 +1,6 @@
 import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions';
+import { europeFunctions } from './runtime';
 
 type PlanId = 'basic' | 'pro' | 'enterprise';
 
@@ -160,7 +161,7 @@ export async function bootstrapTenantOwner(
   };
 }
 
-export const bootstrapTenantOwnerFunction = functions.https.onCall(async (data, context) => {
+export const bootstrapTenantOwnerFunction = europeFunctions.https.onCall(async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Authentication is required');
   }

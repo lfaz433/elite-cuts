@@ -1,5 +1,6 @@
 import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions';
+import { europeFunctions } from './runtime';
 import { isReferralEligibleCompletion } from './bookingStatus';
 import { processReferralBookingCompletion } from './referrals';
 
@@ -811,32 +812,32 @@ export async function getMarketplaceBookingAddress(
   return parseHomeAddress(address) as HomeAddress;
 }
 
-export const requestBookingFunction = functions.https.onCall(async (data, context) => (
+export const requestBookingFunction = europeFunctions.https.onCall(async (data, context) => (
   createMarketplaceBooking(context.auth?.uid ?? null, data)
 ));
 
-export const respondToBookingFunction = functions.https.onCall(async (data, context) => (
+export const respondToBookingFunction = europeFunctions.https.onCall(async (data, context) => (
   respondToMarketplaceBooking(context.auth?.uid ?? null, data)
 ));
 
-export const cancelBookingFunction = functions.https.onCall(async (data, context) => {
+export const cancelBookingFunction = europeFunctions.https.onCall(async (data, context) => {
   if (!data || typeof data !== 'object' || Array.isArray(data) || Object.keys(data).length !== 1) {
     throw new functions.https.HttpsError('invalid-argument', 'bookingId is required');
   }
   return cancelMarketplaceBooking(context.auth?.uid ?? null, (data as RecordValue).bookingId as string);
 });
 
-export const getBookingAddressFunction = functions.https.onCall(async (data, context) => {
+export const getBookingAddressFunction = europeFunctions.https.onCall(async (data, context) => {
   if (!data || typeof data !== 'object' || Array.isArray(data) || Object.keys(data).length !== 1) {
     throw new functions.https.HttpsError('invalid-argument', 'bookingId is required');
   }
   return getMarketplaceBookingAddress(context.auth?.uid ?? null, (data as RecordValue).bookingId as string);
 });
 
-export const saveSalonAvailabilityFunction = functions.https.onCall((data, context) => (
+export const saveSalonAvailabilityFunction = europeFunctions.https.onCall((data, context) => (
   saveSalonAvailability(context.auth?.uid ?? null, data)
 ));
 
-export const listSalonBookingWorkspaceFunction = functions.https.onCall((data, context) => (
+export const listSalonBookingWorkspaceFunction = europeFunctions.https.onCall((data, context) => (
   listSalonBookingWorkspace(context.auth?.uid ?? null, data)
 ));

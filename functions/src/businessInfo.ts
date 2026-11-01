@@ -1,5 +1,6 @@
 import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions';
+import { europeFunctions } from './runtime';
 import { requireMembership } from './authz';
 
 const INPUT_KEYS = new Set(['tenantId', 'info']);
@@ -284,7 +285,7 @@ export async function updateBusinessInfo(
   return { tenantId: input.tenantId };
 }
 
-export const updateBusinessInfoFunction = functions.https.onCall(async (data, context) => {
+export const updateBusinessInfoFunction = europeFunctions.https.onCall(async (data, context) => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Authentication is required');
   }
