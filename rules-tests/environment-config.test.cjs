@@ -75,6 +75,17 @@ test('launch deploy requires an exact explicit confirmation', () => {
   expect(accepted.status).toBe(0);
 });
 
+test('launch validation script runs the build, Firebase environment checks, and rules suite', () => {
+  const rootPackage = JSON.parse(readFileSync(resolve(__dirname, '..', 'package.json'), 'utf8'));
+
+  expect(rootPackage.scripts).toHaveProperty('test:rules');
+  expect(rootPackage.scripts).toHaveProperty('test:launch');
+  expect(rootPackage.scripts['test:launch']).toContain('npm run build');
+  expect(rootPackage.scripts['test:launch']).toContain('npm --prefix functions run build');
+  expect(rootPackage.scripts['test:launch']).toContain('firebaseEnvironment.test.mjs');
+  expect(rootPackage.scripts['test:launch']).toContain('npm run test:rules');
+});
+
 test('Firebase Admin never accepts a client Vite project variable as server configuration', () => {
   const source = readFileSync(resolve(__dirname, '..', 'api/utils/firebaseAdmin.ts'), 'utf8');
   expect(source).toContain('process.env.FIREBASE_PROJECT_ID');
