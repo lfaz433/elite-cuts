@@ -107,6 +107,9 @@ test('saves disjoint home and chair slots with mode ownership and the home legac
     availableSlots: [homeSlot, chairSlot], reservedSlots: [],
     modeBySlot: { [homeSlot]: 'home', [chairSlot]: 'chair' },
   });
+  assert.deepStrictEqual(state.availability['freelancer-a'].configuredSlots, [homeSlot, chairSlot]);
+  assert.deepStrictEqual(state.availability['freelancer-a'].availableSlots, [homeSlot, chairSlot]);
+  assert.deepStrictEqual(state.availability['freelancer-a'].reservedSlots, []);
   assert.partialDeepStrictEqual(state.freelancerProfiles['freelancer-a'], {
     availability: [homeSlot], availabilityByMode: { home: [homeSlot], chair: [chairSlot] },
     serviceDurationMinutes: { 'coupe-degrade': 45 }, workModes: { home: true, chair: true }, workplace,
@@ -177,9 +180,9 @@ test('allows a hidden empty draft but not an empty visible slug, services or ena
 test('never makes slots of a disabled mode bookable', async () => {
   const { state, firestore } = firestoreState();
   await saveFreelancerProfile('freelancer-a', { ...mixedModeInput, workModes: { home: false, chair: true } }, firestore);
-  assert.partialDeepStrictEqual(state.availability['freelancer-a'], {
-    configuredSlots: [chairSlot], availableSlots: [chairSlot], modeBySlot: { [chairSlot]: 'chair' },
-  });
+  assert.deepStrictEqual(state.availability['freelancer-a'].configuredSlots, [chairSlot]);
+  assert.deepStrictEqual(state.availability['freelancer-a'].availableSlots, [chairSlot]);
+  assert.deepStrictEqual(state.availability['freelancer-a'].modeBySlot, { [chairSlot]: 'chair' });
 });
 
 test('reserves a normalized slug even while hidden and permits repeat saves by its owner', async () => {
@@ -254,9 +257,10 @@ test.each(['remove', 'reclassify'])('preserves a reserved appointment mode when 
     home: edit === 'reclassify' ? [chairSlot] : [], chair: [],
   } };
   await saveFreelancerProfile('freelancer-a', input, firestore);
-  assert.partialDeepStrictEqual(state.availability['freelancer-a'], {
-    availableSlots: [], reservedSlots: [chairSlot], modeBySlot: { [chairSlot]: 'chair' },
-  });
+  assert.deepStrictEqual(state.availability['freelancer-a'].availableSlots, []);
+  assert.deepStrictEqual(state.availability['freelancer-a'].reservedSlots, [chairSlot]);
+  assert.deepStrictEqual(state.availability['freelancer-a'].modeBySlot, { [chairSlot]: 'chair' });
+  assert.deepStrictEqual(state.availability['freelancer-a'].configuredSlots, edit === 'reclassify' ? [chairSlot] : []);
   assert.equal(state.availability['freelancer-a'].modeBySlot[homeSlot], undefined);
   assert.equal(state.freelancerProfiles['freelancer-a'].publicProfile.approvalStatus, 'approved');
   state.availability['freelancer-a'].reservedSlots = [];
@@ -273,6 +277,8 @@ test('preserves consumed legacy home slots without mistaking modern released slo
   assert.partialDeepStrictEqual(state.availability['freelancer-a'], {
     availableSlots: [chairSlot], reservedSlots: [homeSlot], modeBySlot: { [homeSlot]: 'home' },
   });
+  assert.deepStrictEqual(state.availability['freelancer-a'].availableSlots, [chairSlot]);
+  assert.deepStrictEqual(state.availability['freelancer-a'].reservedSlots, [homeSlot]);
   state.availability['freelancer-a'].reservedSlots = [];
   await saveFreelancerProfile('freelancer-a', mixedModeInput, firestore);
   assert.deepStrictEqual(state.availability['freelancer-a'].reservedSlots, []);
