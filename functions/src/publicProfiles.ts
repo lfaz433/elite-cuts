@@ -1,6 +1,7 @@
 import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions';
 import { europeFunctions } from './runtime';
+import { parseFreelancerProfileInput, FreelancerWorkModes, FreelancerWorkplace } from './freelancers';
 
 export type CityId = 'fr-paris' | 'fr-grenoble' | 'fr-mulhouse';
 
@@ -16,10 +17,23 @@ export interface PublicProfileProjection {
   serviceSummary: string;
   portfolioUrls: string[];
   visible: true;
-  approvalStatus: 'approved';
+  approvalStatus: 'approved' | 'pending';
   displayName: string;
   serviceIds: string[];
   homeVisit: boolean;
+}
+
+export interface FreelancerPublicProfileProjection extends PublicProfileProjection {
+  kind: 'freelancer';
+  publicSlug: string;
+  bio: string;
+  profileImageUrl?: string;
+  socialLinks: Record<string, string>;
+  services: Array<{ id: string; label: string; priceMinor: number; durationMinutes: number }>;
+  workModes: FreelancerWorkModes;
+  workplace?: FreelancerWorkplace;
+  cancellationWindowHours: number;
+  reviewSummary: { average: null; count: 0; reviews: [] };
 }
 
 export interface PublicProfile extends Omit<PublicProfileProjection, 'approvalStatus'> {
@@ -153,7 +167,9 @@ function buildPublicProfile(
   const sourceRecord = record(source);
   if (!sourceRecord) return null;
   const config = publicProfileConfig(sourceRecord.publicProfile);
-  if (!config || config.approvalStatus !== 'approved' || config.visible !== true) return null;
+  if (!config || config.visible !== true || (
+    config.approvalStatus !== 'approved' && !(kind === 'freelancer' && config.approvalStatus === 'pending')
+  )) return null;
 
   const cityId = cityIdFrom(config.cityId ?? city);
   const name = publicText(displayName, 160);
@@ -187,7 +203,7 @@ function buildPublicProfile(
     serviceSummary,
     portfolioUrls,
     visible: true,
-    approvalStatus: 'approved',
+    approvalStatus: config.approvalStatus,
     displayName: name,
     serviceIds,
     // Source configuration is deliberately ignored while home visits cannot be
@@ -208,15 +224,67 @@ export function projectSalonPublicProfile(
 export function projectFreelancerPublicProfile(
   uid: string,
   source: unknown,
-): PublicProfileProjection | null {
+): FreelancerPublicProfileProjection | null {
   void uid;
   const profile = record(source);
-  return buildPublicProfile(
+  if (!profile || profile.visible !== true) return null;
+  const base = buildPublicProfile(
     'freelancer',
     profile,
     profile?.displayName ?? profile?.name,
     profile?.cityId ?? profile?.city,
   );
+  if (!base) return null;
+  try {
+    // Validate the stored contract as strictly as a save, but select its input
+    // fields explicitly so unrelated private source data can never be copied.
+    const input = parseFreelancerProfileInput({
+      displayName: profile.displayName,
+      bio: profile.bio,
+      cityId: profile.cityId,
+      languages: profile.languages,
+      serviceSummary: profile.serviceSummary,
+      serviceIds: profile.serviceIds,
+      servicePricesMinor: profile.servicePricesMinor,
+      serviceDurationMinutes: profile.serviceDurationMinutes,
+      workModes: profile.workModes,
+      availabilityByMode: profile.availabilityByMode,
+      ...(profile.workplace === undefined ? {} : { workplace: profile.workplace }),
+      visible: profile.visible,
+      radiusKm: profile.radiusKm,
+      travelFeeMinor: profile.travelFeeMinor,
+      deposit: profile.deposit,
+      cancellationWindowHours: profile.cancellationWindowHours,
+      availability: profile.availability,
+      identity: profile.identity,
+    });
+    // Stored slugs must already be canonical so the projection and index agree.
+    if (record(profile.identity)?.publicSlug !== input.identity.publicSlug) return null;
+    return {
+      ...base,
+      kind: 'freelancer',
+      publicSlug: input.identity.publicSlug,
+      bio: input.bio,
+      ...(input.identity.profileImageUrl ? { profileImageUrl: input.identity.profileImageUrl } : {}),
+      socialLinks: { ...input.identity.socialLinks },
+      serviceIds: input.serviceIds,
+      services: input.serviceIds.map(id => ({
+        id,
+        label: id.split('-').filter(Boolean).map((word, index) => {
+          const lower = word.toLocaleLowerCase('fr-FR');
+          return index === 0 ? lower.charAt(0).toUpperCase() + lower.slice(1) : lower;
+        }).join(' '),
+        priceMinor: input.servicePricesMinor[id],
+        durationMinutes: input.serviceDurationMinutes[id],
+      })),
+      workModes: input.workModes,
+      ...(input.workModes.chair && input.workplace ? { workplace: input.workplace } : {}),
+      cancellationWindowHours: input.cancellationWindowHours,
+      reviewSummary: { average: null, count: 0, reviews: [] },
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function writeProjection(
@@ -309,7 +377,7 @@ export const getPublicProfileFunction = europeFunctions.https.onCall(async data 
   return getApprovedPublicProfile(profileId);
 });
 
-export const syncSalonPublicProfile = functions.firestore
+export const syncSalonPublicProfile = europeFunctions.firestore
   .document('salonLocations/{locationId}')
   .onWrite(async (change, context) => {
     const projection = change.after.exists
@@ -318,7 +386,7 @@ export const syncSalonPublicProfile = functions.firestore
     await writeProjection(`salon__${context.params.locationId}`, projection);
   });
 
-export const syncFreelancerPublicProfile = functions.firestore
+export const syncFreelancerPublicProfile = europeFunctions.firestore
   .document('freelancerProfiles/{uid}')
   .onWrite(async (change, context) => {
     const projection = change.after.exists

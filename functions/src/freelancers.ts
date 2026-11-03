@@ -7,6 +7,14 @@ type RecordValue = Record<string, unknown>;
 type CityId = 'fr-paris' | 'fr-grenoble' | 'fr-mulhouse';
 type DepositMode = 'none' | 'fixed' | 'percentage';
 type SocialPlatform = 'instagram' | 'tiktok' | 'facebook' | 'website' | 'whatsapp';
+export type AppointmentMode = 'home' | 'chair';
+export type FreelancerWorkModes = Record<AppointmentMode, boolean>;
+export interface FreelancerWorkplace {
+  name: string;
+  line1: string;
+  postalCode: string;
+  city: string;
+}
 export type SocialLinks = Partial<Record<SocialPlatform, string>>;
 export interface FreelancerIdentity {
   profileImageUrl?: string;
@@ -22,6 +30,10 @@ export interface FreelancerProfileInput {
   serviceSummary: string;
   serviceIds: string[];
   servicePricesMinor: Record<string, number>;
+  serviceDurationMinutes: Record<string, number>;
+  workModes: FreelancerWorkModes;
+  availabilityByMode: Record<AppointmentMode, string[]>;
+  workplace?: FreelancerWorkplace;
   visible: boolean;
   radiusKm: number;
   travelFeeMinor: number;
@@ -33,7 +45,7 @@ export interface FreelancerProfileInput {
 
 const PROFILE_KEYS = new Set([
   'displayName', 'bio', 'cityId', 'languages', 'serviceSummary', 'serviceIds',
-  'servicePricesMinor',
+  'servicePricesMinor', 'serviceDurationMinutes', 'workModes', 'availabilityByMode', 'workplace',
   'visible', 'radiusKm', 'travelFeeMinor', 'deposit', 'cancellationWindowHours',
   'availability', 'identity',
 ]);
@@ -88,10 +100,16 @@ function integer(value: unknown, field: string, minimum: number, maximum: number
   return value as number;
 }
 
-function availabilityList(value: unknown): string[] {
-  const slots = stringList(value, 'availability', 100, 16);
-  if (slots.some(slot => !/^\d{4}-\d{2}-\d{2}T([01]\d|2[0-3]):[0-5]\d$/.test(slot))) {
-    throw new functions.https.HttpsError('invalid-argument', 'availability is invalid');
+function validSlot(slot: unknown): slot is string {
+  if (typeof slot !== 'string' || !/^\d{4}-\d{2}-\d{2}T([01]\d|2[0-3]):[0-5]\d$/.test(slot)) return false;
+  const date = new Date(`${slot}:00.000Z`);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 16) === slot;
+}
+
+function availabilityList(value: unknown, field = 'availability'): string[] {
+  const slots = stringList(value, field, 100, 16);
+  if (slots.some(slot => !validSlot(slot))) {
+    throw new functions.https.HttpsError('invalid-argument', `${field} is invalid`);
   }
   return slots.sort();
 }
@@ -117,13 +135,52 @@ function servicePrices(value: unknown, serviceIds: string[]): Record<string, num
   ]));
 }
 
+function serviceDurations(value: unknown, serviceIds: string[]): Record<string, number> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new functions.https.HttpsError('invalid-argument', 'serviceDurationMinutes is invalid');
+  }
+  const durations = value as RecordValue;
+  const durationIds = Object.keys(durations);
+  if (durationIds.length !== serviceIds.length || durationIds.some(id => !serviceIds.includes(id))) {
+    throw new functions.https.HttpsError(
+      'invalid-argument', 'serviceDurationMinutes must contain exactly one duration for each service',
+    );
+  }
+  return Object.fromEntries(serviceIds.map(id => [
+    id, integer(durations[id], `serviceDurationMinutes.${id}`, 15, 360),
+  ]));
+}
+
+function workModes(value: unknown): FreelancerWorkModes {
+  const modes = inputRecord(value, new Set(['home', 'chair']), 'workModes is invalid');
+  if (typeof modes.home !== 'boolean' || typeof modes.chair !== 'boolean' || (!modes.home && !modes.chair)) {
+    throw new functions.https.HttpsError('invalid-argument', 'workModes requires at least one active mode');
+  }
+  return { home: modes.home, chair: modes.chair };
+}
+
+function modeAvailability(value: unknown): Record<AppointmentMode, string[]> {
+  const input = inputRecord(value, new Set(['home', 'chair']), 'availabilityByMode is invalid');
+  const home = availabilityList(input.home, 'availabilityByMode.home');
+  const chair = availabilityList(input.chair, 'availabilityByMode.chair');
+  if (home.some(slot => chair.includes(slot))) {
+    throw new functions.https.HttpsError('invalid-argument', 'availabilityByMode contains duplicate slots');
+  }
+  return { home, chair };
+}
+
+function workplace(value: unknown): FreelancerWorkplace {
+  const place = inputRecord(value, new Set(['name', 'line1', 'postalCode', 'city']), 'workplace is invalid');
+  return {
+    name: text(place.name, 'workplace.name', 160),
+    line1: text(place.line1, 'workplace.line1', 240),
+    postalCode: text(place.postalCode, 'workplace.postalCode', 20),
+    city: text(place.city, 'workplace.city', 120),
+  };
+}
+
 function storedSlots(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((slot): slot is string => (
-      typeof slot === 'string'
-      && /^\d{4}-\d{2}-\d{2}T([01]\d|2[0-3]):[0-5]\d$/.test(slot)
-    ))
-    : [];
+  return Array.isArray(value) ? value.filter(validSlot) : [];
 }
 
 function depositPreference(value: unknown): FreelancerProfileInput['deposit'] {
@@ -194,7 +251,7 @@ export function sanitizeSocialLinks(value: unknown): SocialLinks {
   })) as SocialLinks;
 }
 
-function freelancerIdentity(value: unknown): FreelancerIdentity {
+function freelancerIdentity(value: unknown, allowEmptySlug: boolean): FreelancerIdentity {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new functions.https.HttpsError('invalid-argument', 'identity is invalid');
   }
@@ -210,7 +267,7 @@ function freelancerIdentity(value: unknown): FreelancerIdentity {
       ? {}
       : { profileImageUrl: socialUrl(identity.profileImageUrl, 'profileImageUrl') }),
     socialLinks: sanitizeSocialLinks(identity.socialLinks),
-    publicSlug: normalizePublicSlug(identity.publicSlug),
+    publicSlug: allowEmptySlug && identity.publicSlug.trim() === '' ? '' : normalizePublicSlug(identity.publicSlug),
   };
 }
 
@@ -223,14 +280,27 @@ export function parseFreelancerProfileInput(value: unknown): FreelancerProfileIn
     throw new functions.https.HttpsError('invalid-argument', 'visible is invalid');
   }
   const serviceIds = stringList(input.serviceIds, 'serviceIds', 24, 128);
+  const modes = workModes(input.workModes);
+  const slots = modeAvailability(input.availabilityByMode);
+  const place = input.workplace === undefined && !modes.chair ? undefined : workplace(input.workplace);
+  if (input.visible && serviceIds.length === 0) {
+    throw new functions.https.HttpsError('invalid-argument', 'A visible profile requires at least one service');
+  }
+  if (input.visible && ((modes.home && slots.home.length === 0) || (modes.chair && slots.chair.length === 0))) {
+    throw new functions.https.HttpsError('invalid-argument', 'availability is required for every enabled mode');
+  }
   return {
     displayName: text(input.displayName, 'displayName', 120),
     bio: text(input.bio, 'bio', 1000, true),
     cityId: input.cityId as CityId,
     languages: stringList(input.languages, 'languages', 12, 40),
-    serviceSummary: text(input.serviceSummary, 'serviceSummary', 500),
+    serviceSummary: text(input.serviceSummary, 'serviceSummary', 500, !input.visible),
     serviceIds,
     servicePricesMinor: servicePrices(input.servicePricesMinor, serviceIds),
+    serviceDurationMinutes: serviceDurations(input.serviceDurationMinutes, serviceIds),
+    workModes: modes,
+    availabilityByMode: slots,
+    ...(place ? { workplace: place } : {}),
     visible: input.visible,
     radiusKm: integer(input.radiusKm, 'radiusKm', 1, 100),
     travelFeeMinor: integer(input.travelFeeMinor, 'travelFeeMinor', 0, 1_000_000),
@@ -241,8 +311,9 @@ export function parseFreelancerProfileInput(value: unknown): FreelancerProfileIn
       0,
       720,
     ),
-    availability: availabilityList(input.availability),
-    identity: freelancerIdentity(input.identity),
+    // The mode lists are authoritative; keep the legacy home-only contract.
+    availability: slots.home,
+    identity: freelancerIdentity(input.identity, !input.visible),
   };
 }
 
@@ -300,6 +371,10 @@ export async function saveFreelancerProfile(
   const profileRef = firestore.collection('freelancerProfiles').doc(callerUid);
   const availabilityRef = firestore.collection('availability').doc(callerUid);
   const auditRef = firestore.collection('auditEvents').doc();
+  const profileId = `freelancer__${callerUid}`;
+  const slugRef = input.identity.publicSlug
+    ? firestore.collection('publicProfileSlugs').doc(input.identity.publicSlug)
+    : null;
 
   await firestore.runTransaction(async transaction => {
     const [existingSnapshot, availabilitySnapshot, portfolioSnapshot] = await Promise.all([
@@ -309,18 +384,55 @@ export async function saveFreelancerProfile(
     ]);
     const existing = existingSnapshot.data() as RecordValue | undefined;
     const existingAvailability = availabilitySnapshot.data() as RecordValue | undefined;
+    const oldSlug = (existing?.identity as RecordValue | undefined)?.publicSlug;
+    const oldSlugRef = typeof oldSlug === 'string'
+      && /^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/.test(oldSlug)
+      && oldSlug !== input.identity.publicSlug
+      ? firestore.collection('publicProfileSlugs').doc(oldSlug)
+      : null;
+    // Slug ownership participates in the same transaction as the profile and
+    // availability. All index reads must happen before any writes.
+    const [slugSnapshot, oldSlugSnapshot] = await Promise.all([
+      slugRef ? transaction.get(slugRef) : null,
+      oldSlugRef ? transaction.get(oldSlugRef) : null,
+    ]);
+    if (slugSnapshot?.exists && slugSnapshot.data()?.profileId !== profileId) {
+      throw new functions.https.HttpsError('already-exists', 'publicSlug is already used');
+    }
     const currentlyAvailable = new Set(storedSlots(existingAvailability?.availableSlots));
-    const reservedSlots = [...new Set([
-      ...storedSlots(existingAvailability?.reservedSlots),
-      ...storedSlots(existing?.availability).filter(slot => !currentlyAvailable.has(slot)),
-    ])].sort();
+    // Old records represented a reservation only by removing the home slot.
+    // Once reservedSlots exists, it is authoritative, including an empty list.
+    const reservedSlots = [...new Set(existingAvailability?.reservedSlots === undefined
+      ? storedSlots(existing?.availability).filter(slot => !currentlyAvailable.has(slot))
+      : storedSlots(existingAvailability.reservedSlots))].sort();
     const reserved = new Set(reservedSlots);
+    const modeBySlot: Record<string, AppointmentMode> = Object.fromEntries(
+      (['home', 'chair'] as const).flatMap(mode => input.workModes[mode]
+        ? input.availabilityByMode[mode].map(slot => [slot, mode])
+        : []),
+    );
+    const configuredSlots = Object.keys(modeBySlot).sort();
+    const previousModes = existingAvailability?.modeBySlot as RecordValue | undefined;
+    const previousSlots = existing?.availabilityByMode as RecordValue | undefined;
+    for (const slot of reservedSlots) {
+      const previousMode = previousModes?.[slot];
+      if (previousMode === 'home' || previousMode === 'chair') {
+        modeBySlot[slot] = previousMode;
+      } else if (storedSlots(previousSlots?.chair).includes(slot)) {
+        modeBySlot[slot] = 'chair';
+      } else {
+        // Legacy appointments only supported home visits.
+        modeBySlot[slot] = 'home';
+      }
+    }
     const currentPublicProfile = existing?.publicProfile as RecordValue | undefined;
     const approvalStatus = currentPublicProfile?.approvalStatus === 'approved'
       ? 'approved'
       : 'pending';
     const coordinates = CITY_COORDINATES[input.cityId];
     const now = admin.firestore.FieldValue.serverTimestamp();
+    if (slugRef) transaction.set(slugRef, { profileId, freelancerId: callerUid, updatedAt: now });
+    if (oldSlugRef && oldSlugSnapshot?.data()?.profileId === profileId) transaction.delete(oldSlugRef);
     transaction.set(profileRef, {
       uid: callerUid,
       ...input,
@@ -345,9 +457,10 @@ export async function saveFreelancerProfile(
     transaction.set(availabilityRef, {
       ownerId: callerUid,
       ownerType: 'freelancer',
-      configuredSlots: input.availability,
-      availableSlots: input.availability.filter(slot => !reserved.has(slot)),
+      configuredSlots,
+      availableSlots: configuredSlots.filter(slot => !reserved.has(slot)),
       reservedSlots,
+      modeBySlot,
       updatedAt: now,
     });
     transaction.create(auditRef, {
@@ -435,7 +548,7 @@ export const deleteFreelancerPortfolioItemFunction = europeFunctions.https.onCal
   );
 });
 
-export const syncFreelancerPortfolio = functions.firestore
+export const syncFreelancerPortfolio = europeFunctions.firestore
   .document('portfolioItems/{portfolioItemId}')
   .onWrite(async change => {
     const owners = new Set<string>();

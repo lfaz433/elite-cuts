@@ -26,8 +26,6 @@ import {
   getPublicProfileFunction,
   listPublicCitiesFunction,
   listPublicProfilesFunction,
-  syncFreelancerPublicProfile,
-  syncSalonPublicProfile,
 } from './publicProfiles';
 import {
   cancelBookingFunction,
@@ -42,7 +40,6 @@ import {
   createFreelancerPortfolioItemFunction,
   deleteFreelancerPortfolioItemFunction,
   saveFreelancerProfileFunction,
-  syncFreelancerPortfolio,
 } from './freelancers';
 import {
   applyToJobFunction,
@@ -81,7 +78,9 @@ export const updateMembershipPermissions = updateMembershipPermissionsFunction;
 export const createWorkerInvitation = createWorkerInvitationFunction;
 export const respondToInvitation = respondToInvitationFunction;
 export const updateBusinessInfo = updateBusinessInfoFunction;
-export { syncSalonPublicProfile, syncFreelancerPublicProfile };
+// Re-export the Europe-scoped projection triggers without rebuilding them here.
+export { syncSalonPublicProfile, syncFreelancerPublicProfile } from './publicProfiles';
+export { syncFreelancerPortfolio } from './freelancers';
 export const listPublicCities = listPublicCitiesFunction;
 export const listPublicProfiles = listPublicProfilesFunction;
 export const getPublicProfile = getPublicProfileFunction;
@@ -112,7 +111,6 @@ export const initializeReferralMarketingV3 = initializeReferralMarketingV3Functi
 export const getMyReferralWorkspace = getMyReferralWorkspaceFunction;
 export const getPublicReferralCode = getPublicReferralCodeFunction;
 export const recordReferralVisit = recordReferralVisitFunction;
-export { syncFreelancerPortfolio };
 
 function getStripe(): Stripe {
   const key = process.env.STRIPE_SECRET_KEY;

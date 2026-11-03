@@ -50,7 +50,7 @@ export interface Booking {
 type RecordValue = Record<string, unknown>;
 type Firestore = admin.firestore.Firestore;
 
-export const processCompletedBookingReferralFunction = functions.firestore
+export const processCompletedBookingReferralFunction = europeFunctions.firestore
   .document('bookings/{bookingId}')
   .onUpdate(async (change, context) => {
     const previousStatus = change.before.data()?.status;
