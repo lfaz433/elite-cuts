@@ -28,10 +28,11 @@ moins de dix minutes, il doit pouvoir :
 
 1. compléter son profil et ses services ;
 2. activer un ou deux modes de rendez-vous ;
-3. publier son lien de réservation ;
+3. publier et partager son lien de réservation ;
 4. connaître ses prochaines demandes et décider rapidement ;
 5. distinguer ses visites à domicile de ses rendez-vous en salon ;
-6. comprendre son activité sans confondre prévision et encaissement.
+6. voir ses avis vérifiés et comprendre son activité sans confondre prévision
+   et encaissement.
 
 La réussite du MVP est mesurée par la possibilité de faire le parcours complet
 sans demander de formation ni révéler une adresse privée avant l'acceptation
@@ -50,6 +51,7 @@ Le dashboard freelance utilise des routes partageables :
 - `/freelancer/marketing`
 - `/freelancer/analytics`
 - `/freelancer/settings`
+- `/b/:publicSlug` (page publique, sans authentification visible)
 
 `/freelancer` redirige vers `/freelancer/overview`. Une route inconnue redirige
 vers cette vue plutôt que d'afficher une page vide.
@@ -90,11 +92,35 @@ Chaque vue possède une seule action principale :
   optionnelle par service pour le calendrier.
 - **Marketing** : profil public, portfolio, liens sociaux, lien de réservation,
   QR code et carte de parrainage. Le portfolio garde sa modération existante.
+  Le lien est généré depuis le domaine actuellement ouvert afin de rester juste
+  sur une Preview puis sur le domaine de production.
 - **Analytiques** : périodes 7 et 30 jours, prévision de CA, réservations,
   clients uniques, annulations, répartition par service et par type de visite.
 - **Paramètres** : identité publique, horaires, déplacements, politique
   d'annulation, lieu professionnel et modes de rendez-vous. La zone de
   domicile du client ne fait jamais partie de ce formulaire.
+
+### Page publique et réservation invitée
+
+La page `/b/:publicSlug` est la destination du lien partagé dans une bio, un
+message WhatsApp ou un QR code. Elle n'affiche que des informations que le
+freelancer a publiées ou qui ont été approuvées par la plateforme : photo,
+nom, ville, spécialités, portfolio, services avec prix et durée, modes de
+rendez-vous, créneaux, liens sociaux et politique d'annulation.
+
+Le visiteur sélectionne un service, le type `home` ou `chair`, puis un créneau.
+Il saisit son nom, son e-mail et son téléphone ; l'adresse complète est demandée
+seulement pour `home`. Il ne voit aucune étape de création de compte. Le client
+obtient au dernier moment une session Firebase anonyme sécurisée, puis la
+Function crée une demande de réservation. Cette identité temporaire est
+utilisée pour les droits de lecture et d'annulation de cette demande ; elle ne
+doit jamais être présentée comme un compte utilisateur au visiteur.
+
+Les avis sont publics lorsqu'ils sont vérifiés et approuvés. Le freelancer voit
+tous les avis associés à son profil dans Marketing, y compris leur état de
+modération, mais ne peut ni les modifier ni les supprimer. Un visiteur ne voit
+que la note moyenne, le nombre d'avis et les avis publics ; s'il n'y en a pas,
+la page affiche « Nouveau sur Barberboard » sans inventer de note.
 
 ## Modèle de données compatible
 
@@ -145,6 +171,7 @@ type AppointmentMode = 'home' | 'chair';
 appointmentMode?: AppointmentMode;
 serviceDurationMinutes?: number;
 workplaceSnapshot?: FreelancerWorkplace;
+guestBooking?: boolean;
 ```
 
 Les anciens documents freelancer sont lus comme `appointmentMode: 'home'`.
@@ -152,6 +179,22 @@ Une réservation `chair` doit contenir un `workplaceSnapshot`; une réservation
 `home` garde les protections actuelles d'adresse privée. L'adresse complète du
 client reste exclusivement dans le document privé existant et n'est chargée
 qu'après confirmation par le freelancer.
+
+### Projection publique, avis et lien
+
+La projection `publicProfiles/freelancer__{uid}` ajoute les champs publics
+strictement nécessaires à la page bio : `publicSlug`, les éléments de service
+avec leur nom, prix et durée, les deux modes de visite, le lieu professionnel
+pour `chair`, les liens sociaux autorisés et un résumé d'avis. L'adresse du
+domicile du freelancer, les coordonnées exactes, les données des clients et les
+adresses de visite ne sont jamais projetées.
+
+Les avis sont stockés côté serveur dans `freelancerReviews/{reviewId}`. Chaque
+avis contient un `bookingId`, le `freelancerId`, une note de 1 à 5, un texte
+facultatif, un nom public minimisé (prénom et initiale) et un état de
+modération. La Function accepte un avis uniquement pour le client associé à une
+réservation `completed`, une fois par réservation. La projection publique ne
+contient que les avis `approved` et une moyenne calculée à partir d'eux.
 
 ### Analytiques
 
@@ -174,8 +217,17 @@ de l'usage réel.
   d'adresse client privée ne peut être écrit dans une réservation publique.
 - La Cloud Function de création de réservation vérifie le mode demandé, le
   créneau disponible, le profil publié et le prix du service côté serveur.
+- La création invitée exige une session Firebase anonyme ; la Function limite
+  les champs, crée une demande serveur et marque celle-ci `guestBooking: true`.
+  L'authentification anonyme doit être activée dans Firebase Authentication.
+- Avant de distribuer le lien publiquement, App Check avec reCAPTCHA doit être
+  configuré et activé pour les appels publics. Sans cette mesure anti-robots,
+  le flux invité reste limité aux tests et au pilote accompagné.
 - La réponse accepter/refuser est conservée côté fonction, afin qu'un client ne
   puisse jamais confirmer sa propre demande ou voir une adresse avant décision.
+- La création, publication, modification et modération des avis est
+  exclusivement côté Function ; le navigateur ne peut pas écrire directement
+  dans `freelancerReviews`.
 - Aucun rôle administrateur, paiement ou accès cross-tenant n'est ajouté.
 
 ## États, erreurs et texte utilisateur
@@ -211,10 +263,16 @@ Les tests automatisés doivent vérifier au minimum :
 6. la navigation accepte uniquement les sept vues freelance ;
 7. une règle Firestore bloque l'accès d'un autre utilisateur aux données du
    freelancer.
+8. un lien public ne renvoie jamais une adresse privée ni un contact client ;
+9. une réservation invitée reçoit une session anonyme et ne peut pas réserver
+   deux fois le même créneau ;
+10. un avis est refusé sans réservation terminée, ou si un avis existe déjà
+    pour la même réservation.
 
 Le test manuel final couvre la création d'un profil mixte, l'ajout de deux
-créneaux de types différents, une réservation par type, l'acceptation d'une
-visite à domicile, puis la lecture du calendrier et des analytiques.
+créneaux de types différents, la copie du lien public, une réservation invitée
+par type, l'acceptation d'une visite à domicile, puis la lecture du calendrier,
+des analytiques et des avis vérifiés.
 
 ## Déploiement et limites
 
