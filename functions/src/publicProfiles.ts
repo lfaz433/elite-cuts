@@ -246,9 +246,15 @@ export function projectFreelancerPublicProfile(
       serviceSummary: profile.serviceSummary,
       serviceIds: profile.serviceIds,
       servicePricesMinor: profile.servicePricesMinor,
-      serviceDurationMinutes: profile.serviceDurationMinutes,
-      workModes: profile.workModes,
-      availabilityByMode: profile.availabilityByMode,
+      // Match Task 1's legacy defaults only when a new field is absent.
+      // Explicit malformed values still go through strict input validation.
+      serviceDurationMinutes: profile.serviceDurationMinutes === undefined
+        ? Object.fromEntries((publicServiceIds(profile.serviceIds) ?? []).map(id => [id, 30]))
+        : profile.serviceDurationMinutes,
+      workModes: profile.workModes === undefined ? { home: true, chair: false } : profile.workModes,
+      availabilityByMode: profile.availabilityByMode === undefined
+        ? { home: profile.availability, chair: [] }
+        : profile.availabilityByMode,
       ...(profile.workplace === undefined ? {} : { workplace: profile.workplace }),
       visible: profile.visible,
       radiusKm: profile.radiusKm,

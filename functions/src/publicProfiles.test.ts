@@ -47,6 +47,48 @@ const source = {
     serviceIds: ['coupe-degrade'], homeVisit: false },
 };
 
+function legacyApprovedSource() {
+  const legacy = structuredClone(source);
+  legacy.publicProfile.approvalStatus = 'approved';
+  delete legacy.serviceDurationMinutes;
+  delete legacy.workModes;
+  delete legacy.availabilityByMode;
+  delete legacy.workplace;
+  return legacy;
+}
+
+test('keeps a legacy approved profile in Discover using absent-field defaults', () => {
+  const legacy = legacyApprovedSource();
+  const projection = projectFreelancerPublicProfile('freelancer-a', legacy);
+  assert.notEqual(projection, null);
+  assert.equal(projection.approvalStatus, 'approved');
+  assert.deepStrictEqual(projection.workModes, { home: true, chair: false });
+  assert.deepStrictEqual(projection.services, [
+    { id: 'coupe-degrade', label: 'Coupe degrade', priceMinor: 2500, durationMinutes: 30 },
+  ]);
+  assert.equal(projection.workplace, undefined);
+  assert.equal(sanitizePublicProfile('freelancer__freelancer-a', projection)?.displayName, 'Amine Fade');
+  assert.equal(Object.hasOwn(legacy, 'serviceDurationMinutes'), false);
+  assert.equal(Object.hasOwn(legacy, 'workModes'), false);
+  assert.equal(Object.hasOwn(legacy, 'availabilityByMode'), false);
+});
+
+test.each([
+  { serviceDurationMinutes: null },
+  { serviceDurationMinutes: {} },
+  { serviceDurationMinutes: { 'coupe-degrade': '30' } },
+  { workModes: null },
+  { workModes: { home: 'yes', chair: false } },
+  { availabilityByMode: null },
+  { availabilityByMode: { home: [], chair: [] } },
+  { availabilityByMode: { home: ['invalid-slot'], chair: [] } },
+  { availability: ['2099-02-30T10:00'] },
+])('rejects malformed fields on a legacy approved profile instead of defaulting them %#', patch => {
+  assert.equal(projectFreelancerPublicProfile('freelancer-a', {
+    ...legacyApprovedSource(), ...patch,
+  }), null);
+});
+
 test('projects a visible pending freelancer for a direct shared link', () => {
   assert.partialDeepStrictEqual(projectFreelancerPublicProfile('freelancer-a', source), {
     kind: 'freelancer', visible: true, approvalStatus: 'pending', publicSlug: 'amine-fade',
