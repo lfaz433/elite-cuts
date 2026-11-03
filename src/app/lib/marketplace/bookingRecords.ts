@@ -1,3 +1,5 @@
+import type { AppointmentMode, FreelancerWorkplace } from './freelancerRecords';
+
 export type BookingStatus =
   | 'pending_approval'
   | 'confirmed'
@@ -18,6 +20,9 @@ export interface MarketplaceBooking {
   date: string;
   time: string;
   status: BookingStatus;
+  appointmentMode: AppointmentMode;
+  guestBooking: boolean;
+  workplaceSnapshot?: FreelancerWorkplace;
   approximateArea?: string;
   clientEmail?: string;
   clientPhone?: string;
@@ -51,6 +56,20 @@ function optionalNumber(record: Record<string, unknown>, field: string): number 
     : undefined;
 }
 
+function parseWorkplaceSnapshot(value: unknown): FreelancerWorkplace | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const place = value as Record<string, unknown>;
+  if (![place.name, place.line1, place.postalCode, place.city].every(field => (
+    typeof field === 'string' && field.trim().length > 0
+  ))) return null;
+  return {
+    name: place.name as string,
+    line1: place.line1 as string,
+    postalCode: place.postalCode as string,
+    city: place.city as string,
+  };
+}
+
 export function parseMarketplaceBooking(
   id: string,
   expectedClientId: string | null,
@@ -58,6 +77,11 @@ export function parseMarketplaceBooking(
 ): MarketplaceBooking | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const booking = value as Record<string, unknown>;
+  const appointmentMode = booking.appointmentMode === undefined ? 'home' : booking.appointmentMode;
+  const guestBooking = booking.guestBooking === undefined ? false : booking.guestBooking;
+  const workplaceSnapshot = appointmentMode === 'chair'
+    ? parseWorkplaceSnapshot(booking.workplaceSnapshot)
+    : null;
   if (
     typeof id !== 'string'
     || typeof booking.profileId !== 'string'
@@ -71,6 +95,10 @@ export function parseMarketplaceBooking(
     || typeof booking.time !== 'string'
     || typeof booking.status !== 'string'
     || !BOOKING_STATUSES.has(booking.status as BookingStatus)
+    || (appointmentMode !== 'home' && appointmentMode !== 'chair')
+    || typeof guestBooking !== 'boolean'
+    || (appointmentMode === 'chair' && !workplaceSnapshot)
+    || (appointmentMode === 'home' && booking.workplaceSnapshot !== undefined)
   ) return null;
   const optionalText = (field: string) => typeof booking[field] === 'string'
     ? { [field]: booking[field] as string }
@@ -91,6 +119,9 @@ export function parseMarketplaceBooking(
     date: booking.date,
     time: booking.time,
     status: booking.status as BookingStatus,
+    appointmentMode,
+    guestBooking,
+    ...(workplaceSnapshot ? { workplaceSnapshot } : {}),
     ...optionalText('approximateArea'),
     ...optionalText('clientEmail'),
     ...optionalText('clientPhone'),
@@ -145,6 +176,8 @@ export function parseLegacyClientBooking(
     date: booking.date,
     time: booking.time,
     status,
+    appointmentMode: 'home',
+    guestBooking: false,
   };
 }
 
