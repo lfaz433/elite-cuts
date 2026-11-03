@@ -56,10 +56,27 @@ function httpsUrl(value: unknown): value is string {
   } catch { return false; }
 }
 
+const PARIS_SLOT_FORMAT = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+});
+
 function futureSlot(value: unknown, now: number): value is string {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T([01]\d|2[0-3]):[0-5]\d$/.test(value)) return false;
   const date = new Date(`${value}:00.000Z`);
-  return Number.isFinite(date.getTime()) && date.getTime() > now && date.toISOString().slice(0, 16) === value;
+  if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 16) !== value) return false;
+  // Match the server/booking policy: reject nonexistent and ambiguous Paris
+  // wall times, and compare the unique instant rather than the UTC-shaped text.
+  const wallTimeAsUtc = date.getTime();
+  let epochMs: number | null = null;
+  for (let deltaMinutes = -180; deltaMinutes <= 180; deltaMinutes += 15) {
+    const candidate = wallTimeAsUtc + deltaMinutes * 60_000;
+    const parts = Object.fromEntries(PARIS_SLOT_FORMAT.formatToParts(candidate).map(part => [part.type, part.value]));
+    if (`${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}` !== value) continue;
+    if (epochMs !== null) return false;
+    epochMs = candidate;
+  }
+  return epochMs !== null && epochMs > now;
 }
 
 export function parsePublicFreelancerPage(value: unknown, now = Date.now()): PublicFreelancerPage | null {

@@ -401,6 +401,26 @@ function publicSlot(value: unknown): value is string {
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 16) === value;
 }
 
+const PARIS_SLOT_FORMAT = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+});
+
+function publicSlotEpochMsInParis(value: string): number | null {
+  // Match booking conversion: a wall time must identify exactly one Paris
+  // instant. DST gaps and overlaps cannot be booked without an explicit offset.
+  const wallTimeAsUtc = Date.parse(`${value}:00.000Z`);
+  let epochMs: number | null = null;
+  for (let deltaMinutes = -180; deltaMinutes <= 180; deltaMinutes += 15) {
+    const candidate = wallTimeAsUtc + deltaMinutes * 60_000;
+    const parts = Object.fromEntries(PARIS_SLOT_FORMAT.formatToParts(candidate).map(part => [part.type, part.value]));
+    if (`${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}` !== value) continue;
+    if (epochMs !== null) return null;
+    epochMs = candidate;
+  }
+  return epochMs;
+}
+
 function directProfilePage(id: string, slug: string, value: unknown, now: number): PublicFreelancerPage | null {
   const profile = record(value);
   if (!profile || profile.kind !== 'freelancer' || profile.visible !== true
@@ -492,7 +512,8 @@ export async function getPublicFreelancerPageBySlug(
   const reserved = new Set(availability.reservedSlots);
   page.slots = [...new Set(availability.availableSlots.filter(publicSlot))].sort().flatMap(value => {
     const appointmentMode = modeBySlot[value];
-    if (new Date(`${value}:00.000Z`).getTime() <= now || reserved.has(value)
+    const epochMs = publicSlotEpochMsInParis(value);
+    if (epochMs === null || epochMs <= now || reserved.has(value)
       || (appointmentMode !== 'home' && appointmentMode !== 'chair') || !page.workModes[appointmentMode]) return [];
     return [{ value, appointmentMode }];
   });

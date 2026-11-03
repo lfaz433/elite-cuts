@@ -26,7 +26,8 @@ function loadSource(filename = resolve(import.meta.dirname, 'publicFreelancer.ts
   return loaded.exports;
 }
 const { parsePublicFreelancerPage, getPublicFreelancerPageBySlug } = loadSource();
-const now = Date.parse('2099-09-05T09:00:00Z');
+// 09:00 in Paris during summer time.
+const now = Date.parse('2099-09-05T07:00:00Z');
 function validPage() {
   return {
     id: 'freelancer__freelancer-a', publicSlug: 'amine-fade', displayName: 'Amine Fade', cityId: 'fr-paris',
@@ -111,6 +112,32 @@ test('supports safe public reviews, empty availability, and a home-only page wit
   raw.reviewSummary = { average: 4.5, count: 2, reviews: [{ rating: 5, text: 'Super', authorName: 'Alex', createdAtMs: now - 1 }] };
   assert.deepStrictEqual(parsePublicFreelancerPage(raw, now), raw);
 });
+
+for (const [name, clock, value, accepted] of [
+  ['winter past', '2026-11-03T09:30:00Z', '2026-11-03T10:00', false],
+  ['winter current', '2026-11-03T09:30:00Z', '2026-11-03T10:30', false],
+  ['winter future', '2026-11-03T09:30:00Z', '2026-11-03T10:31', true],
+  ['summer past', '2026-07-03T08:30:00Z', '2026-07-03T10:00', false],
+  ['summer current', '2026-07-03T08:30:00Z', '2026-07-03T10:30', false],
+  ['summer future', '2026-07-03T08:30:00Z', '2026-07-03T10:31', true],
+  ['before spring gap', '2026-03-29T00:00:00Z', '2026-03-29T01:30', true],
+  ['spring gap start', '2026-03-29T00:00:00Z', '2026-03-29T02:00', false],
+  ['spring gap middle', '2026-03-29T00:00:00Z', '2026-03-29T02:30', false],
+  ['after spring gap', '2026-03-29T00:00:00Z', '2026-03-29T03:00', true],
+  ['spring transition current', '2026-03-29T01:00:00Z', '2026-03-29T03:00', false],
+  ['spring transition future', '2026-03-29T01:00:00Z', '2026-03-29T03:01', true],
+  ['before autumn overlap', '2026-10-24T23:00:00Z', '2026-10-25T01:30', true],
+  ['autumn overlap start', '2026-10-24T23:00:00Z', '2026-10-25T02:00', false],
+  ['autumn overlap middle', '2026-10-24T23:00:00Z', '2026-10-25T02:30', false],
+  ['after autumn overlap', '2026-10-24T23:00:00Z', '2026-10-25T03:00', true],
+  ['autumn transition current', '2026-10-25T02:00:00Z', '2026-10-25T03:00', false],
+  ['autumn transition future', '2026-10-25T02:00:00Z', '2026-10-25T03:01', true],
+]) {
+  test(`validates Europe/Paris public slots: ${name}`, () => {
+    const raw = validPage(); raw.slots = [{ value, appointmentMode: 'chair' }];
+    assert.deepStrictEqual(parsePublicFreelancerPage(raw, Date.parse(clock)), accepted ? raw : null);
+  });
+}
 
 test('loads the normalized slug through the named callable and validates its response', async () => {
   assert.equal(typeof getPublicFreelancerPageBySlug, 'function');

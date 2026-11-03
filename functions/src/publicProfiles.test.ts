@@ -181,7 +181,8 @@ test('Discover queries approval and filters pending and hidden records returned 
   assert.ok(queryFilters.some(([key, operator, value]) => key === 'approvalStatus' && operator === '==' && value === 'approved'));
 });
 
-const lookupNow = Date.parse('2099-09-05T09:00:00Z');
+// 09:00 in Paris during summer time.
+const lookupNow = Date.parse('2099-09-05T07:00:00Z');
 function directPageStore() {
   return {
     publicProfileSlugs: { 'amine-fade': { profileId: 'freelancer__freelancer-a', freelancerId: 'freelancer-a' } },
@@ -296,6 +297,45 @@ test('a visible profile may have no remaining free appointments and omits a disa
   const page = await getPublicFreelancerPageBySlug('amine-fade', lookupFirestore(state), lookupNow);
   assert.deepStrictEqual(page.slots, []);
   assert.equal(Object.hasOwn(page, 'workplace'), false);
+});
+
+test.each([
+  {
+    name: 'winter past and current local times', now: '2026-11-03T09:30:00Z',
+    slots: ['2026-11-03T10:00', '2026-11-03T10:30', '2026-11-03T10:31'],
+    expected: ['2026-11-03T10:31'],
+  },
+  {
+    name: 'summer past and current local times', now: '2026-07-03T08:30:00Z',
+    slots: ['2026-07-03T10:00', '2026-07-03T10:30', '2026-07-03T10:31'],
+    expected: ['2026-07-03T10:31'],
+  },
+  {
+    name: 'spring DST gap', now: '2026-03-29T00:00:00Z',
+    slots: ['2026-03-29T01:30', '2026-03-29T02:00', '2026-03-29T02:30', '2026-03-29T03:00'],
+    expected: ['2026-03-29T01:30', '2026-03-29T03:00'],
+  },
+  {
+    name: 'autumn DST overlap', now: '2026-10-24T23:00:00Z',
+    slots: ['2026-10-25T01:30', '2026-10-25T02:00', '2026-10-25T02:30', '2026-10-25T03:00'],
+    expected: ['2026-10-25T01:30', '2026-10-25T03:00'],
+  },
+  {
+    name: 'first unique time after spring transition', now: '2026-03-29T01:00:00Z',
+    slots: ['2026-03-29T03:00', '2026-03-29T03:01'], expected: ['2026-03-29T03:01'],
+  },
+  {
+    name: 'first unique time after autumn transition', now: '2026-10-25T02:00:00Z',
+    slots: ['2026-10-25T03:00', '2026-10-25T03:01'], expected: ['2026-10-25T03:01'],
+  },
+])('filters public slots with Europe/Paris booking semantics %#', async ({ name, now, slots, expected }) => {
+  const state = directPageStore();
+  state.availability['freelancer-a'] = {
+    ownerId: 'freelancer-a', ownerType: 'freelancer', availableSlots: slots, reservedSlots: [],
+    modeBySlot: Object.fromEntries(slots.map(slot => [slot, 'chair'])),
+  };
+  const page = await getPublicFreelancerPageBySlug('amine-fade', lookupFirestore(state), Date.parse(now));
+  assert.deepStrictEqual(page.slots, expected.map(value => ({ value, appointmentMode: 'chair' })), name);
 });
 
 test.each([null, {}, { slug: 'amine-fade', clientEmail: 'private' }, { slug: 12 }, { slug: '!' }])(
