@@ -1,7 +1,10 @@
 import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions';
 import { europeFunctions } from './runtime';
-import { parseFreelancerProfileInput, FreelancerWorkModes, FreelancerWorkplace } from './freelancers';
+import {
+  parseFreelancerProfileInput, normalizePublicSlug, sanitizeSocialLinks,
+  AppointmentMode, FreelancerWorkModes, FreelancerWorkplace,
+} from './freelancers';
 
 export type CityId = 'fr-paris' | 'fr-grenoble' | 'fr-mulhouse';
 
@@ -35,6 +38,31 @@ export interface FreelancerPublicProfileProjection extends PublicProfileProjecti
   cancellationWindowHours: number;
   reviewSummary: { average: null; count: 0; reviews: [] };
 }
+
+export type PublicFreelancerReview = {
+  rating: number;
+  text?: string;
+  authorName: string;
+  createdAtMs: number;
+};
+
+export type PublicFreelancerPage = {
+  id: string;
+  publicSlug: string;
+  displayName: string;
+  cityId: CityId;
+  bio: string;
+  serviceSummary: string;
+  profileImageUrl?: string;
+  portfolioUrls: string[];
+  services: Array<{ id: string; label: string; priceMinor: number; durationMinutes: number }>;
+  workModes: FreelancerWorkModes;
+  workplace?: FreelancerWorkplace;
+  socialLinks: Record<string, string>;
+  cancellationWindowHours: number;
+  reviewSummary: { average: number | null; count: number; reviews: PublicFreelancerReview[] };
+  slots: Array<{ value: string; appointmentMode: AppointmentMode }>;
+};
 
 export interface PublicProfile extends Omit<PublicProfileProjection, 'approvalStatus'> {
   id: string;
@@ -348,7 +376,130 @@ export async function getApprovedPublicProfile(
   return profile && await cityIsEnabled(profile.cityId, firestore) ? profile : null;
 }
 
-function callInput(value: unknown, key: 'cityId' | 'profileId'): string {
+function closedPublicRecord(value: unknown, keys: string[]): Record<string, unknown> | null {
+  const input = record(value);
+  return input && Object.keys(input).every(key => keys.includes(key)) ? input : null;
+}
+
+function publicInteger(value: unknown, minimum: number, maximum: number): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= minimum && value <= maximum;
+}
+
+function publicHttpsUrl(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length > 2048) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && !!url.hostname && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+
+function publicSlot(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T([01]\d|2[0-3]):[0-5]\d$/.test(value)) return false;
+  const date = new Date(`${value}:00.000Z`);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 16) === value;
+}
+
+function directProfilePage(id: string, slug: string, value: unknown, now: number): PublicFreelancerPage | null {
+  const profile = record(value);
+  if (!profile || profile.kind !== 'freelancer' || profile.visible !== true
+    || (profile.approvalStatus !== 'approved' && profile.approvalStatus !== 'pending') || profile.publicSlug !== slug
+    || !isCityId(profile.cityId)) return null;
+  const displayName = publicText(profile.displayName, 160);
+  const serviceSummary = publicText(profile.serviceSummary, 500);
+  const modes = closedPublicRecord(profile.workModes, ['home', 'chair']);
+  const summary = closedPublicRecord(profile.reviewSummary, ['average', 'count', 'reviews']);
+  if (!displayName || !serviceSummary || typeof profile.bio !== 'string' || profile.bio.length > 1000
+    || !modes || typeof modes.home !== 'boolean' || typeof modes.chair !== 'boolean' || (!modes.home && !modes.chair)
+    || !Array.isArray(profile.portfolioUrls) || profile.portfolioUrls.length > MAX_PUBLIC_PORTFOLIO_URLS
+    || !profile.portfolioUrls.every(publicHttpsUrl)
+    || (profile.profileImageUrl !== undefined && !publicHttpsUrl(profile.profileImageUrl))
+    || !Array.isArray(profile.services) || profile.services.length === 0 || profile.services.length > MAX_SERVICE_IDS
+    || !publicInteger(profile.cancellationWindowHours, 0, 720)
+    || !summary || !publicInteger(summary.count, 0, Number.MAX_SAFE_INTEGER) || !Array.isArray(summary.reviews)
+    || summary.reviews.length > summary.count || summary.reviews.length > 100
+    || (summary.count === 0 ? summary.average !== null
+      : typeof summary.average !== 'number' || !Number.isFinite(summary.average) || summary.average < 1 || summary.average > 5)
+  ) return null;
+
+  const services: PublicFreelancerPage['services'] = [];
+  for (const value of profile.services) {
+    const service = closedPublicRecord(value, ['id', 'label', 'priceMinor', 'durationMinutes']);
+    const serviceId = publicText(service?.id, 128);
+    const label = publicText(service?.label, 160);
+    if (!service || !serviceId || !label || services.some(existing => existing.id === serviceId)
+      || !publicInteger(service.priceMinor, 0, 1_000_000) || !publicInteger(service.durationMinutes, 15, 360)) return null;
+    services.push({ id: serviceId, label, priceMinor: service.priceMinor, durationMinutes: service.durationMinutes });
+  }
+  let workplace: FreelancerWorkplace | undefined;
+  if (modes.chair) {
+    const place = closedPublicRecord(profile.workplace, ['name', 'line1', 'postalCode', 'city']);
+    const name = publicText(place?.name, 160);
+    const line1 = publicText(place?.line1, 240);
+    const postalCode = publicText(place?.postalCode, 20);
+    const city = publicText(place?.city, 120);
+    if (!name || !line1 || !postalCode || !city) return null;
+    workplace = { name, line1, postalCode, city };
+  }
+  const reviews: PublicFreelancerReview[] = [];
+  for (const value of summary.reviews) {
+    const review = closedPublicRecord(value, ['rating', 'text', 'authorName', 'createdAtMs']);
+    const authorName = publicText(review?.authorName, 120);
+    if (!review || !authorName || !publicInteger(review.rating, 1, 5)
+      || !publicInteger(review.createdAtMs, 0, now)
+      || (review.text !== undefined && (typeof review.text !== 'string' || review.text.length > 2000))) return null;
+    reviews.push({ rating: review.rating, authorName, createdAtMs: review.createdAtMs,
+      ...(typeof review.text === 'string' ? { text: review.text } : {}) });
+  }
+  let socialLinks: Record<string, string>;
+  try {
+    const links = record(profile.socialLinks);
+    if (!links || Object.entries(links).some(([key, value]) => key !== 'whatsapp' && !publicHttpsUrl(value))) return null;
+    socialLinks = { ...sanitizeSocialLinks(links) };
+  } catch { return null; }
+  return {
+    id, publicSlug: slug, displayName, cityId: profile.cityId, bio: profile.bio, serviceSummary,
+    ...(typeof profile.profileImageUrl === 'string' ? { profileImageUrl: profile.profileImageUrl } : {}),
+    portfolioUrls: [...profile.portfolioUrls], services, workModes: { home: modes.home, chair: modes.chair },
+    ...(workplace ? { workplace } : {}), socialLinks, cancellationWindowHours: profile.cancellationWindowHours,
+    reviewSummary: { average: typeof summary.average === 'number' ? summary.average : null, count: summary.count, reviews },
+    slots: [],
+  };
+}
+
+export async function getPublicFreelancerPageBySlug(
+  value: string,
+  firestore: admin.firestore.Firestore = admin.firestore(),
+  now = Date.now(),
+): Promise<PublicFreelancerPage> {
+  const slug = normalizePublicSlug(value);
+  const notFound = () => new functions.https.HttpsError('not-found', 'Public freelancer profile not found');
+  const indexSnapshot = await firestore.collection('publicProfileSlugs').doc(slug).get();
+  const index = indexSnapshot.exists ? record(indexSnapshot.data()) : null;
+  if (!index || typeof index.freelancerId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(index.freelancerId)
+    || index.profileId !== `freelancer__${index.freelancerId}`) throw notFound();
+  const [profileSnapshot, availabilitySnapshot] = await Promise.all([
+    firestore.collection('publicProfiles').doc(index.profileId).get(),
+    firestore.collection('availability').doc(index.freelancerId).get(),
+  ]);
+  const page = profileSnapshot.exists ? directProfilePage(index.profileId, slug, profileSnapshot.data(), now) : null;
+  const availability = availabilitySnapshot.exists ? record(availabilitySnapshot.data()) : null;
+  const modeBySlot = record(availability?.modeBySlot);
+  if (!page || !availability || availability.ownerId !== index.freelancerId || availability.ownerType !== 'freelancer'
+    || !Array.isArray(availability.availableSlots) || !Array.isArray(availability.reservedSlots)
+    || !availability.reservedSlots.every(publicSlot) || !modeBySlot || !Number.isFinite(now)) throw notFound();
+  const reserved = new Set(availability.reservedSlots);
+  page.slots = [...new Set(availability.availableSlots.filter(publicSlot))].sort().flatMap(value => {
+    const appointmentMode = modeBySlot[value];
+    if (new Date(`${value}:00.000Z`).getTime() <= now || reserved.has(value)
+      || (appointmentMode !== 'home' && appointmentMode !== 'chair') || !page.workModes[appointmentMode]) return [];
+    return [{ value, appointmentMode }];
+  });
+  return page;
+}
+
+function callInput(value: unknown, key: 'cityId' | 'profileId' | 'slug'): string {
   const input = record(value);
   if (!input || Object.keys(input).length !== 1 || typeof input[key] !== 'string') {
     throw new functions.https.HttpsError('invalid-argument', `${key} is required`);
@@ -382,6 +533,10 @@ export const getPublicProfileFunction = europeFunctions.https.onCall(async data 
   const profileId = requestedProfileId(data);
   return getApprovedPublicProfile(profileId);
 });
+
+export const getPublicFreelancerPageBySlugFunction = europeFunctions.https.onCall(async data => (
+  getPublicFreelancerPageBySlug(normalizePublicSlug(callInput(data, 'slug')))
+));
 
 export const syncSalonPublicProfile = europeFunctions.firestore
   .document('salonLocations/{locationId}')

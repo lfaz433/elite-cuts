@@ -24,6 +24,7 @@ import { createWorkerInvitationFunction, respondToInvitationFunction } from './i
 import { updateBusinessInfoFunction } from './businessInfo';
 import {
   getPublicProfileFunction,
+  getPublicFreelancerPageBySlugFunction,
   listPublicCitiesFunction,
   listPublicProfilesFunction,
 } from './publicProfiles';
@@ -84,6 +85,7 @@ export { syncFreelancerPortfolio } from './freelancers';
 export const listPublicCities = listPublicCitiesFunction;
 export const listPublicProfiles = listPublicProfilesFunction;
 export const getPublicProfile = getPublicProfileFunction;
+export const getPublicFreelancerPageBySlug = getPublicFreelancerPageBySlugFunction;
 export const requestBooking = requestBookingFunction;
 export const respondToBooking = respondToBookingFunction;
 export const cancelBooking = cancelBookingFunction;

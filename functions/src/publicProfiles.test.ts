@@ -30,7 +30,8 @@ function loadSource(filename = resolve(__dirname, 'publicProfiles.ts'), cache = 
 }
 
 const { projectFreelancerPublicProfile, projectSalonPublicProfile,
-  sanitizePublicProfile, listApprovedPublicProfiles } = loadSource();
+  sanitizePublicProfile, listApprovedPublicProfiles, getPublicFreelancerPageBySlug,
+  getPublicFreelancerPageBySlugFunction } = loadSource();
 const workplace = { name: 'Studio République', line1: '10 rue du Temple', postalCode: '75003', city: 'Paris' };
 const source = {
   uid: 'freelancer-a', displayName: 'Amine Fade', bio: 'Coupe et barbe.', cityId: 'fr-paris',
@@ -179,3 +180,126 @@ test('Discover queries approval and filters pending and hidden records returned 
   assert.deepStrictEqual(profiles.map(profile => profile.id), ['profile-0']);
   assert.ok(queryFilters.some(([key, operator, value]) => key === 'approvalStatus' && operator === '==' && value === 'approved'));
 });
+
+const lookupNow = Date.parse('2099-09-05T09:00:00Z');
+function directPageStore() {
+  return {
+    publicProfileSlugs: { 'amine-fade': { profileId: 'freelancer__freelancer-a', freelancerId: 'freelancer-a' } },
+    publicProfiles: { 'freelancer__freelancer-a': {
+      ...projectFreelancerPublicProfile('freelancer-a', source),
+      portfolioUrls: ['https://example.test/approved.jpg'],
+    } },
+    availability: { 'freelancer-a': {
+      ownerId: 'freelancer-a', ownerType: 'freelancer',
+      availableSlots: ['2099-09-05T11:00', '2099-09-05T10:00'], reservedSlots: [],
+      modeBySlot: { '2099-09-05T10:00': 'home', '2099-09-05T11:00': 'chair' },
+    } },
+  };
+}
+function lookupFirestore(state) {
+  return { collection(name) {
+    if (!['publicProfileSlugs', 'publicProfiles', 'availability'].includes(name)) {
+      throw new Error(`Public resolver must not read ${name}`);
+    }
+    return { doc(id) { return { get: async () => ({
+      id, exists: Boolean(state[name]?.[id]), data: () => structuredClone(state[name]?.[id]),
+    }) }; } };
+  } };
+}
+
+test.each(['pending', 'approved'])('resolves visible direct profiles independently of Discover approval %#', async approvalStatus => {
+  const state = directPageStore();
+  state.publicProfiles['freelancer__freelancer-a'].approvalStatus = approvalStatus;
+  const page = await getPublicFreelancerPageBySlug('  AMINE FADE  ', lookupFirestore(state), lookupNow);
+  assert.deepStrictEqual(page, {
+    id: 'freelancer__freelancer-a', publicSlug: 'amine-fade', displayName: 'Amine Fade', cityId: 'fr-paris',
+    bio: 'Coupe et barbe.', serviceSummary: 'Coupe', profileImageUrl: 'https://example.test/profile.jpg',
+    portfolioUrls: ['https://example.test/approved.jpg'],
+    services: [{ id: 'coupe-degrade', label: 'Coupe degrade', priceMinor: 2500, durationMinutes: 45 }],
+    workModes: { home: true, chair: true }, workplace,
+    socialLinks: { instagram: 'https://instagram.com/amine' }, cancellationWindowHours: 24,
+    reviewSummary: { average: null, count: 0, reviews: [] },
+    slots: [
+      { value: '2099-09-05T10:00', appointmentMode: 'home' },
+      { value: '2099-09-05T11:00', appointmentMode: 'chair' },
+    ],
+  });
+});
+
+test('selects a closed public response without private source, contacts, coordinates or unapproved portfolio objects', async () => {
+  const state = directPageStore();
+  Object.assign(state.publicProfiles['freelancer__freelancer-a'], {
+    homeOrigin: { line1: '12 rue privée', latitude: 48.861123 }, clientEmail: 'client@private.test',
+    clientPhone: '+33600000000', rawProfile: source, identity: { clientAddress: '12 rue privée' },
+    portfolioItems: [{ imageUrl: 'https://example.test/pending.jpg', moderationStatus: 'pending' }],
+  });
+  Object.assign(state.availability['freelancer-a'], { clientAddress: '12 rue privée', clientEmail: 'private' });
+  const page = await getPublicFreelancerPageBySlug('amine-fade', lookupFirestore(state), lookupNow);
+  assert.deepStrictEqual(Object.keys(page).sort(), [
+    'id', 'publicSlug', 'displayName', 'cityId', 'bio', 'serviceSummary', 'profileImageUrl',
+    'portfolioUrls', 'services', 'workModes', 'workplace', 'socialLinks', 'cancellationWindowHours', 'reviewSummary', 'slots',
+  ].sort());
+  assert.doesNotMatch(JSON.stringify(page), /12 rue|clientEmail|clientPhone|clientAddress|rawProfile|homeOrigin|latitude|pending\.jpg/);
+});
+
+test.each([
+  state => { delete state.publicProfileSlugs['amine-fade']; },
+  state => { delete state.publicProfiles['freelancer__freelancer-a']; },
+  state => { state.publicProfileSlugs['amine-fade'].freelancerId = 'someone-else'; },
+  state => { state.publicProfileSlugs['amine-fade'].profileId = 'salon__freelancer-a'; },
+  state => { state.publicProfileSlugs['amine-fade'].freelancerId = '../private'; },
+  state => { state.publicProfiles['freelancer__freelancer-a'].publicSlug = 'renamed-profile'; },
+  state => { state.publicProfiles['freelancer__freelancer-a'].visible = false; },
+  state => { state.publicProfiles['freelancer__freelancer-a'].kind = 'salon'; },
+  state => { state.publicProfiles['freelancer__freelancer-a'].approvalStatus = 'rejected'; },
+  state => { state.publicProfiles['freelancer__freelancer-a'].services[0].durationMinutes = 0; },
+  state => { state.publicProfiles['freelancer__freelancer-a'].services[0].priceMinor = '2500'; },
+  state => { state.publicProfiles['freelancer__freelancer-a'].services[0].clientEmail = 'private'; },
+  state => { state.publicProfiles['freelancer__freelancer-a'].portfolioUrls = ['http://example.test/image.jpg']; },
+  state => { state.publicProfiles['freelancer__freelancer-a'].profileImageUrl = 'https://'; },
+  state => { state.publicProfiles['freelancer__freelancer-a'].socialLinks = { clientEmail: 'private' }; },
+  state => { state.publicProfiles['freelancer__freelancer-a'].workplace.clientAddress = 'private'; },
+  state => { state.publicProfiles['freelancer__freelancer-a'].reviewSummary.reviews = [{ rating: 5, clientEmail: 'private' }]; },
+  state => { state.publicProfiles['freelancer__freelancer-a'].cityId = 'unknown'; },
+  state => { state.publicProfiles['freelancer__freelancer-a'].workModes = { home: false, chair: false }; },
+  state => { delete state.publicProfiles['freelancer__freelancer-a'].workplace; },
+  state => { delete state.availability['freelancer-a']; },
+  state => { state.availability['freelancer-a'].ownerId = 'someone-else'; },
+  state => { state.availability['freelancer-a'].ownerType = 'salon'; },
+  state => { state.availability['freelancer-a'].availableSlots = 'invalid'; },
+  state => { state.availability['freelancer-a'].reservedSlots = 'invalid'; },
+  state => { state.availability['freelancer-a'].modeBySlot = null; },
+])('returns not-found for unknown, stale, hidden or malformed direct records %#', async mutate => {
+  const state = directPageStore(); mutate(state);
+  await assert.rejects(() => getPublicFreelancerPageBySlug('amine-fade', lookupFirestore(state), lookupNow),
+    error => error.code === 'not-found' && /not found/i.test(error.message));
+});
+
+test('includes only future free distinct slots with valid enabled modes and real calendar dates', async () => {
+  const state = directPageStore();
+  state.publicProfiles['freelancer__freelancer-a'].workModes = { home: false, chair: true };
+  const times = ['2099-09-05T08:00', '2099-09-05T09:00', '2099-09-05T10:00', '2099-09-05T11:00',
+    '2099-09-05T12:00', '2099-09-05T13:00', '2099-09-05T14:00', '2099-02-30T10:00', '2099-09-05T25:00'];
+  state.availability['freelancer-a'] = {
+    ownerId: 'freelancer-a', ownerType: 'freelancer', availableSlots: [...times, '2099-09-05T11:00'],
+    reservedSlots: ['2099-09-05T12:00'], modeBySlot: { ...Object.fromEntries(times.map(t => [t, 'chair'])),
+      '2099-09-05T10:00': 'home', '2099-09-05T13:00': 'invalid', '2099-09-05T14:00': undefined },
+  };
+  const page = await getPublicFreelancerPageBySlug('amine-fade', lookupFirestore(state), lookupNow);
+  assert.deepStrictEqual(page.slots, [{ value: '2099-09-05T11:00', appointmentMode: 'chair' }]);
+});
+
+test('a visible profile may have no remaining free appointments and omits a disabled chair workplace', async () => {
+  const state = directPageStore();
+  state.publicProfiles['freelancer__freelancer-a'].workModes = { home: true, chair: false };
+  state.availability['freelancer-a'].availableSlots = [];
+  const page = await getPublicFreelancerPageBySlug('amine-fade', lookupFirestore(state), lookupNow);
+  assert.deepStrictEqual(page.slots, []);
+  assert.equal(Object.hasOwn(page, 'workplace'), false);
+});
+
+test.each([null, {}, { slug: 'amine-fade', clientEmail: 'private' }, { slug: 12 }, { slug: '!' }])(
+  'the callable rejects malformed or expanded lookup input %#', async input => {
+    await assert.rejects(() => getPublicFreelancerPageBySlugFunction(input), error => error.code === 'invalid-argument');
+  },
+);
