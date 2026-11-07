@@ -115,14 +115,14 @@ export function parsePublicFreelancerPage(value: unknown, now = Date.now()): Pub
   try { socialLinks = { ...sanitizeSocialLinks(links) }; } catch { return null; }
   const summary = closedRecord(page.reviewSummary, ['average', 'count', 'reviews']);
   if (!summary || !integer(summary.count, 0, Number.MAX_SAFE_INTEGER) || !Array.isArray(summary.reviews)
-    || summary.reviews.length > summary.count || summary.reviews.length > 100
+    || summary.reviews.length > summary.count || summary.reviews.length > 5
     || (summary.count === 0 ? summary.average !== null
       : typeof summary.average !== 'number' || !Number.isFinite(summary.average) || summary.average < 1 || summary.average > 5)) return null;
   const reviews: PublicFreelancerReview[] = [];
   for (const value of summary.reviews) {
     const review = closedRecord(value, ['rating', 'text', 'authorName', 'createdAtMs']);
     if (!review || !integer(review.rating, 1, 5) || !text(review.authorName, 120) || !integer(review.createdAtMs, 0, now)
-      || (review.text !== undefined && !text(review.text, 2000, true))) return null;
+      || (review.text !== undefined && !text(review.text, 500, true))) return null;
     reviews.push({ rating: review.rating, authorName: review.authorName, createdAtMs: review.createdAtMs,
       ...(typeof review.text === 'string' ? { text: review.text } : {}) });
   }

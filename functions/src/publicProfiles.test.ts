@@ -10,10 +10,15 @@ const test = Object.assign((name, fn) => runTest(name, fn), {
 class HttpsError extends Error {
   constructor(code, message) { super(message); this.code = code; }
 }
-const builder = { https: { onCall: handler => handler }, firestore: { document: () => ({ onWrite: handler => handler }) } };
+let defaultFirestore;
+function builder(region) {
+  return { https: { onCall: handler => handler }, firestore: {
+    document: path => ({ onWrite: handler => Object.assign(handler, { path, region }) }),
+  } };
+}
 const sdk = {
-  'firebase-functions': { ...builder, https: { ...builder.https, HttpsError }, region: () => builder },
-  'firebase-admin': { firestore: { FieldValue: { serverTimestamp: () => 'server-timestamp' } } },
+  'firebase-functions': { ...builder(), https: { ...builder().https, HttpsError }, region: value => builder(value) },
+  'firebase-admin': { firestore: Object.assign(() => defaultFirestore, { FieldValue: { serverTimestamp: () => 'server-timestamp' } }) },
 };
 
 function loadSource(filename = resolve(__dirname, 'publicProfiles.ts'), cache = new Map()) {
@@ -31,7 +36,8 @@ function loadSource(filename = resolve(__dirname, 'publicProfiles.ts'), cache = 
 
 const { projectFreelancerPublicProfile, projectSalonPublicProfile,
   sanitizePublicProfile, listApprovedPublicProfiles, getPublicFreelancerPageBySlug,
-  getPublicFreelancerPageBySlugFunction } = loadSource();
+  getPublicFreelancerPageBySlugFunction, refreshFreelancerPublicProfile,
+  syncFreelancerPublicProfile, syncFreelancerReviewSummary } = loadSource();
 const workplace = { name: 'Studio République', line1: '10 rue du Temple', postalCode: '75003', city: 'Paris' };
 const source = {
   uid: 'freelancer-a', displayName: 'Amine Fade', bio: 'Coupe et barbe.', cityId: 'fr-paris',
@@ -207,6 +213,72 @@ function lookupFirestore(state) {
     }) }; } };
   } };
 }
+
+test('profile and review changes rebuild the projection from current source and approved reviews', async () => {
+  assert.equal(typeof refreshFreelancerPublicProfile, 'function');
+  assert.equal(typeof syncFreelancerReviewSummary, 'function');
+  const state = { profile: structuredClone(source), reviews: [
+    { freelancerId: 'freelancer-a', bookingId: 'booking-a', status: 'approved', rating: 5,
+      authorName: 'Ada C.', createdAt: { toMillis: () => 1 }, clientEmail: 'private' },
+    { freelancerId: 'freelancer-a', bookingId: 'booking-b', status: 'hidden', rating: 1,
+      authorName: 'Bob D.', createdAt: { toMillis: () => 2 } },
+  ], projection: undefined };
+  const reads = [];
+  defaultFirestore = {
+    collection(name) { return {
+      doc: id => ({ path: `${name}/${id}` }),
+      where: (field, op, value) => ({ name, field, op, value }),
+    }; },
+    async runTransaction(fn) {
+      let writing = false;
+      return fn({
+        async get(ref) {
+          assert.equal(writing, false);
+          if (ref.path === 'freelancerProfiles/freelancer-a') return { exists: !!state.profile, data: () => state.profile };
+          assert.deepStrictEqual(ref, { name: 'freelancerReviews', field: 'freelancerId', op: '==', value: 'freelancer-a' });
+          reads.push(ref);
+          return { docs: state.reviews.map(value => ({ data: () => value })) };
+        },
+        set(ref, value) { writing = true; assert.equal(ref.path, 'publicProfiles/freelancer__freelancer-a'); state.projection = value; },
+        delete(ref) { writing = true; assert.equal(ref.path, 'publicProfiles/freelancer__freelancer-a'); state.projection = null; },
+      });
+    },
+  };
+  await refreshFreelancerPublicProfile('freelancer-a', defaultFirestore);
+  assert.deepStrictEqual(state.projection.reviewSummary, {
+    average: 5, count: 1, reviews: [{ rating: 5, authorName: 'Ada C.', createdAtMs: 1 }],
+  });
+  assert.doesNotMatch(JSON.stringify(state.projection), /clientEmail|private/);
+  state.profile.displayName = 'Updated Name';
+  await syncFreelancerPublicProfile({ after: { exists: true, data: () => source } }, { params: { uid: 'freelancer-a' } });
+  assert.equal(state.projection.displayName, 'Updated Name');
+  assert.equal(state.projection.reviewSummary.count, 1);
+  const change = { before: { exists: true, data: () => ({ freelancerId: 'freelancer-a' }) },
+    after: { exists: true, data: () => ({ freelancerId: 'freelancer-a' }) } };
+  state.reviews[0].status = 'hidden';
+  await syncFreelancerReviewSummary(change);
+  assert.deepStrictEqual(state.projection.reviewSummary, { average: null, count: 0, reviews: [] });
+  state.reviews[1].status = 'approved';
+  await syncFreelancerReviewSummary(change);
+  assert.equal(state.projection.reviewSummary.average, 1);
+  state.reviews = [];
+  await syncFreelancerReviewSummary({ ...change, after: { exists: false } });
+  assert.equal(state.projection.reviewSummary.count, 0);
+  state.profile = null;
+  await syncFreelancerReviewSummary(change);
+  assert.equal(state.projection, null);
+  assert.equal(syncFreelancerReviewSummary.region, 'europe-west1');
+  assert.equal(syncFreelancerReviewSummary.path, 'freelancerReviews/{reviewId}');
+  assert.equal(reads.length, 5);
+});
+
+for (const [name, reviewSummary] of [
+  ['more than five reviews', { average: 5, count: 6, reviews: Array.from({ length: 6 }, () => ({ rating: 5, authorName: 'Ada C.', createdAtMs: 1 })) }],
+  ['text over 500 characters', { average: 5, count: 1, reviews: [{ rating: 5, authorName: 'Ada C.', createdAtMs: 1, text: 'x'.repeat(501) }] }],
+]) test(`public resolver rejects ${name}`, async () => {
+  const state = directPageStore(); state.publicProfiles['freelancer__freelancer-a'].reviewSummary = reviewSummary;
+  await assert.rejects(() => getPublicFreelancerPageBySlug('amine-fade', lookupFirestore(state), lookupNow), e => e.code === 'not-found');
+});
 
 test.each(['pending', 'approved'])('resolves visible direct profiles independently of Discover approval %#', async approvalStatus => {
   const state = directPageStore();

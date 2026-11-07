@@ -97,6 +97,8 @@ for (const [name, mutate] of [
   ['invalid review average', p => { p.reviewSummary.average = 7; }],
   ['inconsistent reviews', p => { p.reviewSummary.count = 1; }],
   ['invalid review', p => { p.reviewSummary = { average: 5, count: 1, reviews: [{ rating: 6, authorName: 'A', createdAtMs: now - 1 }] }; }],
+  ['more than five reviews', p => { p.reviewSummary = { average: 5, count: 6, reviews: Array.from({ length: 6 }, () => ({ rating: 5, authorName: 'Ada C.', createdAtMs: now - 1 })) }; }],
+  ['review text over 500 characters', p => { p.reviewSummary = { average: 5, count: 1, reviews: [{ rating: 5, authorName: 'Ada C.', createdAtMs: now - 1, text: 'x'.repeat(501) }] }; }],
 ]) {
   test(`rejects malformed or private nested response: ${name}`, () => {
     assert.equal(typeof parsePublicFreelancerPage, 'function');

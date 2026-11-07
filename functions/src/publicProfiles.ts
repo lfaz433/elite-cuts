@@ -1,6 +1,7 @@
 import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions';
 import { europeFunctions } from './runtime';
+import { buildApprovedReviewSummary, FreelancerReviewSummary } from './reviews';
 import {
   parseFreelancerProfileInput, normalizePublicSlug, sanitizeSocialLinks,
   AppointmentMode, FreelancerWorkModes, FreelancerWorkplace,
@@ -36,7 +37,7 @@ export interface FreelancerPublicProfileProjection extends PublicProfileProjecti
   workModes: FreelancerWorkModes;
   workplace?: FreelancerWorkplace;
   cancellationWindowHours: number;
-  reviewSummary: { average: null; count: 0; reviews: [] };
+  reviewSummary: FreelancerReviewSummary;
 }
 
 export type PublicFreelancerReview = {
@@ -438,7 +439,7 @@ function directProfilePage(id: string, slug: string, value: unknown, now: number
     || !Array.isArray(profile.services) || profile.services.length === 0 || profile.services.length > MAX_SERVICE_IDS
     || !publicInteger(profile.cancellationWindowHours, 0, 720)
     || !summary || !publicInteger(summary.count, 0, Number.MAX_SAFE_INTEGER) || !Array.isArray(summary.reviews)
-    || summary.reviews.length > summary.count || summary.reviews.length > 100
+    || summary.reviews.length > summary.count || summary.reviews.length > 5
     || (summary.count === 0 ? summary.average !== null
       : typeof summary.average !== 'number' || !Number.isFinite(summary.average) || summary.average < 1 || summary.average > 5)
   ) return null;
@@ -468,7 +469,7 @@ function directProfilePage(id: string, slug: string, value: unknown, now: number
     const authorName = publicText(review?.authorName, 120);
     if (!review || !authorName || !publicInteger(review.rating, 1, 5)
       || !publicInteger(review.createdAtMs, 0, now)
-      || (review.text !== undefined && (typeof review.text !== 'string' || review.text.length > 2000))) return null;
+      || (review.text !== undefined && (typeof review.text !== 'string' || review.text.length > 500))) return null;
     reviews.push({ rating: review.rating, authorName, createdAtMs: review.createdAtMs,
       ...(typeof review.text === 'string' ? { text: review.text } : {}) });
   }
@@ -570,9 +571,36 @@ export const syncSalonPublicProfile = europeFunctions.firestore
 
 export const syncFreelancerPublicProfile = europeFunctions.firestore
   .document('freelancerProfiles/{uid}')
-  .onWrite(async (change, context) => {
-    const projection = change.after.exists
-      ? projectFreelancerPublicProfile(context.params.uid, change.after.data())
-      : null;
-    await writeProjection(`freelancer__${context.params.uid}`, projection);
+  .onWrite(async (_change, context) => {
+    await refreshFreelancerPublicProfile(context.params.uid);
+  });
+
+export async function refreshFreelancerPublicProfile(
+  uid: string,
+  firestore: admin.firestore.Firestore = admin.firestore(),
+): Promise<void> {
+  const sourceRef = firestore.collection('freelancerProfiles').doc(uid);
+  const targetRef = firestore.collection('publicProfiles').doc(`freelancer__${uid}`);
+  // Read current state inside the same transaction as the overwrite. Delayed
+  // profile/review events cannot restore a hidden profile or a moderated review.
+  await firestore.runTransaction(async transaction => {
+    const snapshot = await transaction.get(sourceRef);
+    const projection = snapshot.exists ? projectFreelancerPublicProfile(uid, snapshot.data()) : null;
+    if (!projection) { transaction.delete(targetRef); return; }
+    const reviews = await transaction.get(firestore.collection('freelancerReviews').where('freelancerId', '==', uid));
+    projection.reviewSummary = buildApprovedReviewSummary(uid, reviews.docs.map(document => document.data()));
+    transaction.set(targetRef, projection);
+  });
+}
+
+export const syncFreelancerReviewSummary = europeFunctions.firestore
+  .document('freelancerReviews/{reviewId}')
+  .onWrite(async change => {
+    const owners = new Set([change.before.exists ? change.before.data()?.freelancerId : undefined,
+      change.after.exists ? change.after.data()?.freelancerId : undefined]);
+    for (const owner of owners) {
+      if (typeof owner === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(owner)) {
+        await refreshFreelancerPublicProfile(owner);
+      }
+    }
   });

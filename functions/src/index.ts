@@ -81,7 +81,11 @@ export const createWorkerInvitation = createWorkerInvitationFunction;
 export const respondToInvitation = respondToInvitationFunction;
 export const updateBusinessInfo = updateBusinessInfoFunction;
 // Re-export the Europe-scoped projection triggers without rebuilding them here.
-export { syncSalonPublicProfile, syncFreelancerPublicProfile } from './publicProfiles';
+export { syncSalonPublicProfile, syncFreelancerPublicProfile, syncFreelancerReviewSummary } from './publicProfiles';
+export {
+  submitFreelancerReviewFunction as submitFreelancerReview,
+  listMyFreelancerReviewsFunction as listMyFreelancerReviews,
+} from './reviews';
 export { syncFreelancerPortfolio } from './freelancers';
 export const listPublicCities = listPublicCitiesFunction;
 export const listPublicProfiles = listPublicProfilesFunction;

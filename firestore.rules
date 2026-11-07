@@ -304,6 +304,14 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
+    // Only the booking-verifying server can create reviews. Freelancers may
+    // read their minimized inbox, but cannot edit, hide or delete a review.
+    match /freelancerReviews/{reviewId} {
+      allow read: if request.auth != null
+        && resource.data.freelancerId == request.auth.uid;
+      allow create, update, delete: if false;
+    }
+
     match /availability/{ownerId} {
       allow read: if request.auth != null
         && request.auth.uid == ownerId
