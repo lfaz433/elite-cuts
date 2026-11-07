@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Plus, Scissors, Trash2 } from 'lucide-react';
 import type { FreelancerProfileInput } from '../../lib/marketplace/freelancer';
+import { SERVICE_DURATIONS } from './workspace/freelancerWorkspacePresentation';
 import {
   addFreelancerService,
   displayFreelancerService,
@@ -19,7 +20,7 @@ export default function ServiceCatalog({ value, onChange }: Props) {
   const [customService, setCustomService] = useState('');
   const field = 'w-full rounded-xl border border-white/10 bg-black px-3 py-3 text-sm text-white outline-none focus:border-[#D4AF37]';
   const change = (next: { serviceIds: string[]; servicePricesMinor: Record<string, number> } | null) => {
-    if (next) onChange({ ...value, ...next });
+    if (next) onChange({ ...value, ...next, serviceDurationMinutes: Object.fromEntries(next.serviceIds.map(id => [id, value.serviceDurationMinutes?.[id] ?? 30])) });
   };
   const add = (name: string) => {
     change(addFreelancerService(value, name));
@@ -41,15 +42,16 @@ export default function ServiceCatalog({ value, onChange }: Props) {
           <button key={name} type="button" onClick={() => add(name)} className="rounded-full border border-white/10 px-3 py-2 text-xs font-bold text-white/70 transition hover:border-[#D4AF37]/60 hover:text-[#D4AF37]">+ {name}</button>
         ))}
       </div>
-      <div className="mt-4 flex gap-2">
-        <input className={field} value={customService} maxLength={64} onChange={event => setCustomService(event.currentTarget.value)} placeholder="Ajouter un service personnalisé" />
-        <button type="button" disabled={!customService.trim()} onClick={() => add(customService)} className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-[#D4AF37] px-4 py-3 text-sm font-black text-black disabled:opacity-40"><Plus className="h-4 w-4" /> Ajouter</button>
+      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+        <input aria-label="Nom du nouveau service" className={field} value={customService} maxLength={64} onChange={event => setCustomService(event.currentTarget.value)} placeholder="Ajouter un service personnalisé" onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); add(customService); } }} />
+        <button type="button" disabled={!customService.trim()} onClick={() => add(customService)} className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-[#D4AF37] px-4 py-3 text-sm font-black text-black disabled:opacity-40"><Plus className="h-4 w-4" /> Ajouter un service</button>
       </div>
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
         {value.serviceIds.map(serviceId => (
           <article key={serviceId} className="rounded-2xl border border-white/10 bg-black p-4">
             <div className="flex items-start justify-between gap-3"><div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-[#D4AF37]/10 text-[#D4AF37]"><Scissors className="h-4 w-4" /></span><h3 className="font-bold">{displayFreelancerService(serviceId)}</h3></div><button type="button" aria-label={`Supprimer ${displayFreelancerService(serviceId)}`} onClick={() => change(removeFreelancerService(value, serviceId))} className="rounded-lg p-2 text-white/40 transition hover:bg-red-500/10 hover:text-red-300"><Trash2 className="h-4 w-4" /></button></div>
             <label className="mt-4 block text-xs font-bold uppercase tracking-wider text-white/40">Prix du service (€)<input className={`mt-2 ${field}`} type="number" min="0" max="10000" step="0.01" value={((value.servicePricesMinor[serviceId] ?? 0) / 100).toFixed(2)} onChange={event => change(setFreelancerServicePrice(value, serviceId, Math.max(0, Math.round(Number(event.currentTarget.value || 0) * 100))))} /></label>
+            <label className="mt-4 block text-xs font-bold uppercase tracking-wider text-white/40">Durée<select aria-label={`Durée de ${displayFreelancerService(serviceId)}`} className={`mt-2 ${field}`} value={value.serviceDurationMinutes?.[serviceId] ?? 30} onChange={event => onChange({ ...value, serviceDurationMinutes: { ...value.serviceDurationMinutes, [serviceId]: Number(event.currentTarget.value) } })}>{SERVICE_DURATIONS.map(minutes => <option key={minutes} value={minutes}>{minutes} min</option>)}</select></label>
           </article>
         ))}
       </div>

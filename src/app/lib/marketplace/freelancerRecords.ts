@@ -115,7 +115,7 @@ function profileImageUrl(value: unknown): value is string {
   }
 }
 
-function identity(value: unknown): FreelancerIdentity | null {
+function identity(value: unknown, allowEmptySlug: boolean): FreelancerIdentity | null {
   if (value === undefined) return { socialLinks: {}, publicSlug: '' };
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
@@ -125,7 +125,7 @@ function identity(value: unknown): FreelancerIdentity | null {
   if (record.profileImageUrl !== undefined && !profileImageUrl(record.profileImageUrl)) return null;
   if (typeof record.publicSlug !== 'string') return null;
   try {
-    if (normalizePublicSlug(record.publicSlug) !== record.publicSlug) return null;
+    if (!(allowEmptySlug && record.publicSlug === '') && normalizePublicSlug(record.publicSlug) !== record.publicSlug) return null;
     return {
       ...(record.profileImageUrl ? { profileImageUrl: record.profileImageUrl } : {}),
       socialLinks: sanitizeSocialLinks(record.socialLinks),
@@ -139,7 +139,7 @@ function identity(value: unknown): FreelancerIdentity | null {
 export function parseFreelancerProfile(uid: string, value: unknown): FreelancerProfile | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const profile = value as Record<string, unknown>;
-  const publicIdentity = identity(profile.identity);
+  const publicIdentity = identity(profile.identity, profile.visible === false);
   const modes = profile.workModes === undefined ? { home: true, chair: false } : profile.workModes;
   const slots = profile.availabilityByMode === undefined
     ? { home: profile.availability, chair: [] }

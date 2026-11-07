@@ -1,118 +1,187 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { Navigate, Link, useLocation } from 'react-router';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
-import { Loader2, LogOut, Scissors } from 'lucide-react';
+import { httpsCallable } from 'firebase/functions';
+import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { db } from '../../lib/firebase';
+import { db, functions } from '../../lib/firebase';
 import {
-  createPortfolioItem,
-  deletePortfolioItem,
-  emptyFreelancerProfile,
-  listPortfolioItems,
-  loadFreelancerProfile,
-  saveFreelancerProfile,
-  type FreelancerProfileInput,
-  type PortfolioItem,
+  createPortfolioItem, deletePortfolioItem, emptyFreelancerProfile, listPortfolioItems,
+  loadFreelancerProfile, saveFreelancerProfile, type FreelancerProfileInput, type PortfolioItem,
 } from '../../lib/marketplace/freelancer';
-import {
-  getBookingAddress,
-  respondToBooking,
-  type HomeAddress,
-  type MarketplaceBooking,
-} from '../../lib/marketplace/bookings';
+import { getBookingAddress, respondToBooking, type HomeAddress, type MarketplaceBooking } from '../../lib/marketplace/bookings';
 import { parseMarketplaceBooking } from '../../lib/marketplace/bookingRecords';
-import {
-  confirmedAddressBookingIds,
-  freelancerOwnerScope,
-  jobBoardLoadKey,
-} from '../../lib/marketplace/freelancerWorkspace';
-import ProfileSettings from '../freelancer/ProfileSettings';
-import ServiceCatalog from '../freelancer/ServiceCatalog';
-import PortfolioManager from '../freelancer/PortfolioManager';
-import TravelSettings from '../freelancer/TravelSettings';
-import JobBoard from '../jobs/JobBoard';
-import ReferralCard from '../referrals/ReferralCard';
+import { freelancerOwnerScope, confirmedAddressBookingIds, jobBoardLoadKey } from '../../lib/marketplace/freelancerWorkspace';
+import { normalizePublicSlug } from '../../lib/marketplace/identity';
 import { useAuth } from '../context/AuthContext';
+import ServiceCatalog from '../freelancer/ServiceCatalog';
+import JobBoard from '../jobs/JobBoard';
+import FreelancerShell from '../freelancer/workspace/FreelancerShell';
+import FreelancerOverviewView from '../freelancer/workspace/FreelancerOverviewView';
+import FreelancerCalendarView from '../freelancer/workspace/FreelancerCalendarView';
+import FreelancerBookingsView from '../freelancer/workspace/FreelancerBookingsView';
+import FreelancerMarketingView from '../freelancer/workspace/FreelancerMarketingView';
+import FreelancerAnalyticsView from '../freelancer/workspace/FreelancerAnalyticsView';
+import FreelancerSettingsView from '../freelancer/workspace/FreelancerSettingsView';
+import { freelancerWorkspaceRedirect, resolveFreelancerWorkspaceView, type FreelancerWorkspaceView } from '../freelancer/workspace/freelancerWorkspaceRoutes';
+import { publicFreelancerUrl, validateProfileIdentity, slugError, type IdentityErrors, type FreelancerInboxReview } from '../freelancer/workspace/freelancerWorkspacePresentation';
+import { ViewHeading, secondaryButton } from '../freelancer/workspace/WorkspaceUI';
 
-function bookingRecord(id: string, value: Record<string, unknown>): MarketplaceBooking | null {
-  const booking = parseMarketplaceBooking(id, null, value);
-  return booking?.ownerType === 'freelancer' ? booking : null;
-}
+const listReviewsCall = httpsCallable<Record<string, never>, FreelancerInboxReview[]>(functions, 'listMyFreelancerReviews');
 
 export default function FreelancerDashboard() {
   const { user, logout } = useAuth();
-  const [draft, setDraft] = useState<FreelancerProfileInput>(() => emptyFreelancerProfile(user?.displayName));
+  const { pathname } = useLocation();
+  const redirect = freelancerWorkspaceRedirect(pathname);
+  if (redirect) return <Navigate to={redirect} replace />;
+  if (!user) return <Navigate to="/" replace />;
+  return <FreelancerWorkspaceData key={user.uid} uid={user.uid} displayName={user.displayName ?? ''} onLogout={() => void logout()} view={resolveFreelancerWorkspaceView(pathname)} />;
+}
+
+// Profile, bookings, private addresses, portfolio and review inbox share one owner-scoped loader.
+// The UID key above clears every cache when the signed-in owner changes.
+function FreelancerWorkspaceData({ uid, displayName, view, onLogout }: {
+  uid: string; displayName: string; view: FreelancerWorkspaceView; onLogout: () => void;
+}) {
+  const [draft, setDraft] = useState<FreelancerProfileInput>(() => emptyFreelancerProfile(displayName));
+  const [savedProfile, setSavedProfile] = useState<FreelancerProfileInput | null>(null);
   const [portfolio, setPortfolio] = useState<PortfolioItem[]>([]);
   const [bookings, setBookings] = useState<MarketplaceBooking[]>([]);
   const [bookingAddresses, setBookingAddresses] = useState<Record<string, HomeAddress>>({});
+  const [reviews, setReviews] = useState<FreelancerInboxReview[]>([]);
   const [profileRevision, setProfileRevision] = useState(0);
+  const [loadRevision, setLoadRevision] = useState(0);
+  const [bookingRevision, setBookingRevision] = useState(0);
+  const [reviewRevision, setReviewRevision] = useState(0);
+  const [addressRevision, setAddressRevision] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [bookingsLoading, setBookingsLoading] = useState(true);
+  const [bookingsError, setBookingsError] = useState(false);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
+  const [reviewsError, setReviewsError] = useState(false);
+  const [addressError, setAddressError] = useState(false);
   const [saving, setSaving] = useState(false);
-  const loadPortfolio = useCallback(async () => { if (user) setPortfolio(await listPortfolioItems(user.uid)); }, [user?.uid]);
-  useEffect(() => { if (!user) return; let active = true; setLoading(true); void Promise.all([loadFreelancerProfile(user.uid), listPortfolioItems(user.uid)]).then(([profile, items]) => { if (!active) return; if (profile) { const { uid: _uid, ...input } = profile; setDraft(input); } setPortfolio(items); }).catch(() => toast.error('Impossible de charger votre espace indépendant.')).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, [user?.uid]);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [identityErrors, setIdentityErrors] = useState<IdentityErrors>({});
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [answerError, setAnswerError] = useState(false);
+  const [now, setNow] = useState(() => new Date());
+  const savingLock = useRef(false);
+  const answerLock = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => { const interval = window.setInterval(() => setNow(new Date()), 60000); return () => window.clearInterval(interval); }, []);
+
   useEffect(() => {
-    if (!user) return;
-    const [ownerId, ownerType] = freelancerOwnerScope(user.uid);
-    return onSnapshot(
-      query(
-        collection(db, 'bookingRequests'),
-        where(...ownerId),
-        where(...ownerType),
-      ),
-      snapshot => setBookings(snapshot.docs
-        .map(item => bookingRecord(item.id, item.data()))
-        .filter((item): item is MarketplaceBooking => item !== null)
-        .sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`))),
-      () => toast.error('Impossible de charger les demandes à domicile.'),
-    );
-  }, [user?.uid]);
+    let active = true; setLoading(true); setLoadError(false);
+    void Promise.all([loadFreelancerProfile(uid), listPortfolioItems(uid)]).then(([profile, items]) => {
+      if (!active) return;
+      const input = profile ? (({ uid: _uid, ...rest }) => rest)(profile) : emptyFreelancerProfile(displayName);
+      setDraft(input); setSavedProfile(profile ? input : null); setPortfolio(items);
+    }).catch(() => { if (active) setLoadError(true); }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [uid, loadRevision]);
+
+  useEffect(() => {
+    setBookingsLoading(true); setBookingsError(false);
+    const [ownerId, ownerType] = freelancerOwnerScope(uid);
+    return onSnapshot(query(collection(db, 'bookingRequests'), where(...ownerId), where(...ownerType)), snapshot => {
+      setBookings(snapshot.docs.map(item => parseMarketplaceBooking(item.id, null, item.data()))
+        .filter((item): item is MarketplaceBooking => item !== null && item.ownerId === uid && item.ownerType === 'freelancer')
+        .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time)));
+      setBookingsLoading(false); setBookingsError(false);
+    }, () => { setBookingsError(true); setBookingsLoading(false); });
+  }, [uid, bookingRevision]);
+
   useEffect(() => {
     let active = true;
-    const missingAddressIds = confirmedAddressBookingIds(
-      bookings,
-      new Set(Object.keys(bookingAddresses)),
-    );
-    void Promise.all(missingAddressIds.map(async bookingId => {
-      const address = await getBookingAddress(bookingId);
-      if (active) setBookingAddresses(current => ({ ...current, [bookingId]: address }));
-    })).catch(() => {
-      if (active) toast.error('Impossible de charger une adresse confirmée.');
+    // A chair appointment always uses its commercial workplace snapshot, never the private address callable.
+    const homeBookings = bookings.filter(booking => booking.appointmentMode === 'home');
+    const ids = confirmedAddressBookingIds(homeBookings, new Set(Object.keys(bookingAddresses)));
+    if (!ids.length) { setAddressError(false); return; }
+    void Promise.allSettled(ids.map(async id => ({ id, address: await getBookingAddress(id) }))).then(results => {
+      if (!active) return;
+      setBookingAddresses(current => ({ ...current, ...Object.fromEntries(results.flatMap(result => result.status === 'fulfilled' ? [[result.value.id, result.value.address]] : [])) }));
+      setAddressError(results.some(result => result.status === 'rejected'));
     });
     return () => { active = false; };
-  }, [bookings, bookingAddresses]);
-  if (!user || loading) return <div className="grid min-h-screen place-items-center bg-black text-white"><Loader2 className="h-7 w-7 animate-spin text-[#D4AF37]" /></div>;
-  const save = async () => { setSaving(true); try { await saveFreelancerProfile(draft); setProfileRevision(current => current + 1); toast.success('Profil indépendant enregistré.'); } catch { toast.error('Impossible d’enregistrer le profil. Vérifiez les champs.'); } finally { setSaving(false); } };
-  const answer = async (bookingId: string, decision: 'accept' | 'decline') => {
-    try {
-      const result = await respondToBooking({ bookingId, decision });
-      if (result.status === 'confirmed') {
-        try {
-          const address = await getBookingAddress(bookingId);
-          setBookingAddresses(current => ({ ...current, [bookingId]: address }));
-        } catch {
-          toast.error('Visite acceptée, mais l’adresse confirmée doit être rechargée.');
-        }
-      }
-      setBookings(current => current.map(item => (
-        item.id === bookingId ? { ...item, status: result.status } : item
-      )));
-      toast.success(decision === 'accept' ? 'Visite acceptée.' : 'Visite refusée.');
-    } catch {
-      toast.error('La demande a changé ou vous n’êtes plus autorisé à agir.');
-    }
+  }, [bookings, addressRevision]);
+
+  useEffect(() => {
+    if (!savedProfile) { setReviews([]); return; }
+    let active = true; setReviewsLoading(true); setReviewsError(false);
+    void listReviewsCall({}).then(result => { if (active) setReviews(result.data); })
+      .catch(() => { if (active) setReviewsError(true); })
+      .finally(() => { if (active) setReviewsLoading(false); });
+    return () => { active = false; };
+  }, [uid, Boolean(savedProfile), reviewRevision]);
+
+  const changeDraft = (next: FreelancerProfileInput) => {
+    setDraft(next);
+    // Keep a server slug collision until the user edits that particular field.
+    setIdentityErrors(current => ({ ...validateProfileIdentity(next), ...(current.publicSlug?.includes('déjà utilisé') && next.identity.publicSlug === draft.identity.publicSlug ? { publicSlug: current.publicSlug } : {}) }));
+    setSaveError(null);
   };
-  return (
-    <div className="min-h-screen bg-[#070707] text-white">
-      <header className="border-b border-white/10 bg-black/80"><div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4"><div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-[#D4AF37] text-black"><Scissors className="h-5 w-5" /></span><div><p className="text-[10px] font-black uppercase tracking-[.24em] text-[#D4AF37]">Barberboard Freelancer</p><h1 className="font-black">{draft.displayName || 'Espace indépendant'}</h1></div></div><button type="button" onClick={() => void logout()} className="inline-flex items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-sm text-white/60"><LogOut className="h-4 w-4" /> Quitter</button></div></header>
-      <main className="mx-auto max-w-7xl space-y-6 px-5 py-7">
-        <section className="rounded-3xl border border-[#D4AF37]/20 bg-gradient-to-r from-[#17130a] to-[#111] p-6"><p className="text-xs font-black uppercase tracking-[.2em] text-[#D4AF37]">Votre activité, vos choix</p><h2 className="mt-2 text-3xl font-black">Pilotez votre profil, vos services et vos visites.</h2><p className="mt-2 max-w-xl text-sm text-white/55">Votre portfolio et vos tarifs restent sous votre contrôle. Publiez seulement lorsque votre profil est prêt.</p><button disabled={saving} type="button" onClick={() => void save()} className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#D4AF37] px-5 py-3 text-sm font-black text-black disabled:opacity-50">{saving && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer les modifications</button></section>
-        <ReferralCard surface="freelancer" title="Développez votre clientèle" description="Partagez votre lien Barberboard et suivez les crédits liés à vos parrainages." />
-        <ProfileSettings value={draft} onChange={setDraft} />
-        <ServiceCatalog value={draft} onChange={setDraft} />
-        <TravelSettings value={draft} onChange={setDraft} />
-        <section className="rounded-3xl border border-white/10 bg-[#111] p-6"><h2 className="text-xl font-black">Demandes à domicile</h2><p className="mt-1 text-sm text-white/45">Avant acceptation, seule la zone approximative est visible. L’adresse exacte reste privée.</p><div className="mt-5 space-y-3">{bookings.map(booking => <article key={booking.id} className="rounded-2xl border border-white/10 bg-black p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-wider text-[#D4AF37]">{booking.status === 'pending_approval' ? 'En attente de votre décision' : booking.status}</p><h3 className="mt-2 font-bold">{booking.serviceId} · {booking.date} à {booking.time}</h3><p className="mt-1 text-sm text-white/45">Zone approximative : {booking.approximateArea || 'non précisée'}</p>{typeof booking.totalPriceMinor === 'number' && <p className="mt-1 text-sm text-white/60">Service : {((booking.servicePriceMinor ?? 0) / 100).toFixed(2)} € · Déplacement : {((booking.travelFeeMinor ?? 0) / 100).toFixed(2)} € · Total : {(booking.totalPriceMinor / 100).toFixed(2)} €</p>}{typeof booking.serviceRadiusKm === 'number' && <p className="mt-1 text-xs text-white/45">Distance estimée : {booking.distanceKm ?? '?'} km / rayon {booking.serviceRadiusKm} km · annulation {booking.cancellationWindowHours ?? 0} h avant</p>}{booking.status === 'confirmed' && bookingAddresses[booking.id] && <p className="mt-2 text-sm font-semibold text-white">Adresse confirmée : {bookingAddresses[booking.id].line1}, {bookingAddresses[booking.id].postalCode ? `${bookingAddresses[booking.id].postalCode} ` : ''}{bookingAddresses[booking.id].city}</p>}</div>{booking.status === 'pending_approval' && <div className="flex gap-2"><button type="button" onClick={() => void answer(booking.id, 'decline')} className="rounded-xl border border-red-400/30 px-3 py-2 text-sm text-red-200">Refuser</button><button type="button" onClick={() => void answer(booking.id, 'accept')} className="rounded-xl bg-[#D4AF37] px-3 py-2 text-sm font-black text-black">Accepter</button></div>}</div></article>)}{bookings.length === 0 && <p className="rounded-xl border border-dashed border-white/10 p-5 text-center text-sm text-white/40">Aucune demande pour le moment.</p>}</div></section>
-        <PortfolioManager items={portfolio} onCreate={async input => { await createPortfolioItem(input); await loadPortfolio(); toast.success('Réalisation ajoutée pour modération.'); }} onDelete={async id => { await deletePortfolioItem(id); await loadPortfolio(); toast.success('Réalisation supprimée.'); }} />
-        <JobBoard key={jobBoardLoadKey(draft.cityId, profileRevision)} cityId={draft.cityId} portfolioItems={portfolio} reloadToken={profileRevision} />
-      </main>
-    </div>
-  );
+  const save = async () => {
+    if (savingLock.current) return;
+    const errors = validateProfileIdentity(draft);
+    setIdentityErrors(errors);
+    if (Object.keys(errors).length) {
+      setSaveError('Vérifiez les champs de votre identité publique.');
+      const field = Object.keys(errors)[0]; document.getElementById('freelancer-' + field)?.focus(); return;
+    }
+    const input = {
+      ...draft,
+      identity: { ...draft.identity, publicSlug: draft.identity.publicSlug.trim() ? normalizePublicSlug(draft.identity.publicSlug) : '' },
+      availability: draft.availabilityByMode.home,
+    };
+    // An unfinished optional workplace must not prevent saving a home-only draft.
+    if (!input.workModes.chair && input.workplace && Object.values(input.workplace).some(value => !value.trim())) delete input.workplace;
+    savingLock.current = true; setSaving(true); setSaveError(null);
+    try {
+      await saveFreelancerProfile(input);
+      if (!mounted.current) return;
+      setDraft(input); setSavedProfile(input); setProfileRevision(value => value + 1);
+      toast.success('Votre profil et vos services ont été enregistrés.');
+    } catch (error) {
+      if (!mounted.current) return;
+      const failure = error as { code?: string; message?: string };
+      if (failure.code === 'functions/already-exists') setIdentityErrors({ publicSlug: 'Cet identifiant public est déjà utilisé. Choisissez-en un autre.' });
+      else if (failure.message?.includes('publicSlug')) setIdentityErrors({ publicSlug: slugError });
+      setSaveError(failure.code === 'functions/already-exists' ? 'Le lien public doit être unique.' : 'Impossible d’enregistrer. Vérifiez les services, créneaux et informations obligatoires.');
+    } finally { savingLock.current = false; if (mounted.current) setSaving(false); }
+  };
+  const answer = async (id: string, decision: 'accept' | 'decline') => {
+    if (answerLock.current) return;
+    answerLock.current = true; setBusyId(id); setAnswerError(false);
+    try {
+      const result = await respondToBooking({ bookingId: id, decision });
+      if (!mounted.current) return;
+      setBookings(current => current.map(item => item.id === id ? { ...item, status: result.status } : item));
+      toast.success(decision === 'accept' ? 'Rendez-vous accepté.' : 'Demande refusée.');
+    } catch { if (mounted.current) setAnswerError(true); }
+    finally { answerLock.current = false; if (mounted.current) setBusyId(null); }
+  };
+  const refreshPortfolio = async () => { const items = await listPortfolioItems(uid); if (mounted.current) setPortfolio(items); };
+  const dirty = JSON.stringify(draft) !== JSON.stringify(savedProfile ?? emptyFreelancerProfile(displayName));
+  // Share only the last successfully saved identity; a local publish checkbox does not publish a URL.
+  const publicUrl = savedProfile ? publicFreelancerUrl(window.location.origin, savedProfile) : null;
+  if (loading) return <div role="status" className="grid min-h-screen place-items-center bg-[#090b0c] text-white"><div className="flex items-center gap-3"><Loader2 className="h-6 w-6 animate-spin text-[#D4AF37]" />Chargement de votre espace…</div></div>;
+  if (loadError) return <div role="alert" className="grid min-h-screen place-items-center bg-[#090b0c] p-6 text-white"><div><p>Impossible de charger votre profil. Aucun changement n’a été enregistré.</p><button type="button" className={secondaryButton + ' mt-5'} onClick={() => setLoadRevision(value => value + 1)}>Réessayer</button></div></div>;
+  const operationalProfile = savedProfile ?? draft;
+  return <FreelancerShell view={view} profile={operationalProfile} publicUrl={publicUrl} onLogout={onLogout}>
+    {dirty && <div role="status" className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#D4AF37]/25 bg-[#D4AF37]/5 p-4 text-sm text-[#E4C76B]"><p>Modifications non enregistrées.</p>{view !== 'settings' && <Link to="/freelancer/settings" className="font-semibold underline underline-offset-4">Enregistrer dans Paramètres</Link>}</div>}
+    {bookingsLoading && <p role="status" className="mb-5 text-sm text-white/50">Chargement des réservations…</p>}
+    {bookingsError && <div role="alert" className="mb-5 rounded-xl border border-red-400/20 p-4 text-sm text-red-200">Les réservations ne sont pas à jour. <button type="button" onClick={() => setBookingRevision(value => value + 1)} className="ml-3 underline">Réessayer</button></div>}
+    {addressError && <div role="alert" className="mb-5 rounded-xl border border-red-400/20 p-4 text-sm text-red-200">Une adresse confirmée n’a pas pu être chargée. <button type="button" onClick={() => setAddressRevision(value => value + 1)} className="ml-3 underline">Réessayer</button></div>}
+    {answerError && <p role="alert" className="mb-5 rounded-xl border border-red-400/20 p-4 text-sm text-red-200">Impossible de traiter cette demande. Vérifiez son statut puis réessayez.</p>}
+    {view === 'overview' && <FreelancerOverviewView profile={operationalProfile} bookings={bookings} addresses={bookingAddresses} now={now} />}
+    {view === 'calendar' && <FreelancerCalendarView profile={operationalProfile} bookings={bookings} addresses={bookingAddresses} now={now} />}
+    {view === 'bookings' && <FreelancerBookingsView bookings={bookings} addresses={bookingAddresses} busyId={busyId} onAnswer={(id, decision) => void answer(id, decision)} />}
+    {view === 'services' && <><ViewHeading eyebrow="Votre carte" title="Services" description="Définissez vos prestations, leurs tarifs et le temps nécessaire à chaque rendez-vous." action={null} /><fieldset disabled={saving} className="min-w-0"><ServiceCatalog value={draft} onChange={changeDraft} /></fieldset></>}
+    {view === 'marketing' && <FreelancerMarketingView profile={operationalProfile} publicUrl={publicUrl} portfolio={portfolio} reviews={reviews} reviewsLoading={reviewsLoading} reviewsError={reviewsError} onRetryReviews={() => setReviewRevision(value => value + 1)} onCreatePortfolio={async input => { await createPortfolioItem(input); await refreshPortfolio(); toast.success('Réalisation ajoutée pour modération.'); }} onDeletePortfolio={async id => { await deletePortfolioItem(id); await refreshPortfolio(); toast.success('Réalisation supprimée.'); }} />}
+    {view === 'analytics' && <FreelancerAnalyticsView bookings={bookings} now={now} />}
+    {view === 'settings' && <><FreelancerSettingsView profile={draft} onChange={changeDraft} onSave={() => void save()} saving={saving} errors={identityErrors} saveError={saveError} /><details className="mt-6 rounded-2xl border border-white/10 p-5"><summary className="cursor-pointer text-sm text-white/60">Opportunités professionnelles dans votre ville</summary><div className="mt-5 [&_button]:!border [&_button]:!border-white/15 [&_button]:!bg-transparent [&_button]:!text-white/75"><JobBoard key={jobBoardLoadKey(operationalProfile.cityId, profileRevision)} cityId={operationalProfile.cityId} portfolioItems={portfolio} reloadToken={profileRevision} /></div></details></>}
+  </FreelancerShell>;
 }

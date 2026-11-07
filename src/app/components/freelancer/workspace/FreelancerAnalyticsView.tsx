@@ -1,0 +1,16 @@
+import { useState } from 'react';
+import type { MarketplaceBooking } from '../../../lib/marketplace/bookings';
+import { calculateFreelancerAnalytics, type FreelancerAnalyticsPeriod } from '../../../lib/marketplace/freelancerAnalytics';
+import { displayFreelancerService } from '../../../lib/marketplace/freelancerServices.mjs';
+import { modeLabel, money, renderForecastCopy } from './freelancerWorkspacePresentation';
+import { EmptyState, Metric, ViewHeading, panelClass, primaryButton } from './WorkspaceUI';
+
+export default function FreelancerAnalyticsView({ bookings, now }: { bookings: MarketplaceBooking[]; now: Date }) {
+  const [period, setPeriod] = useState<FreelancerAnalyticsPeriod>('7d');
+  const metrics = calculateFreelancerAnalytics(bookings, period, now);
+  return <><ViewHeading eyebrow="Comprendre votre activité" title="Analytiques" description="Une prévision opérationnelle basée sur vos rendez-vous confirmés ou terminés dans la période à venir." action={<label className="flex flex-col gap-2 text-xs text-white/60">Changer la période<select className={primaryButton} value={period} onChange={event => setPeriod(event.currentTarget.value as FreelancerAnalyticsPeriod)}><option value="7d">Les 7 prochains jours</option><option value="30d">Les 30 prochains jours</option></select></label>} />
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><div aria-label={renderForecastCopy(metrics.forecastMinor)}><Metric label="Prévision de CA" value={money(metrics.forecastMinor)} /></div><Metric label="Réservations confirmées" value={metrics.confirmedCount} /><Metric label="Clients uniques" value={metrics.uniqueClientCount} /><Metric label="Annulations" value={metrics.cancelledCount} /></div>
+    <p className="mt-4 text-xs leading-relaxed text-white/45">Les demandes en attente, refusées ou annulées sont exclues de la prévision. Aucun paiement en ligne n’est activé.</p>
+    <div className="mt-7 grid gap-6 xl:grid-cols-2"><section className={panelClass}><h2 className="mb-5 text-lg font-semibold">Par service</h2>{metrics.byService.length ? <ul className="space-y-4">{metrics.byService.map(item => <li key={item.serviceId}><div className="flex justify-between gap-3 text-sm"><span>{displayFreelancerService(item.serviceId)}<span className="ml-2 text-white/40">{item.count} RDV</span></span><span>{money(item.forecastMinor)}</span></div><div aria-hidden="true" className="mt-2 h-1 rounded bg-white/5"><div className="h-1 rounded bg-[#D4AF37]/70" style={{ width: `${item.count / Math.max(1, metrics.confirmedCount) * 100}%` }} /></div></li>)}</ul> : <EmptyState title="Pas encore de données">Les services réservés apparaîtront ici.</EmptyState>}</section><section className={panelClass}><h2 className="mb-5 text-lg font-semibold">Par type de rendez-vous</h2>{metrics.byMode.length ? <ul className="space-y-5">{metrics.byMode.map(item => <li key={item.mode} className="flex items-center justify-between gap-3 text-sm"><div><p className="font-semibold">{modeLabel[item.mode]}</p><p className="mt-1 text-xs text-white/45">{item.count} rendez-vous</p></div><span>{money(item.forecastMinor)}</span></li>)}</ul> : <EmptyState title="Aucun rendez-vous confirmé">Sélectionnez une autre période ou complétez vos disponibilités.</EmptyState>}</section></div>
+  </>;
+}
