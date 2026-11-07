@@ -7,6 +7,9 @@ import ts from '../../../../functions/node_modules/typescript/lib/typescript.js'
 const require = createRequire(import.meta.url);
 let state = []; let cursor = 0;
 let pathname = '/freelancer/overview';
+let effectQueue = null;
+let firestoreApi = {};
+let callableHandlers = {};
 
 function load(relativePath, base = import.meta.dirname) {
   const filename = resolve(base, relativePath);
@@ -24,13 +27,13 @@ function load(relativePath, base = import.meta.dirname) {
     request => {
       if (request === 'react') return {
         useState: initial => { const index = cursor++; if (!(index in state)) state[index] = typeof initial === 'function' ? initial() : initial; return [state[index], value => { state[index] = typeof value === 'function' ? value(state[index]) : value; }]; },
-        useId: () => 'test-field', useEffect: () => {}, useRef: value => ({ current: value }), useMemo: callback => callback(),
+        useId: () => 'test-field', useEffect: callback => { effectQueue?.push(callback); }, useRef: value => ({ current: value }), useMemo: callback => callback(),
       };
       if (request === 'lucide-react') return new Proxy({}, { get: (_target, name) => name });
       if (request === 'react-router') return { Link: 'a', NavLink: 'a', Navigate: 'redirect', useLocation: () => ({ hash: '', pathname }) };
       if (request.endsWith('/context/AuthContext')) return { useAuth: () => ({ user: { uid: 'ada', displayName: 'Ada' }, logout() {} }) };
-      if (request === 'firebase/firestore') return {};
-      if (request === 'firebase/functions') return { httpsCallable: () => async () => ({ data: [] }) };
+      if (request === 'firebase/firestore') return firestoreApi;
+      if (request === 'firebase/functions') return { httpsCallable: (_functions, name) => async input => ({ data: callableHandlers[name] ? await callableHandlers[name](input) : [] }) };
       if (request.endsWith('/firebase')) return { db: {}, functions: {} };
       if (request.endsWith('/marketplace/bookings')) return {};
       if (request.endsWith('/jobs/JobBoard')) return { default: () => null };
@@ -254,4 +257,86 @@ test('booking card never renders a cached private address for an unaccepted home
   const text = nodes(tree).flatMap(node => [node.props.children].flat(Infinity)).filter(value => typeof value === 'string').join(' ');
   assert.match(text, /Zone approximative : Paris 11e/);
   assert.doesNotMatch(text, /99 private road/);
+});
+
+for (const mode of ['home', 'chair']) test(`${mode} availability preserves Enter and every character of a second slot until blur`, () => {
+  const Travel = load('../freelancer/TravelSettings.tsx').default;
+  let profile = { ...records.emptyFreelancerProfile('Ada'), workModes: { home: true, chair: true }, availabilityByMode: { home: [], chair: [], [mode]: ['2099-01-01T09:00'] } };
+  const props = () => ({ value: profile, onChange: next => { profile = next; } });
+  let tree = render(Travel, props());
+  let expected = '2099-01-01T09:00';
+  for (const character of '\n2099-01-02T10:00') {
+    const input = nodes(tree).find(node => node.props?.id === `availability-${mode}`);
+    input.props.onChange({ currentTarget: { value: input.props.value + character } });
+    expected += character;
+    cursor = 0; tree = Travel(props());
+    assert.equal(nodes(tree).find(node => node.props?.id === `availability-${mode}`).props.value, expected);
+  }
+  const input = nodes(tree).find(node => node.props?.id === `availability-${mode}`);
+  input.props.onBlur({ currentTarget: { value: `${expected}\n\n2099-01-01T09:00\n` } });
+  assert.deepEqual(profile.availabilityByMode[mode], ['2099-01-01T09:00', '2099-01-02T10:00']);
+  assert.deepEqual(profile.availability, profile.availabilityByMode.home);
+});
+
+test('a first visible draft stays unpublished and unavailable until its save succeeds, including after failure', async () => {
+  const originalWindow = globalThis.window;
+  const originalDocument = globalThis.document;
+  const cleanups = [];
+  try {
+    globalThis.window = { location: { origin: 'https://preview.example' }, setInterval: () => 1, clearInterval() {} };
+    globalThis.document = { getElementById: () => null };
+    firestoreApi = {
+      collection: (...args) => args, doc: (...args) => args, query: (...args) => args, where: (...args) => args,
+      getDoc: async () => ({ exists: () => false }), getDocs: async () => ({ docs: [] }),
+      onSnapshot: (_query, callback) => { callback({ docs: [] }); return () => {}; },
+    };
+    const Dashboard = load('./FreelancerDashboard.tsx').default;
+    pathname = '/freelancer/settings';
+    const container = render(Dashboard, {});
+    effectQueue = [];
+    render(container.type, container.props);
+    const initialEffects = effectQueue; effectQueue = null;
+    for (const effect of initialEffects) { const cleanup = effect(); if (cleanup) cleanups.push(cleanup); }
+    const flush = () => new Promise(resolve => setImmediate(resolve));
+    await flush();
+    const rerender = view => { cursor = 0; return container.type({ ...container.props, view }); };
+    const settings = tree => nodes(tree).find(node => node.type?.name === 'FreelancerSettingsView');
+    const draft = {
+      ...records.emptyFreelancerProfile('Ada'), visible: true, identity: { publicSlug: 'ada-cuts', socialLinks: {} },
+      serviceSummary: 'Coupe', serviceIds: ['cut'], servicePricesMinor: { cut: 2500 }, serviceDurationMinutes: { cut: 30 },
+      availabilityByMode: { home: ['2099-01-05T10:00', '', '2099-01-05T10:00'], chair: [] },
+    };
+    settings(rerender('settings')).props.onChange(draft);
+    const assertUnpublished = () => {
+      const overviewTree = rerender('overview');
+      assert.equal(overviewTree.props.publicUrl, null);
+      const overview = nodes(overviewTree).find(node => node.type?.name === 'FreelancerOverviewView');
+      const text = nodes(overview.type(overview.props)).flatMap(node => [node.props.children].flat(Infinity)).filter(value => typeof value === 'string').join(' ');
+      assert.doesNotMatch(text, /Votre profil est visible|Partager mon activité/);
+      const calendar = nodes(rerender('calendar')).find(node => node.type?.name === 'FreelancerCalendarView');
+      assert.deepEqual(helpers.calendarEntries(calendar.props.profile, [], 'all'), []);
+      assert.equal(settings(rerender('settings')).props.profile.visible, true);
+    };
+    assertUnpublished();
+    callableHandlers.saveFreelancerProfile = async () => { throw new Error('offline'); };
+    settings(rerender('settings')).props.onSave(); await flush();
+    assertUnpublished();
+    let finishSave; let payload;
+    callableHandlers.saveFreelancerProfile = input => { payload = input; return new Promise(resolve => { finishSave = resolve; }); };
+    settings(rerender('settings')).props.onSave();
+    assertUnpublished();
+    finishSave({ uid: 'ada' }); await flush();
+    assert.deepEqual(payload.availabilityByMode.home, ['2099-01-05T10:00']);
+    assert.deepEqual(payload.availability, ['2099-01-05T10:00']);
+    const savedTree = rerender('overview');
+    assert.equal(savedTree.props.publicUrl, 'https://preview.example/b/ada-cuts');
+    assert.equal(savedTree.props.profile.visible, true);
+    const calendar = nodes(rerender('calendar')).find(node => node.type?.name === 'FreelancerCalendarView');
+    assert.deepEqual(helpers.calendarEntries(calendar.props.profile, [], 'all').map(entry => entry.slot), ['2099-01-05T10:00']);
+  } finally {
+    cleanups.forEach(cleanup => cleanup());
+    effectQueue = null; firestoreApi = {}; callableHandlers = {};
+    if (originalWindow === undefined) delete globalThis.window; else globalThis.window = originalWindow;
+    if (originalDocument === undefined) delete globalThis.document; else globalThis.document = originalDocument;
+  }
 });

@@ -24,7 +24,7 @@ import FreelancerMarketingView from '../freelancer/workspace/FreelancerMarketing
 import FreelancerAnalyticsView from '../freelancer/workspace/FreelancerAnalyticsView';
 import FreelancerSettingsView from '../freelancer/workspace/FreelancerSettingsView';
 import { freelancerWorkspaceRedirect, resolveFreelancerWorkspaceView, type FreelancerWorkspaceView } from '../freelancer/workspace/freelancerWorkspaceRoutes';
-import { publicFreelancerUrl, validateProfileIdentity, slugError, type IdentityErrors, type FreelancerInboxReview } from '../freelancer/workspace/freelancerWorkspacePresentation';
+import { publicFreelancerUrl, validateProfileIdentity, normalizeAvailabilitySlots, slugError, type IdentityErrors, type FreelancerInboxReview } from '../freelancer/workspace/freelancerWorkspacePresentation';
 import { ViewHeading, secondaryButton } from '../freelancer/workspace/WorkspaceUI';
 
 const listReviewsCall = httpsCallable<Record<string, never>, FreelancerInboxReview[]>(functions, 'listMyFreelancerReviews');
@@ -131,10 +131,15 @@ function FreelancerWorkspaceData({ uid, displayName, view, onLogout }: {
       setSaveError('Vérifiez les champs de votre identité publique.');
       const field = Object.keys(errors)[0]; document.getElementById('freelancer-' + field)?.focus(); return;
     }
+    const availabilityByMode = {
+      home: normalizeAvailabilitySlots(draft.availabilityByMode.home.join('\n')),
+      chair: normalizeAvailabilitySlots(draft.availabilityByMode.chair.join('\n')),
+    };
     const input = {
       ...draft,
       identity: { ...draft.identity, publicSlug: draft.identity.publicSlug.trim() ? normalizePublicSlug(draft.identity.publicSlug) : '' },
-      availability: draft.availabilityByMode.home,
+      availabilityByMode,
+      availability: availabilityByMode.home,
     };
     // An unfinished optional workplace must not prevent saving a home-only draft.
     if (!input.workModes.chair && input.workplace && Object.values(input.workplace).some(value => !value.trim())) delete input.workplace;
@@ -169,7 +174,8 @@ function FreelancerWorkspaceData({ uid, displayName, view, onLogout }: {
   const publicUrl = savedProfile ? publicFreelancerUrl(window.location.origin, savedProfile) : null;
   if (loading) return <div role="status" className="grid min-h-screen place-items-center bg-[#090b0c] text-white"><div className="flex items-center gap-3"><Loader2 className="h-6 w-6 animate-spin text-[#D4AF37]" />Chargement de votre espace…</div></div>;
   if (loadError) return <div role="alert" className="grid min-h-screen place-items-center bg-[#090b0c] p-6 text-white"><div><p>Impossible de charger votre profil. Aucun changement n’a été enregistré.</p><button type="button" className={secondaryButton + ' mt-5'} onClick={() => setLoadRevision(value => value + 1)}>Réessayer</button></div></div>;
-  const operationalProfile = savedProfile ?? draft;
+  // Before the first successful save, operational views stay unpublished and have no configured slots.
+  const operationalProfile = savedProfile ?? emptyFreelancerProfile(displayName);
   return <FreelancerShell view={view} profile={operationalProfile} publicUrl={publicUrl} onLogout={onLogout}>
     {dirty && <div role="status" className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#D4AF37]/25 bg-[#D4AF37]/5 p-4 text-sm text-[#E4C76B]"><p>Modifications non enregistrées.</p>{view !== 'settings' && <Link to="/freelancer/settings" className="font-semibold underline underline-offset-4">Enregistrer dans Paramètres</Link>}</div>}
     {bookingsLoading && <p role="status" className="mb-5 text-sm text-white/50">Chargement des réservations…</p>}

@@ -4,6 +4,7 @@ import type { FreelancerProfileInput, AppointmentMode } from '../../../lib/marke
 import { normalizePublicSlug, sanitizeSocialLinks, type SocialPlatform } from '../../../lib/marketplace/identity';
 
 export const SERVICE_DURATIONS = [15, 30, 45, 60, 75, 90, 120] as const;
+export const normalizeAvailabilitySlots = (text: string): string[] => [...new Set(text.split(/\s+/).filter(Boolean))];
 export const modeLabel: Record<AppointmentMode, string> = { home: 'À domicile', chair: 'En salon' };
 export const statusLabel: Record<BookingStatus, string> = {
   pending_approval: 'En attente', confirmed: 'Confirmée', declined: 'Refusée', cancelled: 'Annulée', completed: 'Terminée', payment_failed: 'Échec de paiement',
