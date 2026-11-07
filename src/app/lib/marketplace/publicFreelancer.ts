@@ -29,6 +29,10 @@ export type PublicFreelancerPage = {
   slots: Array<{ value: string; appointmentMode: AppointmentMode }>;
 };
 
+export function bookingFieldsFor(mode: AppointmentMode): string[] {
+  return ['clientName', 'clientEmail', 'clientPhone', ...(mode === 'home' ? ['approximateArea', 'homeAddress'] : [])];
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const prototype = Object.getPrototypeOf(value);

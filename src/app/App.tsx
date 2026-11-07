@@ -38,6 +38,7 @@ const FreelancerPreviewPage = lazy(() => import('./components/pages/FreelancerPr
 const ClientPreviewPage = lazy(() => import('./components/pages/ClientPreviewPage'));
 const BrandPreviewPage = lazy(() => import('./components/pages/BrandPreviewPage'));
 const ReferralLanding = lazy(() => import('./components/referrals/ReferralLanding'));
+const FreelancerPublicPage = lazy(() => import('./components/public/FreelancerPublicPage'));
 
 // --- Premium Loading Spinner ---
 function AppLoader() {
@@ -142,6 +143,7 @@ function AppRoutes() {
       <Route path="client-preview" element={<ClientPreviewPage />} />
       <Route path="brand-preview" element={<BrandPreviewPage />} />
       <Route path="r/:code" element={<ReferralLanding />} />
+        <Route path="b/:publicSlug" element={<FreelancerPublicPage />} />
         <Route path="book" element={<AuthRequired><LandingPage /></AuthRequired>} />
       </Route>
       <Route path="/boutique" element={<BoutiquePage />} />
@@ -182,7 +184,7 @@ function AppContent() {
 
   // The public freelancer preview is intentionally self-contained: it must be
   // explorable without a tenant, an account, or Firestore listener activity.
-  if (pathname === '/freelancer-preview' || pathname === '/client-preview' || pathname === '/brand-preview' || pathname.startsWith('/r/')) return routes;
+  if (pathname === '/freelancer-preview' || pathname === '/client-preview' || pathname === '/brand-preview' || pathname.startsWith('/r/') || pathname.startsWith('/b/')) return routes;
 
   return <BusinessProvider>{routes}</BusinessProvider>;
 }

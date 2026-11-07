@@ -13,13 +13,11 @@ export const firebaseConfig = firebaseEnvironment.config;
 
 const app = initializeApp(firebaseConfig);
 
-const referralAppCheckSiteKey = firebaseEnvironment.appCheckSiteKey;
-
-function initializeReferralAppCheck(): AppCheck | null {
+function initializeConfiguredAppCheck(): AppCheck | null {
   if (!firebaseEnvironment.appCheckEnabled) return null;
   try {
     return initializeAppCheck(app, {
-      provider: new ReCaptchaV3Provider(referralAppCheckSiteKey),
+      provider: new ReCaptchaV3Provider(firebaseEnvironment.appCheckSiteKey),
       isTokenAutoRefreshEnabled: true,
     });
   } catch {
@@ -27,8 +25,11 @@ function initializeReferralAppCheck(): AppCheck | null {
   }
 }
 
-export const referralAppCheck = initializeReferralAppCheck();
-export const referralAppCheckEnabled = referralAppCheck !== null;
+export const appCheck = initializeConfiguredAppCheck();
+export const appCheckEnabled = appCheck !== null;
+// Retain the original referral imports while sharing one App Check instance.
+export const referralAppCheck = appCheck;
+export const referralAppCheckEnabled = appCheckEnabled;
 export const db = getFirestore(app);
 
 // Enable offline persistence
