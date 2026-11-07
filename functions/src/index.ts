@@ -34,6 +34,7 @@ import {
   listSalonBookingWorkspaceFunction,
   processCompletedBookingReferralFunction,
   requestBookingFunction,
+  requestPublicFreelancerBookingFunction,
   respondToBookingFunction,
   saveSalonAvailabilityFunction,
 } from './bookings';
@@ -87,6 +88,7 @@ export const listPublicProfiles = listPublicProfilesFunction;
 export const getPublicProfile = getPublicProfileFunction;
 export const getPublicFreelancerPageBySlug = getPublicFreelancerPageBySlugFunction;
 export const requestBooking = requestBookingFunction;
+export const requestPublicFreelancerBooking = requestPublicFreelancerBookingFunction;
 export const respondToBooking = respondToBookingFunction;
 export const cancelBooking = cancelBookingFunction;
 export const getBookingAddress = getBookingAddressFunction;

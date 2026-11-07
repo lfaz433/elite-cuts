@@ -1,6 +1,8 @@
 import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions';
+import { createHash } from 'node:crypto';
 import { europeFunctions } from './runtime';
+import { normalizePublicSlug, AppointmentMode, FreelancerWorkplace } from './freelancers';
 import { isReferralEligibleCompletion } from './bookingStatus';
 import { processReferralBookingCompletion } from './referrals';
 
@@ -33,6 +35,20 @@ export interface MarketplaceBookingInput {
   clientPhone?: string;
   approximateArea?: string;
   homeAddress?: HomeAddress;
+}
+
+export interface PublicFreelancerBookingInput {
+  publicSlug: string;
+  serviceId: string;
+  appointmentMode: AppointmentMode;
+  date: string;
+  time: string;
+  clientName: string;
+  clientEmail: string;
+  clientPhone: string;
+  approximateArea?: string;
+  homeAddress?: HomeAddress;
+  clientRequestId: string;
 }
 
 export interface Booking {
@@ -221,6 +237,53 @@ export function parseMarketplaceBookingInput(value: unknown): MarketplaceBooking
   };
 }
 
+export function parsePublicFreelancerBookingInput(value: unknown): PublicFreelancerBookingInput {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new functions.https.HttpsError('invalid-argument', 'Public booking data is required');
+  }
+  const input = value as RecordValue;
+  const allowed = new Set([
+    'publicSlug', 'serviceId', 'appointmentMode', 'date', 'time', 'clientName', 'clientEmail',
+    'clientPhone', 'approximateArea', 'homeAddress', 'clientRequestId',
+  ]);
+  if (Object.keys(input).some(key => !allowed.has(key))) {
+    throw new functions.https.HttpsError('invalid-argument', 'Unexpected public booking fields');
+  }
+  if (input.appointmentMode !== 'home' && input.appointmentMode !== 'chair') {
+    throw new functions.https.HttpsError('invalid-argument', 'appointmentMode is invalid');
+  }
+  if (input.appointmentMode === 'chair' && Object.prototype.hasOwnProperty.call(input, 'homeAddress')) {
+    throw new functions.https.HttpsError('invalid-argument', 'A chair booking cannot include a home address');
+  }
+  const homeAddress = parseHomeAddress(input.homeAddress);
+  if (input.appointmentMode === 'home' && !homeAddress) {
+    throw new functions.https.HttpsError('invalid-argument', 'A home address is required');
+  }
+  const date = requireText(input.date, 'date', 10);
+  const time = requireText(input.time, 'time', 5);
+  if (!isDate(date) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
+    throw new functions.https.HttpsError('invalid-argument', 'Booking date or time is invalid');
+  }
+  const clientRequestId = requireText(input.clientRequestId, 'clientRequestId', 36).toLowerCase();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(clientRequestId)) {
+    throw new functions.https.HttpsError('invalid-argument', 'clientRequestId must be a UUID');
+  }
+  const clientEmail = requireText(input.clientEmail, 'clientEmail', 254);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clientEmail)) {
+    throw new functions.https.HttpsError('invalid-argument', 'clientEmail is invalid');
+  }
+  const approximateArea = optionalText(input.approximateArea, 'approximateArea', 120);
+  // Stable field order lets retries compare normalized immutable input.
+  return {
+    publicSlug: normalizePublicSlug(requireText(input.publicSlug, 'publicSlug', 128)),
+    serviceId: documentId(requireText(input.serviceId, 'serviceId', 128), 'serviceId'),
+    appointmentMode: input.appointmentMode, date, time,
+    clientName: requireText(input.clientName, 'clientName', 120), clientEmail,
+    clientPhone: requireText(input.clientPhone, 'clientPhone', 40),
+    ...(approximateArea ? { approximateArea } : {}), ...(homeAddress ? { homeAddress } : {}), clientRequestId,
+  };
+}
+
 function profileOwner(profileId: string): { type: 'salon' | 'freelancer'; ownerId: string } {
   return profileId.startsWith('salon__')
     ? { type: 'salon', ownerId: profileId.slice('salon__'.length) }
@@ -261,9 +324,32 @@ function reserveAvailability(value: RecordValue, slot: string) {
   };
 }
 
-function releaseAvailability(value: RecordValue | undefined, slot: string) {
+function configuredForAppointmentMode(
+  profile: RecordValue | undefined,
+  mode: AppointmentMode,
+  slot: string,
+): boolean {
+  const modes = profile?.workModes as RecordValue | undefined;
+  const slots = (profile?.availabilityByMode as RecordValue | undefined)?.[mode];
+  return modes?.[mode] === true && Array.isArray(slots) && slots.includes(slot);
+}
+
+function releaseAvailability(
+  value: RecordValue | undefined,
+  slot: string,
+  booking?: RecordValue,
+  profile?: RecordValue,
+) {
   const configuredSlots = configuredAvailabilitySlots(value);
-  const shouldRestore = configuredSlots === undefined || configuredSlots.includes(slot);
+  const mode = booking?.appointmentMode;
+  const modeBooking = booking?.ownerType === 'freelancer' && (mode === 'home' || mode === 'chair');
+  // A reservation retains its original modeBySlot while the owner can change
+  // the desired schedule. Both records must still agree before reopening it.
+  const shouldRestore = modeBooking
+    ? configuredSlots?.includes(slot) === true
+      && (value?.modeBySlot as RecordValue | undefined)?.[slot] === mode
+      && configuredForAppointmentMode(profile, mode, slot)
+    : configuredSlots === undefined || configuredSlots.includes(slot);
   return {
     availableSlots: shouldRestore
       ? [...new Set([...availabilitySlots(value, 'availableSlots'), slot])].sort()
@@ -522,6 +608,150 @@ function bookingRecord(
   };
 }
 
+function storedRecord(value: unknown): RecordValue | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as RecordValue : undefined;
+}
+
+function bookingSnapshotInteger(value: unknown, minimum: number, maximum: number): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < minimum || value > maximum) {
+    throw new functions.https.HttpsError('failed-precondition', 'Professional booking details are unavailable');
+  }
+  return value;
+}
+
+function commercialWorkplace(value: unknown): FreelancerWorkplace {
+  const place = storedRecord(value);
+  if (!place || Object.keys(place).some(key => !['name', 'line1', 'postalCode', 'city'].includes(key))) {
+    throw new functions.https.HttpsError('failed-precondition', 'Commercial workplace is unavailable');
+  }
+  try {
+    return {
+      name: requireText(place.name, 'workplace.name', 160),
+      line1: requireText(place.line1, 'workplace.line1', 240),
+      postalCode: requireText(place.postalCode, 'workplace.postalCode', 20),
+      city: requireText(place.city, 'workplace.city', 120),
+    };
+  } catch {
+    throw new functions.https.HttpsError('failed-precondition', 'Commercial workplace is unavailable');
+  }
+}
+
+export async function createPublicFreelancerBooking(
+  callerUid: string | null,
+  value: unknown,
+  firestore: Firestore = admin.firestore(),
+  currentTime: Date = new Date(),
+): Promise<{ bookingId: string; status: MarketplaceBookingStatus }> {
+  if (!callerUid) throw new functions.https.HttpsError('unauthenticated', 'Authentication is required');
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(callerUid)) {
+    throw new functions.https.HttpsError('unauthenticated', 'Invalid booking session');
+  }
+  const input = parsePublicFreelancerBookingInput(value);
+  const { homeAddress, ...sharedInput } = input;
+  // Do not expose even a digest of a guessable street address to the owner
+  // before approval. Home retries compare the private address separately.
+  const requestFingerprint = createHash('sha256').update(JSON.stringify(sharedInput)).digest('hex');
+  const bookingRef = firestore.collection('bookingRequests').doc(`${callerUid}_${input.clientRequestId}`);
+  const slugRef = firestore.collection('publicProfileSlugs').doc(input.publicSlug);
+  const privateRef = firestore.collection('bookingRequestPrivate').doc(bookingRef.id);
+  const auditRef = firestore.collection('auditEvents').doc();
+  const slot = `${input.date}T${input.time}`;
+  const notAvailable = () => new functions.https.HttpsError('not-found', 'This professional is not available for booking');
+
+  return firestore.runTransaction<{ bookingId: string; status: MarketplaceBookingStatus }>(async transaction => {
+    // Recover a committed request even after time passes or a slug changes.
+    const [existingSnapshot] = await transaction.getAll(bookingRef);
+    const existing = existingSnapshot.data() as RecordValue | undefined;
+    if (existingSnapshot.exists) {
+      if (!existing || existing.clientId !== callerUid || existing.guestBooking !== true
+        || existing.clientRequestId !== input.clientRequestId || existing.requestFingerprint !== requestFingerprint) {
+        throw new functions.https.HttpsError('already-exists', 'This client request id was already used for different booking details');
+      }
+      if (homeAddress) {
+        const [privateSnapshot] = await transaction.getAll(privateRef);
+        const privateBooking = storedRecord(privateSnapshot.data());
+        const address = storedRecord(privateBooking?.address);
+        if (!privateSnapshot.exists || privateBooking?.clientId !== callerUid
+          || address?.line1 !== homeAddress.line1 || address?.city !== homeAddress.city
+          || address?.postalCode !== homeAddress.postalCode) {
+          throw new functions.https.HttpsError('already-exists', 'This client request id was already used for different booking details');
+        }
+      }
+      if (typeof existing.status !== 'string' || !BOOKING_STATUSES.has(existing.status as MarketplaceBookingStatus)) {
+        throw new functions.https.HttpsError('failed-precondition', 'Saved booking status is invalid');
+      }
+      return { bookingId: bookingRef.id, status: existing.status as MarketplaceBookingStatus };
+    }
+
+    // Use the public resolver's server-owned slug/projection contract inside
+    // this transaction, so ownership cannot change during reservation.
+    const [slugSnapshot] = await transaction.getAll(slugRef);
+    const index = storedRecord(slugSnapshot.data());
+    if (!slugSnapshot.exists || typeof index?.freelancerId !== 'string'
+      || !/^[A-Za-z0-9_-]{1,128}$/.test(index.freelancerId)
+      || index.profileId !== `freelancer__${index.freelancerId}`) throw notAvailable();
+    const ownerId = index.freelancerId;
+    const profileId = `freelancer__${ownerId}`;
+    const profileRef = firestore.collection('publicProfiles').doc(profileId);
+    const ownerRef = firestore.collection('freelancerProfiles').doc(ownerId);
+    const availabilityRef = firestore.collection('availability').doc(ownerId);
+    const [profileSnapshot, ownerSnapshot, availabilitySnapshot] = await transaction.getAll(profileRef, ownerRef, availabilityRef);
+    const projection = storedRecord(profileSnapshot.data());
+    const owner = storedRecord(ownerSnapshot.data());
+    const availability = storedRecord(availabilitySnapshot.data());
+    const approvalAllowed = (status: unknown) => status === 'approved' || status === 'pending';
+    if (!profileSnapshot.exists || projection?.kind !== 'freelancer' || projection.visible !== true
+      || projection.publicSlug !== input.publicSlug || !approvalAllowed(projection.approvalStatus)
+      || !Array.isArray(projection.serviceIds) || !projection.serviceIds.includes(input.serviceId)
+      || !Array.isArray(projection.services) || !projection.services.some(value => storedRecord(value)?.id === input.serviceId)
+      || storedRecord(projection.workModes)?.[input.appointmentMode] !== true
+      || !ownerSnapshot.exists || !owner || owner.uid !== ownerId || owner.visible !== true
+      || storedRecord(owner.identity)?.publicSlug !== input.publicSlug
+      || !approvalAllowed(storedRecord(owner.publicProfile)?.approvalStatus)
+      || !Array.isArray(owner.serviceIds) || !owner.serviceIds.includes(input.serviceId)) throw notAvailable();
+    if (!availabilitySnapshot.exists || !availability || availability.ownerId !== ownerId || availability.ownerType !== 'freelancer'
+      || !hasAvailableSlot(availability, slot) || !Array.isArray(availability.reservedSlots)
+      || availability.reservedSlots.some(value => typeof value !== 'string') || availability.reservedSlots.includes(slot)
+      || !configuredAvailabilitySlots(availability)?.includes(slot)
+      || storedRecord(availability.modeBySlot)?.[slot] !== input.appointmentMode
+      || !configuredForAppointmentMode(owner, input.appointmentMode, slot)) {
+      throw new functions.https.HttpsError('failed-precondition', 'This time is no longer available');
+    }
+    const appointmentEpochMs = appointmentEpochMsInParis(input.date, input.time);
+    if (!Number.isFinite(currentTime.getTime()) || appointmentEpochMs <= currentTime.getTime()) {
+      throw new functions.https.HttpsError('failed-precondition', 'This appointment time has passed');
+    }
+    const servicePriceMinor = bookingSnapshotInteger(storedRecord(owner.servicePricesMinor)?.[input.serviceId], 0, 1_000_000);
+    const durationMinutes = bookingSnapshotInteger(storedRecord(owner.serviceDurationMinutes)?.[input.serviceId], 15, 360);
+    const cancellationWindowHours = bookingSnapshotInteger(owner.cancellationWindowHours, 0, 720);
+    const locationDetails = input.appointmentMode === 'home'
+      ? { travelFeeMinor: bookingSnapshotInteger(owner.travelFeeMinor, 0, 1_000_000) }
+      : { workplaceSnapshot: commercialWorkplace(owner.workplace) };
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    transaction.create(bookingRef, {
+      profileId, publicSlug: input.publicSlug, ownerId, ownerType: 'freelancer', clientId: callerUid,
+      guestBooking: true, clientRequestId: input.clientRequestId, requestFingerprint,
+      serviceId: input.serviceId, appointmentMode: input.appointmentMode, date: input.date, time: input.time,
+      clientName: input.clientName, clientEmail: input.clientEmail, clientPhone: input.clientPhone,
+      ...(input.approximateArea ? { approximateArea: input.approximateArea } : {}),
+      servicePriceMinor, totalPriceMinor: servicePriceMinor + (locationDetails.travelFeeMinor ?? 0),
+      durationMinutes, cancellationWindowHours, appointmentEpochMs,
+      cancellationDeadlineMs: appointmentEpochMs - cancellationWindowHours * 60 * 60 * 1000,
+      ...locationDetails, status: 'pending_approval', addressReleased: false,
+      createdAt: now, statusUpdatedAt: now, statusUpdatedBy: callerUid,
+    });
+    transaction.update(availabilityRef, reserveAvailability(availability, slot));
+    if (input.homeAddress) {
+      transaction.create(privateRef, { clientId: callerUid, address: input.homeAddress, createdAt: now });
+    }
+    transaction.create(auditRef, {
+      action: 'PUBLIC_FREELANCER_BOOKING_REQUESTED', actorUid: callerUid, bookingId: bookingRef.id,
+      ownerId, ownerType: 'freelancer', appointmentMode: input.appointmentMode, status: 'pending_approval', createdAt: now,
+    });
+    return { bookingId: bookingRef.id, status: 'pending_approval' };
+  });
+}
+
 export async function createMarketplaceBooking(
   callerUid: string | null,
   value: unknown,
@@ -672,11 +902,16 @@ export async function respondToMarketplaceBooking(
     const availabilityRef = input.decision === 'decline'
       ? firestore.collection('availability').doc(String(initialData.ownerId))
       : null;
+    const freelancerProfileRef = availabilityRef && initialData.ownerType === 'freelancer'
+      && (initialData.appointmentMode === 'home' || initialData.appointmentMode === 'chair')
+      ? firestore.collection('freelancerProfiles').doc(String(initialData.ownerId))
+      : null;
     const snapshots = await transaction.getAll(
       bookingRef,
       privateRef,
       ...(principalRef ? [principalRef] : []),
       ...(staffMembershipRef ? [staffMembershipRef] : []),
+      ...(freelancerProfileRef ? [freelancerProfileRef] : []),
       ...(availabilityRef ? [availabilityRef] : []),
     );
     const bookingSnapshot = snapshots[0];
@@ -684,6 +919,7 @@ export async function respondToMarketplaceBooking(
     const principalSnapshot = principalRef ? snapshots[2] : undefined;
     const membershipSnapshot = staffMembershipRef ? snapshots[principalRef ? 3 : 2] : undefined;
     const availabilitySnapshot = availabilityRef ? snapshots[snapshots.length - 1] : undefined;
+    const freelancerProfileSnapshot = freelancerProfileRef ? snapshots[snapshots.length - 2] : undefined;
     const booking = bookingSnapshot.data() as RecordValue | undefined;
     if (!bookingSnapshot.exists || !booking) throw new functions.https.HttpsError('not-found', 'Booking not found');
     if (
@@ -691,6 +927,7 @@ export async function respondToMarketplaceBooking(
       || booking.ownerId !== initialData.ownerId
       || booking.brandId !== initialData.brandId
       || booking.locationId !== initialData.locationId
+      || booking.appointmentMode !== initialData.appointmentMode
     ) {
       throw new functions.https.HttpsError('failed-precondition', 'Booking owner scope changed during review');
     }
@@ -726,7 +963,9 @@ export async function respondToMarketplaceBooking(
     const availability = availabilitySnapshot?.data() as RecordValue | undefined;
     const slot = `${booking.date}T${booking.time}`;
     if (availabilityRef && availabilitySnapshot?.exists) {
-      transaction.update(availabilityRef, releaseAvailability(availability, slot));
+      transaction.update(availabilityRef, releaseAvailability(
+        availability, slot, booking, freelancerProfileSnapshot?.data() as RecordValue | undefined,
+      ));
     }
     transaction.create(auditRef, {
       action: nextStatus === 'confirmed' ? 'MARKETPLACE_BOOKING_ACCEPTED' : 'MARKETPLACE_BOOKING_DECLINED',
@@ -774,13 +1013,21 @@ export async function cancelMarketplaceBooking(
     }
     transition(booking.status, 'cancelled');
     const availabilityRef = firestore.collection('availability').doc(String(booking.ownerId));
-    const availabilitySnapshot = (await transaction.getAll(availabilityRef))[0];
+    const freelancerProfileRef = booking.ownerType === 'freelancer'
+      && (booking.appointmentMode === 'home' || booking.appointmentMode === 'chair')
+      ? firestore.collection('freelancerProfiles').doc(String(booking.ownerId))
+      : null;
+    const [availabilitySnapshot, freelancerProfileSnapshot] = await transaction.getAll(
+      availabilityRef, ...(freelancerProfileRef ? [freelancerProfileRef] : []),
+    );
     const availability = availabilitySnapshot.data() as RecordValue | undefined;
     const slot = `${booking.date}T${booking.time}`;
     const now = admin.firestore.FieldValue.serverTimestamp();
     transaction.update(bookingRef, { status: 'cancelled', statusUpdatedAt: now, statusUpdatedBy: callerUid });
     if (availabilitySnapshot.exists) {
-      transaction.update(availabilityRef, releaseAvailability(availability, slot));
+      transaction.update(availabilityRef, releaseAvailability(
+        availability, slot, booking, freelancerProfileSnapshot?.data() as RecordValue | undefined,
+      ));
     }
     transaction.create(auditRef, { action: 'CLIENT_BOOKING_CANCELLED', actorUid: callerUid, bookingId, createdAt: now });
   });
@@ -815,6 +1062,22 @@ export async function getMarketplaceBookingAddress(
 export const requestBookingFunction = europeFunctions.https.onCall(async (data, context) => (
   createMarketplaceBooking(context.auth?.uid ?? null, data)
 ));
+
+export const publicFreelancerBookingCallableOptions = {
+  enforceAppCheck: true,
+  consumeAppCheckToken: true,
+  maxInstances: 2,
+};
+
+export const requestPublicFreelancerBookingFunction = europeFunctions
+  .runWith(publicFreelancerBookingCallableOptions).https.onCall((data, context) => {
+    if (!context.auth?.uid) throw new functions.https.HttpsError('unauthenticated', 'Authentication is required');
+    if (!context.app) throw new functions.https.HttpsError('failed-precondition', 'Firebase App Check is required');
+    if (context.app.alreadyConsumed) {
+      throw new functions.https.HttpsError('failed-precondition', 'This App Check token was already consumed');
+    }
+    return createPublicFreelancerBooking(context.auth.uid, data);
+  });
 
 export const respondToBookingFunction = europeFunctions.https.onCall(async (data, context) => (
   respondToMarketplaceBooking(context.auth?.uid ?? null, data)

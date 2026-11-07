@@ -1,5 +1,6 @@
 import { httpsCallable } from 'firebase/functions';
 import { functions } from '../firebase';
+import { ensureGuestBookingSession } from './guestBookingSession';
 import {
   parseSalonBookingWorkspace,
   type BookingStatus,
@@ -14,11 +15,28 @@ export interface BookingRequestInput {
   clientEmail?: string; clientPhone?: string; approximateArea?: string;
   homeAddress?: HomeAddress;
 }
+export interface PublicFreelancerBookingInput {
+  publicSlug: string;
+  serviceId: string;
+  appointmentMode: 'home' | 'chair';
+  date: string;
+  time: string;
+  clientName: string;
+  clientEmail: string;
+  clientPhone: string;
+  approximateArea?: string;
+  homeAddress?: HomeAddress;
+  clientRequestId: string;
+}
+export interface PublicFreelancerBookingResult { bookingId: string; status: BookingStatus; }
 function isBookingResult(value: unknown): value is { bookingId: string; status: 'confirmed' | 'pending_approval' } {
   return !!value && typeof value === 'object' && typeof (value as Record<string, unknown>).bookingId === 'string'
     && ((value as Record<string, unknown>).status === 'confirmed' || (value as Record<string, unknown>).status === 'pending_approval');
 }
 const requestBookingCall = httpsCallable<BookingRequestInput, unknown>(functions, 'requestBooking');
+const requestPublicFreelancerBookingCall = httpsCallable<PublicFreelancerBookingInput, unknown>(
+  functions, 'requestPublicFreelancerBooking', { limitedUseAppCheckTokens: true },
+);
 const respondToBookingCall = httpsCallable<{ bookingId: string; decision: 'accept' | 'decline' }, unknown>(functions, 'respondToBooking');
 const cancelBookingCall = httpsCallable<{ bookingId: string }, unknown>(functions, 'cancelBooking');
 const getBookingAddressCall = httpsCallable<{ bookingId: string }, unknown>(functions, 'getBookingAddress');
@@ -33,6 +51,22 @@ export async function requestBooking(input: BookingRequestInput): Promise<{ book
   const result = await requestBookingCall(input);
   if (!isBookingResult(result.data)) throw new Error('The booking service returned an invalid response');
   return result.data;
+}
+export async function requestPublicFreelancerBooking(input: PublicFreelancerBookingInput): Promise<PublicFreelancerBookingResult> {
+  await ensureGuestBookingSession();
+  const result = await requestPublicFreelancerBookingCall(input);
+  const data = result.data;
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    throw new Error('The booking service returned an invalid response');
+  }
+  const record = data as Record<string, unknown>;
+  if (Object.keys(record).length !== 2 || typeof record.bookingId !== 'string'
+    || !/^[A-Za-z0-9_-]{1,256}$/.test(record.bookingId)
+    || (record.status !== 'pending_approval' && record.status !== 'confirmed' && record.status !== 'declined'
+      && record.status !== 'cancelled' && record.status !== 'completed' && record.status !== 'payment_failed')) {
+    throw new Error('The booking service returned an invalid response');
+  }
+  return { bookingId: record.bookingId, status: record.status };
 }
 export async function respondToBooking(input: { bookingId: string; decision: 'accept' | 'decline' }): Promise<MarketplaceBooking> {
   const result = await respondToBookingCall(input);
