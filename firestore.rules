@@ -290,6 +290,12 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Slug uniqueness and resolution are server-owned. Public pages resolve
+    // their minimized profile through a callable, never this reservation map.
+    match /publicProfileSlugs/{slug} {
+      allow read, write: if false;
+    }
+
     // Freelancer settings, portfolio moderation and availability writes pass
     // through validated callables. Owners can read their own workspace only.
     match /freelancerProfiles/{userId} {
