@@ -213,6 +213,10 @@ describe('marketplace booking lifecycle', () => {
   test('does not read availability after writing a freelancer decline', async () => {
     const { respondToMarketplaceBooking } = loadBookings();
     const state = { bookingRequests: { 'booking-a': { ownerId: 'freelancer-a', ownerType: 'freelancer', clientId: 'client-a', serviceId: 'cut', date: '2099-09-05', time: '10:30', status: 'pending_approval' } }, bookingRequestPrivate: {}, availability: { 'freelancer-a': { availableSlots: [], reservedSlots: ['2099-09-05T10:30'] } }, auditEvents: {} };
+    state.freelancerProfiles = { 'freelancer-a': { workModes: { home: true, chair: false },
+      availabilityByMode: { home: ['2099-09-05T10:30'], chair: [] } } };
+    state.availability['freelancer-a'].configuredSlots = ['2099-09-05T10:30'];
+    state.availability['freelancer-a'].modeBySlot = { '2099-09-05T10:30': 'home' };
     const firestore = orderedTransactionFirestore(state);
 
     await expect(respondToMarketplaceBooking('freelancer-a', { bookingId: 'booking-a', decision: 'decline' }, firestore)).resolves.toMatchObject({ status: 'declined' });
@@ -250,6 +254,10 @@ describe('marketplace booking lifecycle', () => {
   test('does not read availability after writing a client cancellation', async () => {
     const { cancelMarketplaceBooking } = loadBookings();
     const state = { bookingRequests: { 'booking-a': { ownerId: 'freelancer-a', ownerType: 'freelancer', clientId: 'client-a', serviceId: 'cut', date: '2099-09-05', time: '10:30', status: 'confirmed' } }, bookingRequestPrivate: {}, availability: { 'freelancer-a': { availableSlots: [], reservedSlots: ['2099-09-05T10:30'] } }, auditEvents: {} };
+    state.freelancerProfiles = { 'freelancer-a': { workModes: { home: true, chair: false },
+      availabilityByMode: { home: ['2099-09-05T10:30'], chair: [] } } };
+    state.availability['freelancer-a'].configuredSlots = ['2099-09-05T10:30'];
+    state.availability['freelancer-a'].modeBySlot = { '2099-09-05T10:30': 'home' };
     const firestore = orderedTransactionFirestore(state);
 
     await expect(cancelMarketplaceBooking('client-a', 'booking-a', firestore)).resolves.toEqual({ bookingId: 'booking-a', status: 'cancelled' });
@@ -778,11 +786,13 @@ for (const [date, time, now, succeeds, instant] of [
   }
 });
 
-for (const action of ['cancel', 'decline']) for (const mode of ['home', 'chair']) {
-  for (const change of ['same', 'removed', 'switched', 'disabled']) test(`${action} ${mode} restores only the still configured appointment mode: ${change}`, async () => {
+for (const action of ['cancel', 'decline']) for (const storedMode of ['home', 'chair', undefined]) {
+  const mode = storedMode ?? 'home';
+  for (const change of ['same', 'removed', 'switched', 'disabled']) test(`${action} ${storedMode ?? 'legacy-home'} restores only the still configured appointment mode: ${change}`, async () => {
     const initial = publicBookingFixture(); const slot = mode === 'home' ? publicHomeSlot : publicChairSlot;
     initial.bookingRequests['booking-a'] = { ownerId: 'freelancer-a', ownerType: 'freelancer', clientId: 'anon-client',
-      appointmentMode: mode, date: '2099-09-05', time: mode === 'home' ? '10:00' : '11:00', status: 'pending_approval' };
+      ...(storedMode === undefined ? {} : { appointmentMode: storedMode }),
+      date: '2099-09-05', time: mode === 'home' ? '10:00' : '11:00', status: 'pending_approval' };
     initial.availability['freelancer-a'].availableSlots = [];
     initial.availability['freelancer-a'].reservedSlots = [slot];
     const raw = initial.freelancerProfiles['freelancer-a'];

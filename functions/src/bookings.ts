@@ -341,7 +341,10 @@ function releaseAvailability(
   profile?: RecordValue,
 ) {
   const configuredSlots = configuredAvailabilitySlots(value);
-  const mode = booking?.appointmentMode;
+  // Historical freelancer bookings predate appointmentMode and are home visits,
+  // matching the legacy default in the booking reader.
+  const storedMode = booking?.appointmentMode;
+  const mode = storedMode === undefined ? 'home' : storedMode;
   const modeBooking = booking?.ownerType === 'freelancer' && (mode === 'home' || mode === 'chair');
   // A reservation retains its original modeBySlot while the owner can change
   // the desired schedule. Both records must still agree before reopening it.
@@ -903,7 +906,8 @@ export async function respondToMarketplaceBooking(
       ? firestore.collection('availability').doc(String(initialData.ownerId))
       : null;
     const freelancerProfileRef = availabilityRef && initialData.ownerType === 'freelancer'
-      && (initialData.appointmentMode === 'home' || initialData.appointmentMode === 'chair')
+      && (initialData.appointmentMode === undefined
+        || initialData.appointmentMode === 'home' || initialData.appointmentMode === 'chair')
       ? firestore.collection('freelancerProfiles').doc(String(initialData.ownerId))
       : null;
     const snapshots = await transaction.getAll(
@@ -1014,7 +1018,8 @@ export async function cancelMarketplaceBooking(
     transition(booking.status, 'cancelled');
     const availabilityRef = firestore.collection('availability').doc(String(booking.ownerId));
     const freelancerProfileRef = booking.ownerType === 'freelancer'
-      && (booking.appointmentMode === 'home' || booking.appointmentMode === 'chair')
+      && (booking.appointmentMode === undefined
+        || booking.appointmentMode === 'home' || booking.appointmentMode === 'chair')
       ? firestore.collection('freelancerProfiles').doc(String(booking.ownerId))
       : null;
     const [availabilitySnapshot, freelancerProfileSnapshot] = await transaction.getAll(
