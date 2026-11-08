@@ -4,7 +4,7 @@ import {
   confirmedAddressBookingIds,
   freelancerOwnerScope,
   jobBoardLoadKey,
-} from './freelancerWorkspace';
+} from './freelancerWorkspace.ts';
 
 test('owner queries constrain both the authenticated owner and freelancer record type', () => {
   assert.deepEqual(freelancerOwnerScope('freelancer-a'), [
