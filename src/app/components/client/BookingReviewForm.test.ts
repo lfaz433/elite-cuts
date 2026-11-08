@@ -7,6 +7,7 @@ import test from 'node:test';
 import ts from '../../../../functions/node_modules/typescript/lib/typescript.js';
 const require = createRequire(import.meta.url);
 let state = []; let cursor = 0; let calls = []; let response;
+const callableOptions = new Map();
 const sourceCache = new Map();
 function loadSource(filename = resolve(import.meta.dirname, 'BookingReviewForm.tsx')) {
   if (sourceCache.has(filename)) return sourceCache.get(filename).exports;
@@ -22,7 +23,8 @@ function loadSource(filename = resolve(import.meta.dirname, 'BookingReviewForm.t
       useRef: initial => { const index = cursor++; state[index] ??= { current: initial }; return state[index]; },
       useState: initial => { const index = cursor++; if (!(index in state)) state[index] = initial; return [state[index], value => { state[index] = value; }]; },
     };
-    if (request === 'firebase/functions') return { httpsCallable: (_functions, name) => async input => {
+    if (request === 'firebase/functions') return { httpsCallable: (_functions, name, options) => async input => {
+      callableOptions.set(name, options);
       calls.push([name, input]); if (response instanceof Error) throw response; return { data: await response };
     } };
     if (request.endsWith('/firebase')) return { functions: {} };
@@ -76,6 +78,7 @@ test('submits the selected stars and optional bounded text then replaces the for
   tree = render();
   await tree.props.onSubmit({ preventDefault() {} });
   assert.deepStrictEqual(calls, [['submitFreelancerReview', { bookingId: 'booking-a', rating: 4, text: 'Super' }]]);
+  assert.deepStrictEqual(callableOptions.get('submitFreelancerReview'), { limitedUseAppCheckTokens: true });
   tree = render();
   assert.equal(nodes(tree).some(node => node.type === 'form'), false);
   assert.equal(tree.props.role, 'status');

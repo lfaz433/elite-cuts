@@ -95,6 +95,13 @@ test('public booking submission obtains a session and a limited-use App Check to
   assert.deepStrictEqual(setup.events, ['sign-in', { name: 'requestPublicFreelancerBooking', input: request,
     options: { limitedUseAppCheckTokens: true }, uid: 'anonymous-uid' }]);
 });
+test('guest cancellation requests a limited-use App Check token through the Firebase client', async () => {
+  const setup = sessionModules(); setup.auth.currentUser = { uid: 'original-guest' };
+  setup.setResponse({ bookingId: 'booking-id', status: 'cancelled' });
+  await setup.bookings.cancelBooking('booking-id');
+  assert.deepStrictEqual(setup.events, [{ name: 'cancelBooking', input: { bookingId: 'booking-id' },
+    options: { limitedUseAppCheckTokens: true }, uid: 'original-guest' }]);
+});
 test('public submission stops at sign-in failure and preserves callable errors', async () => {
   const setup = sessionModules(); assert.equal(typeof setup.bookings.requestPublicFreelancerBooking, 'function');
   const error = new Error('auth failed'); setup.setSignIn(error);

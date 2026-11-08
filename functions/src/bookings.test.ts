@@ -827,6 +827,48 @@ test('public callable enforces App Check consumption and European concurrency se
   assert.equal(result.status, 'pending_approval'); assert.equal(Object.keys(state.bookingRequests).length, 1);
 });
 
+test('guest cancellation registers App Check enforcement and replay protection in Europe', () => {
+  assert.deepStrictEqual(loadBookings().cancelBookingFunction.options, {
+    region: 'europe-west1', enforceAppCheck: true, consumeAppCheckToken: true, maxInstances: 2,
+  });
+});
+
+for (const [name, verification] of [
+  ['missing', {}],
+  // An unverified HTTP header must never stand in for the SDK-verified context.app.
+  ['invalid', { rawRequest: { headers: { 'x-firebase-appcheck': 'invalid-token' } } }],
+  ['consumed', { app: { appId: 'app', alreadyConsumed: true } }],
+]) test(`guest cancellation rejects ${name} App Check without changing booking or availability`, async () => {
+  const api = loadBookings(); const { state, firestore } = publicBookingStore();
+  const { bookingId } = await api.createPublicFreelancerBooking('anon-client', publicRequest, firestore);
+  defaultFirestore = firestore; const before = structuredClone(state);
+  await assert.rejects(async () => api.cancelBookingFunction({ bookingId }, {
+    auth: { uid: 'anon-client', token: { firebase: { sign_in_provider: 'anonymous' } } }, ...verification,
+  }), { code: 'failed-precondition' });
+  assert.deepStrictEqual(state, before);
+});
+
+test('verified guest cancellation retains identity, ownership and lifecycle checks and restores the slot', async () => {
+  const api = loadBookings(); const { state, firestore } = publicBookingStore();
+  const { bookingId } = await api.createPublicFreelancerBooking('anon-client', publicRequest, firestore);
+  defaultFirestore = firestore;
+  const app = { appId: 'app', alreadyConsumed: false };
+  const before = structuredClone(state);
+  await assert.rejects(async () => api.cancelBookingFunction({ bookingId }, { app }), { code: 'unauthenticated' });
+  for (const uid of ['other-client', 'freelancer-a']) {
+    await assert.rejects(async () => api.cancelBookingFunction({ bookingId }, { app, auth: { uid } }), { code: 'permission-denied' });
+    assert.deepStrictEqual(state, before);
+  }
+  const context = { app, auth: { uid: 'anon-client', token: { firebase: { sign_in_provider: 'anonymous' } } } };
+  assert.deepStrictEqual(await api.cancelBookingFunction({ bookingId }, context), { bookingId, status: 'cancelled' });
+  assert.equal(state.bookingRequests[bookingId].status, 'cancelled');
+  assert.ok(state.availability['freelancer-a'].availableSlots.includes(publicChairSlot));
+  assert.equal(state.availability['freelancer-a'].reservedSlots.includes(publicChairSlot), false);
+  const cancelled = structuredClone(state);
+  await assert.rejects(async () => api.cancelBookingFunction({ bookingId }, context), { code: 'failed-precondition' });
+  assert.deepStrictEqual(state, cancelled);
+});
+
 test('owner completes an accepted public request and its actual client can submit exactly one review', async () => {
   const api = loadBookings(); const { state, firestore } = publicBookingStore();
   const { bookingId } = await api.createPublicFreelancerBooking('anon-client', publicRequest, firestore);
@@ -946,6 +988,41 @@ if (process.env.BOOKING_EMULATOR_TESTS === 'true') test('real emulator serialize
     await loadBookings('reviews.ts').submitFreelancerReview(client, { bookingId, rating: 5 }, firestore);
     assert.equal((await api.getGuestFreelancerBooking(client, { bookingId }, firestore)).reviewState, 'reviewed');
     await assert.rejects(api.getGuestFreelancerBooking('stranger', { bookingId }, firestore), { code: 'not-found' });
+});
+
+if (process.env.BOOKING_EMULATOR_TESTS === 'true') test('real emulator keeps guest mutations unchanged on rejected App Check contexts and persists verified calls', async () => {
+  const firestore = require('./testUtils/emulatorFirestore.cjs')(); defaultFirestore = firestore;
+  const owner = `checked-freelancer-${Date.now()}`; const client = `checked-guest-${Date.now()}`;
+  const initial = JSON.parse(JSON.stringify(publicBookingFixture()).replaceAll('freelancer-a', owner));
+  for (const [collection, records] of Object.entries(initial)) for (const [id, value] of Object.entries(records)) {
+    await firestore.collection(collection).doc(id).set(value);
+  }
+  const api = loadBookings(); const reviews = loadBookings('reviews.ts');
+  const cancelled = await api.createPublicFreelancerBooking(client, publicRequest, firestore);
+  const reviewed = await api.createPublicFreelancerBooking(client, {
+    ...publicHomeRequest, clientRequestId: '5ab1ddea-7c82-4c19-9545-40781b317b02',
+  }, firestore);
+  await api.respondToMarketplaceBooking(owner, { bookingId: reviewed.bookingId, decision: 'accept' }, firestore);
+  await api.completeFreelancerBooking(owner, { bookingId: reviewed.bookingId }, firestore);
+  const bookingRef = firestore.collection('bookingRequests').doc(cancelled.bookingId);
+  const completedRef = firestore.collection('bookingRequests').doc(reviewed.bookingId);
+  const reviewRef = firestore.collection('freelancerReviews').doc(reviewed.bookingId);
+  const availabilityRef = firestore.collection('availability').doc(owner);
+  const before = await Promise.all([bookingRef, completedRef, availabilityRef].map(async ref => (await ref.get()).data()));
+  const auth = { uid: client, token: { firebase: { sign_in_provider: 'anonymous' } } };
+  for (const verification of [{}, { rawRequest: { headers: { 'x-firebase-appcheck': 'invalid-token' } } },
+    { app: { appId: 'app', alreadyConsumed: true } }]) {
+    await assert.rejects(async () => api.cancelBookingFunction({ bookingId: cancelled.bookingId }, { auth, ...verification }), { code: 'failed-precondition' });
+    await assert.rejects(async () => reviews.submitFreelancerReviewFunction({ bookingId: reviewed.bookingId, rating: 5 }, { auth, ...verification }), { code: 'failed-precondition' });
+    assert.deepStrictEqual(await Promise.all([bookingRef, completedRef, availabilityRef].map(async ref => (await ref.get()).data())), before);
+    assert.equal((await reviewRef.get()).exists, false);
+  }
+  const context = { auth, app: { appId: 'app', alreadyConsumed: false } };
+  await api.cancelBookingFunction({ bookingId: cancelled.bookingId }, context);
+  await reviews.submitFreelancerReviewFunction({ bookingId: reviewed.bookingId, rating: 5 }, context);
+  assert.equal((await bookingRef.get()).data().status, 'cancelled');
+  assert.ok((await availabilityRef.get()).data().availableSlots.includes(publicChairSlot));
+  assert.equal((await reviewRef.get()).data().rating, 5);
 });
 
 function basicTransactionFirestore(state) {

@@ -138,9 +138,16 @@ export async function listMyFreelancerReviews(
     .map(({ createdAtOrderMs: _order, ...review }) => review);
 }
 
-export const submitFreelancerReviewFunction = europeFunctions.https.onCall(async (data, context) => (
-  submitFreelancerReview(context.auth?.uid ?? '', data)
-));
+export const submitFreelancerReviewFunction = europeFunctions.runWith({
+  enforceAppCheck: true, consumeAppCheckToken: true, maxInstances: 2,
+}).https.onCall(async (data, context) => {
+  requireCaller(context.auth?.uid ?? '');
+  if (!context.app) throw new functions.https.HttpsError('failed-precondition', 'Firebase App Check is required');
+  if (context.app.alreadyConsumed) {
+    throw new functions.https.HttpsError('failed-precondition', 'This App Check token was already consumed');
+  }
+  return submitFreelancerReview(context.auth!.uid, data);
+});
 
 export const listMyFreelancerReviewsFunction = europeFunctions.https.onCall(async (data, context) => {
   requireCaller(context.auth?.uid ?? '');

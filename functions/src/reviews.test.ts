@@ -8,10 +8,14 @@ class HttpsError extends Error {
   constructor(code, message) { super(message); this.code = code; }
 }
 let defaultFirestore;
+function functionBuilder(options = {}) {
+  return {
+    https: { onCall: handler => Object.assign(handler, { region: options.region, options }) },
+    runWith: next => functionBuilder({ ...options, ...next }),
+  };
+}
 const sdk = {
-  'firebase-functions': { https: { HttpsError }, region: region => ({
-    https: { onCall: handler => Object.assign(handler, { region }) },
-  }) },
+  'firebase-functions': { https: { HttpsError }, region: region => functionBuilder({ region }) },
   'firebase-admin': { firestore: Object.assign(() => defaultFirestore, {
     FieldValue: { serverTimestamp: () => 'server-timestamp' },
   }) },
@@ -196,8 +200,54 @@ test('Europe callables derive caller identity from auth and the inbox rejects ow
   assert.equal(api.listMyFreelancerReviewsFunction.region, 'europe-west1');
   defaultFirestore = store().firestore;
   await assert.rejects(() => api.submitFreelancerReviewFunction({ bookingId: 'booking-a', rating: 5 }, {}), e => e.code === 'unauthenticated');
-  assert.deepStrictEqual(await api.submitFreelancerReviewFunction({ bookingId: 'booking-a', rating: 5 }, { auth: { uid: 'client-a' } }), { reviewId: 'booking-a', status: 'approved' });
+  assert.deepStrictEqual(await api.submitFreelancerReviewFunction({ bookingId: 'booking-a', rating: 5 }, {
+    auth: { uid: 'client-a' }, app: { appId: 'app', alreadyConsumed: false },
+  }), { reviewId: 'booking-a', status: 'approved' });
   await assert.rejects(() => api.listMyFreelancerReviewsFunction({ freelancerId: 'other' }, { auth: { uid: 'freelancer-a' } }), e => e.code === 'invalid-argument');
   defaultFirestore = store().firestore;
   assert.deepStrictEqual(await api.listMyFreelancerReviewsFunction({}, { auth: { uid: 'freelancer-a' } }), []);
+});
+
+test('guest review submission registers App Check enforcement and replay protection in Europe', () => {
+  assert.deepStrictEqual(api.submitFreelancerReviewFunction.options, {
+    region: 'europe-west1', enforceAppCheck: true, consumeAppCheckToken: true, maxInstances: 2,
+  });
+});
+
+for (const [name, verification] of [
+  ['missing', {}],
+  ['invalid', { rawRequest: { headers: { 'x-firebase-appcheck': 'invalid-token' } } }],
+  ['consumed', { app: { appId: 'app', alreadyConsumed: true } }],
+]) test(`guest review rejects ${name} App Check without creating a review or changing the booking`, async () => {
+  const state = store(); defaultFirestore = state.firestore; const before = structuredClone(state.data);
+  await assert.rejects(async () => api.submitFreelancerReviewFunction({ bookingId: 'booking-a', rating: 5 }, {
+    auth: { uid: 'client-a', token: { firebase: { sign_in_provider: 'anonymous' } } }, ...verification,
+  }), { code: 'failed-precondition' });
+  assert.deepStrictEqual(state.data, before);
+  assert.deepStrictEqual(state.reads, []);
+});
+
+test('verified guest review retains ownership and completion checks and creates one immutable review', async () => {
+  const state = store(); defaultFirestore = state.firestore;
+  const app = { appId: 'app', alreadyConsumed: false };
+  const input = { bookingId: 'booking-a', rating: 5 };
+  const before = structuredClone(state.data);
+  await assert.rejects(async () => api.submitFreelancerReviewFunction(input, { app }), { code: 'unauthenticated' });
+  for (const uid of ['other-client', 'freelancer-a']) {
+    await assert.rejects(async () => api.submitFreelancerReviewFunction(input, { app, auth: { uid } }), { code: 'permission-denied' });
+    assert.deepStrictEqual(state.data, before);
+  }
+  const context = { app, auth: { uid: 'client-a', token: { firebase: { sign_in_provider: 'anonymous' } } } };
+  state.data['bookingRequests/booking-a'].status = 'confirmed';
+  await assert.rejects(async () => api.submitFreelancerReviewFunction(input, context), { code: 'failed-precondition' });
+  assert.equal(state.data['freelancerReviews/booking-a'], undefined);
+  state.data['bookingRequests/booking-a'].status = 'completed';
+  assert.deepStrictEqual(await api.submitFreelancerReviewFunction(input, context), { reviewId: 'booking-a', status: 'approved' });
+  assert.deepStrictEqual(state.data['freelancerReviews/booking-a'], {
+    freelancerId: 'freelancer-a', bookingId: 'booking-a', rating: 5,
+    authorName: 'Ada C.', createdAt: 'server-timestamp', status: 'approved',
+  });
+  const reviewed = structuredClone(state.data);
+  await assert.rejects(async () => api.submitFreelancerReviewFunction(input, context), { code: 'already-exists' });
+  assert.deepStrictEqual(state.data, reviewed);
 });

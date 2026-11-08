@@ -1196,11 +1196,16 @@ export const getGuestFreelancerBookingFunction = europeFunctions.runWith({ enfor
   return getGuestFreelancerBooking(context.auth.uid, data);
 });
 
-export const cancelBookingFunction = europeFunctions.https.onCall(async (data, context) => {
+export const cancelBookingFunction = europeFunctions.runWith(publicFreelancerBookingCallableOptions).https.onCall(async (data, context) => {
+  if (!context.auth?.uid) throw new functions.https.HttpsError('unauthenticated', 'Authentication is required');
+  if (!context.app) throw new functions.https.HttpsError('failed-precondition', 'Firebase App Check is required');
+  if (context.app.alreadyConsumed) {
+    throw new functions.https.HttpsError('failed-precondition', 'This App Check token was already consumed');
+  }
   if (!data || typeof data !== 'object' || Array.isArray(data) || Object.keys(data).length !== 1) {
     throw new functions.https.HttpsError('invalid-argument', 'bookingId is required');
   }
-  return cancelMarketplaceBooking(context.auth?.uid ?? null, (data as RecordValue).bookingId as string);
+  return cancelMarketplaceBooking(context.auth.uid, (data as RecordValue).bookingId as string);
 });
 
 export const getBookingAddressFunction = europeFunctions.https.onCall(async (data, context) => {

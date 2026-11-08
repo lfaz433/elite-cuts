@@ -4,7 +4,7 @@ import { functions } from '../../lib/firebase';
 import type { MarketplaceBooking } from '../../lib/marketplace/bookings';
 
 const submitReview = httpsCallable<{ bookingId: string; rating: number; text?: string }, unknown>(
-  functions, 'submitFreelancerReview',
+  functions, 'submitFreelancerReview', { limitedUseAppCheckTokens: true },
 );
 
 export function canReviewBooking(booking: MarketplaceBooking, callerUid?: string): boolean {

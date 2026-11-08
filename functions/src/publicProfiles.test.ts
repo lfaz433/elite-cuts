@@ -12,8 +12,9 @@ class HttpsError extends Error {
 }
 let defaultFirestore;
 let browserProfiles = [];
-function builder(region) {
-  return { https: { onCall: handler => handler }, firestore: {
+function builder(region, options = {}) {
+  return { runWith: next => builder(region, { ...options, ...next }),
+    https: { onCall: handler => Object.assign(handler, { options }) }, firestore: {
     document: path => ({ onWrite: handler => Object.assign(handler, { path, region }) }),
   } };
 }

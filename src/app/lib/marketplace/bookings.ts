@@ -39,7 +39,9 @@ const requestPublicFreelancerBookingCall = httpsCallable<PublicFreelancerBooking
   functions, 'requestPublicFreelancerBooking', { limitedUseAppCheckTokens: true },
 );
 const respondToBookingCall = httpsCallable<{ bookingId: string; decision: 'accept' | 'decline' }, unknown>(functions, 'respondToBooking');
-const cancelBookingCall = httpsCallable<{ bookingId: string }, unknown>(functions, 'cancelBooking');
+const cancelBookingCall = httpsCallable<{ bookingId: string }, unknown>(
+  functions, 'cancelBooking', { limitedUseAppCheckTokens: true },
+);
 const completeFreelancerBookingCall = httpsCallable<{ bookingId: string }, unknown>(functions, 'completeFreelancerBooking');
 const getGuestFreelancerBookingCall = httpsCallable<{ bookingId: string }, unknown>(functions, 'getGuestFreelancerBooking');
 const getBookingAddressCall = httpsCallable<{ bookingId: string }, unknown>(functions, 'getBookingAddress');
