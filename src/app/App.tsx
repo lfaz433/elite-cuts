@@ -39,6 +39,7 @@ const ClientPreviewPage = lazy(() => import('./components/pages/ClientPreviewPag
 const BrandPreviewPage = lazy(() => import('./components/pages/BrandPreviewPage'));
 const ReferralLanding = lazy(() => import('./components/referrals/ReferralLanding'));
 const FreelancerPublicPage = lazy(() => import('./components/public/FreelancerPublicPage'));
+const GuestBookingFollowUpPage = lazy(() => import('./components/public/GuestBookingFollowUpPage'));
 
 // --- Premium Loading Spinner ---
 function AppLoader() {
@@ -144,6 +145,7 @@ function AppRoutes() {
       <Route path="brand-preview" element={<BrandPreviewPage />} />
       <Route path="r/:code" element={<ReferralLanding />} />
         <Route path="b/:publicSlug" element={<FreelancerPublicPage />} />
+        <Route path="b/reservations/:bookingId" element={<GuestBookingFollowUpPage />} />
         <Route path="book" element={<AuthRequired><LandingPage /></AuthRequired>} />
       </Route>
       <Route path="/boutique" element={<BoutiquePage />} />

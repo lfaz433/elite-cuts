@@ -1,6 +1,7 @@
 import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions';
 import { europeFunctions } from './runtime';
+import { freeSlot, intervalsFromBookings, minimumServiceDuration, storedIntervals } from './freelancerAvailability';
 
 type Firestore = admin.firestore.Firestore;
 type RecordValue = Record<string, unknown>;
@@ -406,6 +407,9 @@ export async function saveFreelancerProfile(
       ? storedSlots(existing?.availability).filter(slot => !currentlyAvailable.has(slot))
       : storedSlots(existingAvailability.reservedSlots))].sort();
     const reserved = new Set(reservedSlots);
+    const intervals = existingAvailability?.reservedIntervals === undefined && reservedSlots.length
+      ? intervalsFromBookings((await transaction.get(firestore.collection('bookingRequests').where('ownerId', '==', callerUid))).docs.map(doc => doc.data()))
+      : storedIntervals(existingAvailability?.reservedIntervals);
     const modeBySlot: Record<string, AppointmentMode> = Object.fromEntries(
       (['home', 'chair'] as const).flatMap(mode => input.workModes[mode]
         ? input.availabilityByMode[mode].map(slot => [slot, mode])
@@ -458,8 +462,10 @@ export async function saveFreelancerProfile(
       ownerId: callerUid,
       ownerType: 'freelancer',
       configuredSlots,
-      availableSlots: configuredSlots.filter(slot => !reserved.has(slot)),
+      availableSlots: configuredSlots.filter(slot => !reserved.has(slot)
+        && freeSlot(slot, minimumServiceDuration(input.serviceDurationMinutes), intervals)),
       reservedSlots,
+      reservedIntervals: intervals,
       modeBySlot,
       updatedAt: now,
     });

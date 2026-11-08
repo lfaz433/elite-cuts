@@ -10,6 +10,13 @@ import {
 test('uses the mandatory clientId constraint for both booking collections', () => {
   assert.deepEqual(clientBookingScope('client-a'), [['clientId', '==', 'client-a']]);
 });
+test('keeps the booked duration snapshot available for the calendar', () => {
+  const booking = parseMarketplaceBooking('request-a', 'client-a', {
+    profileId: 'freelancer__freelancer-a', ownerId: 'freelancer-a', ownerType: 'freelancer',
+    clientId: 'client-a', clientName: 'Ada', serviceId: 'cut', date: '2099-09-05', time: '10:30', status: 'confirmed', durationMinutes: 45,
+  });
+  assert.equal(booking?.durationMinutes, 45);
+});
 
 test('parses marketplace and legacy client bookings without crossing client scope', () => {
   assert.deepEqual(parseMarketplaceBooking('request-a', 'client-a', {

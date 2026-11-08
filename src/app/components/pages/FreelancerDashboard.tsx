@@ -9,7 +9,7 @@ import {
   createPortfolioItem, deletePortfolioItem, emptyFreelancerProfile, listPortfolioItems,
   loadFreelancerProfile, saveFreelancerProfile, type FreelancerProfileInput, type PortfolioItem,
 } from '../../lib/marketplace/freelancer';
-import { getBookingAddress, respondToBooking, type HomeAddress, type MarketplaceBooking } from '../../lib/marketplace/bookings';
+import { completeFreelancerBooking, getBookingAddress, respondToBooking, type HomeAddress, type MarketplaceBooking } from '../../lib/marketplace/bookings';
 import { parseMarketplaceBooking } from '../../lib/marketplace/bookingRecords';
 import { freelancerOwnerScope, confirmedAddressBookingIds, jobBoardLoadKey } from '../../lib/marketplace/freelancerWorkspace';
 import { normalizePublicSlug } from '../../lib/marketplace/identity';
@@ -169,6 +169,17 @@ function FreelancerWorkspaceData({ uid, displayName, view, onLogout }: {
     finally { answerLock.current = false; if (mounted.current) setBusyId(null); }
   };
   const refreshPortfolio = async () => { const items = await listPortfolioItems(uid); if (mounted.current) setPortfolio(items); };
+  const complete = async (id: string) => {
+    if (answerLock.current) return;
+    answerLock.current = true; setBusyId(id); setAnswerError(false);
+    try {
+      await completeFreelancerBooking(id);
+      if (!mounted.current) return;
+      setBookings(current => current.map(item => item.id === id ? { ...item, status: 'completed' } : item));
+      toast.success('Rendez-vous terminé. Le client peut maintenant laisser un avis.');
+    } catch { if (mounted.current) setAnswerError(true); }
+    finally { answerLock.current = false; if (mounted.current) setBusyId(null); }
+  };
   const dirty = JSON.stringify(draft) !== JSON.stringify(savedProfile ?? emptyFreelancerProfile(displayName));
   // Share only the last successfully saved identity; a local publish checkbox does not publish a URL.
   const publicUrl = savedProfile ? publicFreelancerUrl(window.location.origin, savedProfile) : null;
@@ -184,7 +195,7 @@ function FreelancerWorkspaceData({ uid, displayName, view, onLogout }: {
     {answerError && <p role="alert" className="mb-5 rounded-xl border border-red-400/20 p-4 text-sm text-red-200">Impossible de traiter cette demande. Vérifiez son statut puis réessayez.</p>}
     {view === 'overview' && <FreelancerOverviewView profile={operationalProfile} bookings={bookings} addresses={bookingAddresses} now={now} />}
     {view === 'calendar' && <FreelancerCalendarView profile={operationalProfile} bookings={bookings} addresses={bookingAddresses} now={now} />}
-    {view === 'bookings' && <FreelancerBookingsView bookings={bookings} addresses={bookingAddresses} busyId={busyId} onAnswer={(id, decision) => void answer(id, decision)} />}
+    {view === 'bookings' && <FreelancerBookingsView bookings={bookings} addresses={bookingAddresses} busyId={busyId} onAnswer={(id, decision) => void answer(id, decision)} onComplete={id => void complete(id)} />}
     {view === 'services' && <><ViewHeading eyebrow="Votre carte" title="Services" description="Définissez vos prestations, leurs tarifs et le temps nécessaire à chaque rendez-vous." action={null} /><fieldset disabled={saving} className="min-w-0"><ServiceCatalog value={draft} onChange={changeDraft} /></fieldset></>}
     {view === 'marketing' && <FreelancerMarketingView profile={operationalProfile} publicUrl={publicUrl} portfolio={portfolio} reviews={reviews} reviewsLoading={reviewsLoading} reviewsError={reviewsError} onRetryReviews={() => setReviewRevision(value => value + 1)} onCreatePortfolio={async input => { await createPortfolioItem(input); await refreshPortfolio(); toast.success('Réalisation ajoutée pour modération.'); }} onDeletePortfolio={async id => { await deletePortfolioItem(id); await refreshPortfolio(); toast.success('Réalisation supprimée.'); }} />}
     {view === 'analytics' && <FreelancerAnalyticsView bookings={bookings} now={now} />}

@@ -583,14 +583,16 @@ function publicBookingStore(initial = publicBookingFixture()) {
   const snapshot = ref => ({ id: ref.id, exists: state[ref.collectionName]?.[ref.id] !== undefined,
     data: () => structuredClone(state[ref.collectionName]?.[ref.id]) });
   const firestore = {
-    collection: collectionName => ({ doc: (id = `auto-${++nextId}`) => {
+    collection: collectionName => ({ where: (field, op, value) => ({ collectionName, field, value }), doc: (id = `auto-${++nextId}`) => {
       const ref = { collectionName, id };
       return { ...ref, get: async () => snapshot(ref) };
     } }),
     runTransaction(callback) {
       const run = queue.then(async () => {
         const staged = [];
-        const read = ref => { assert.equal(staged.length, 0, 'All reads must precede writes'); return snapshot(ref); };
+        const read = ref => { assert.equal(staged.length, 0, 'All reads must precede writes');
+          if (ref.field) return { docs: Object.entries(state[ref.collectionName] ?? {}).filter(([, data]) => data[ref.field] === ref.value).map(([id]) => snapshot({ collectionName: ref.collectionName, id })) };
+          return snapshot(ref); };
         const result = await callback({ get: async ref => read(ref), getAll: async (...refs) => refs.map(read),
           create(ref, value) { assert.equal(snapshot(ref).exists, false); staged.push([ref, value]); },
           update(ref, value) { assert.equal(snapshot(ref).exists, true); staged.push([ref, { ...snapshot(ref).data(), ...value }]); },
@@ -823,6 +825,127 @@ test('public callable enforces App Check consumption and European concurrency se
   await assert.rejects(publicCreator()(null, publicRequest, firestore), { code: 'unauthenticated' });
   const result = await handler(publicRequest, { auth: { uid: 'anon-client' }, app: { appId: 'app', alreadyConsumed: false } });
   assert.equal(result.status, 'pending_approval'); assert.equal(Object.keys(state.bookingRequests).length, 1);
+});
+
+test('owner completes an accepted public request and its actual client can submit exactly one review', async () => {
+  const api = loadBookings(); const { state, firestore } = publicBookingStore();
+  const { bookingId } = await api.createPublicFreelancerBooking('anon-client', publicRequest, firestore);
+  assert.equal(typeof api.completeFreelancerBooking, 'function');
+  await assert.rejects(api.completeFreelancerBooking(null, { bookingId }, firestore), { code: 'unauthenticated' });
+  for (const uid of ['anon-client', 'freelancer-b']) await assert.rejects(api.completeFreelancerBooking(uid, { bookingId }, firestore), { code: 'permission-denied' });
+  await assert.rejects(api.completeFreelancerBooking('freelancer-a', { bookingId }, firestore), { code: 'failed-precondition' });
+  await api.respondToMarketplaceBooking('freelancer-a', { bookingId, decision: 'accept' }, firestore);
+  assert.deepEqual(await api.completeFreelancerBooking('freelancer-a', { bookingId }, firestore), { bookingId, status: 'completed' });
+  assert.equal(state.bookingRequests[bookingId].statusUpdatedBy, 'freelancer-a');
+  assert.equal(state.bookings, undefined);
+  const reviews = loadBookings('reviews.ts');
+  await reviews.submitFreelancerReview('anon-client', { bookingId, rating: 5 }, firestore);
+  await assert.rejects(reviews.submitFreelancerReview('anon-client', { bookingId, rating: 5 }, firestore), { code: 'already-exists' });
+  await assert.rejects(api.completeFreelancerBooking('freelancer-a', { bookingId }, firestore), { code: 'failed-precondition' });
+});
+
+function overlappingFixture() {
+  const initial = publicBookingFixture(); const next = '2099-09-05T11:30';
+  initial.freelancerProfiles['freelancer-a'].availabilityByMode.home.push(next);
+  initial.availability['freelancer-a'].availableSlots.push(next);
+  initial.availability['freelancer-a'].configuredSlots.push(next);
+  initial.availability['freelancer-a'].modeBySlot[next] = 'home';
+  return initial;
+}
+for (const reverse of [false, true]) test(`overlapping 45-minute appointments across modes cannot both persist, reverse=${reverse}`, async () => {
+  const { state, firestore } = publicBookingStore(overlappingFixture());
+  const requests = [publicRequest, { ...publicHomeRequest, time: '11:30' }];
+  if (reverse) requests.reverse();
+  const outcomes = await Promise.allSettled(requests.map((input, i) => publicCreator()(`client-${i}`, input, firestore)));
+  assert.equal(outcomes.filter(result => result.status === 'fulfilled').length, 1);
+  assert.equal(Object.keys(state.bookingRequests).length, 1);
+  assert.equal(outcomes.find(result => result.status === 'rejected').reason.code, 'failed-precondition');
+});
+test('overlap uses the booked duration snapshot even after a service duration edit', async () => {
+  const { state, firestore } = publicBookingStore(overlappingFixture());
+  await publicCreator()('client-a', publicRequest, firestore);
+  state.freelancerProfiles['freelancer-a'].serviceDurationMinutes.cut = 15;
+  // Reproduces an old availability rewrite; the server must still reject it.
+  state.availability['freelancer-a'].availableSlots.push('2099-09-05T11:30');
+  await assert.rejects(publicCreator()('client-b', { ...publicHomeRequest, time: '11:30' }, firestore), { code: 'failed-precondition' });
+});
+for (const action of ['cancel', 'decline']) test(`${action} restores interval-blocked starts but not removed or disabled ones`, async () => {
+  const { state, firestore } = publicBookingStore(overlappingFixture()); const api = loadBookings();
+  const { bookingId } = await publicCreator()('anon-client', publicRequest, firestore);
+  assert.equal(state.availability['freelancer-a'].availableSlots.includes('2099-09-05T11:30'), false);
+  if (action === 'cancel') await api.cancelMarketplaceBooking('anon-client', bookingId, firestore);
+  else await api.respondToMarketplaceBooking('freelancer-a', { bookingId, decision: 'decline' }, firestore);
+  assert.deepEqual(state.availability['freelancer-a'].availableSlots, [publicHomeSlot, publicChairSlot, '2099-09-05T11:30']);
+});
+for (const action of ['cancel', 'decline']) for (const removed of [false, true]) test(`${action} honors genuinely absent legacy mode metadata, removed=${removed}`, async () => {
+  const initial = publicBookingFixture();
+  initial.freelancerProfiles['freelancer-a'] = { uid: 'freelancer-a', availability: [publicHomeSlot] };
+  initial.availability['freelancer-a'] = { availableSlots: [], reservedSlots: [publicHomeSlot], ...(removed ? { configuredSlots: [] } : {}) };
+  initial.bookingRequests.legacy = { ownerId: 'freelancer-a', ownerType: 'freelancer', clientId: 'anon-client', date: '2099-09-05', time: '10:00', status: 'pending_approval' };
+  const { state, firestore } = publicBookingStore(initial); const api = loadBookings();
+  if (action === 'cancel') await api.cancelMarketplaceBooking('anon-client', 'legacy', firestore);
+  else await api.respondToMarketplaceBooking('freelancer-a', { bookingId: 'legacy', decision: 'decline' }, firestore);
+  assert.deepEqual(state.availability['freelancer-a'].availableSlots, removed ? [] : [publicHomeSlot]);
+});
+test('guest follow-up is owned, private, current and follows cancellation and review eligibility', async () => {
+  const api = loadBookings(); const { state, firestore } = publicBookingStore();
+  const { bookingId } = await publicCreator()('anon-client', publicRequest, firestore);
+  assert.equal(typeof api.getGuestFreelancerBooking, 'function');
+  await assert.rejects(api.getGuestFreelancerBooking(null, { bookingId }, firestore), { code: 'unauthenticated' });
+  for (const uid of ['other-client', 'freelancer-a']) await assert.rejects(api.getGuestFreelancerBooking(uid, { bookingId }, firestore), { code: 'not-found' });
+  let followup = await api.getGuestFreelancerBooking('anon-client', { bookingId }, firestore);
+  assert.equal(followup.booking.status, 'pending_approval'); assert.equal(followup.canCancel, true); assert.equal(followup.reviewState, 'ineligible');
+  assert.deepEqual(followup.booking.workplaceSnapshot, publicWorkplace);
+  assert.doesNotMatch(JSON.stringify(followup), /ada@example|336123|requestFingerprint|clientRequestId|Ada Client/);
+  await api.respondToMarketplaceBooking('freelancer-a', { bookingId, decision: 'accept' }, firestore);
+  await api.completeFreelancerBooking('freelancer-a', { bookingId }, firestore);
+  followup = await api.getGuestFreelancerBooking('anon-client', { bookingId }, firestore);
+  assert.equal(followup.canCancel, false); assert.equal(followup.reviewState, 'eligible');
+  await loadBookings('reviews.ts').submitFreelancerReview('anon-client', { bookingId, rating: 5 }, firestore);
+  assert.equal((await api.getGuestFreelancerBooking('anon-client', { bookingId }, firestore)).reviewState, 'reviewed');
+  const home = await publicCreator()('anon-client', { ...publicHomeRequest, clientRequestId: '5ab1ddea-7c82-4c19-9545-40781b317b02' }, firestore);
+  const closed = await api.getGuestFreelancerBooking('anon-client', { bookingId: home.bookingId }, firestore, new Date('2099-09-05T07:00:00Z'));
+  assert.equal(closed.canCancel, false); assert.doesNotMatch(JSON.stringify(closed), /Fleurs|homeAddress|address/);
+  await api.cancelMarketplaceBooking('anon-client', home.bookingId, firestore);
+  assert.equal((await api.getGuestFreelancerBooking('anon-client', { bookingId: home.bookingId }, firestore)).booking.status, 'cancelled');
+});
+test('guest follow-up callable requires authentication and App Check and uses Europe', async () => {
+  const handler = loadBookings().getGuestFreelancerBookingFunction;
+  assert.deepEqual(handler.options, { region: 'europe-west1', enforceAppCheck: true, maxInstances: 2 });
+  await assert.rejects(async () => handler({ bookingId: 'missing' }, {}), { code: 'unauthenticated' });
+  await assert.rejects(async () => handler({ bookingId: 'missing' }, { auth: { uid: 'guest' } }), { code: 'failed-precondition' });
+});
+test('completion cannot cross salon ownership or a changed freelancer profile scope', async () => {
+  const api = loadBookings();
+  for (const patch of [{ ownerType: 'salon' }, { profileId: 'freelancer__other' }]) {
+    const { state, firestore } = publicBookingStore();
+    const { bookingId } = await publicCreator()('anon-client', publicRequest, firestore);
+    Object.assign(state.bookingRequests[bookingId], { status: 'confirmed' }, patch);
+    await assert.rejects(api.completeFreelancerBooking('freelancer-a', { bookingId }, firestore), { code: 'permission-denied' });
+    assert.equal(state.bookingRequests[bookingId].status, 'confirmed');
+  }
+});
+
+if (process.env.BOOKING_EMULATOR_TESTS === 'true') test('real emulator serializes cross-mode interval conflicts and completes an owned guest review lifecycle', async () => {
+  assert.equal(process.env.FIRESTORE_EMULATOR_HOST, '127.0.0.1:8188');
+  const firestore = require('./testUtils/emulatorFirestore.cjs')();
+    const owner = `freelancer-${Date.now()}`;
+    const initial = JSON.parse(JSON.stringify(overlappingFixture()).replaceAll('freelancer-a', owner));
+    for (const [collection, records] of Object.entries(initial)) for (const [id, value] of Object.entries(records)) await firestore.collection(collection).doc(id).set(value);
+    const api = loadBookings(); const firstUid = `guest-${Date.now()}`;
+    const results = await Promise.allSettled([
+      api.createPublicFreelancerBooking(firstUid, publicRequest, firestore),
+      api.createPublicFreelancerBooking(`${firstUid}-other`, { ...publicHomeRequest, time: '11:30' }, firestore),
+    ]);
+    assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
+    const index = results.findIndex(result => result.status === 'fulfilled');
+    const bookingId = results[index].value.bookingId; const client = index === 0 ? firstUid : `${firstUid}-other`;
+    await assert.rejects(api.completeFreelancerBooking(client, { bookingId }, firestore), { code: 'permission-denied' });
+    await api.respondToMarketplaceBooking(owner, { bookingId, decision: 'accept' }, firestore);
+    await api.completeFreelancerBooking(owner, { bookingId }, firestore);
+    await loadBookings('reviews.ts').submitFreelancerReview(client, { bookingId, rating: 5 }, firestore);
+    assert.equal((await api.getGuestFreelancerBooking(client, { bookingId }, firestore)).reviewState, 'reviewed');
+    await assert.rejects(api.getGuestFreelancerBooking('stranger', { bookingId }, firestore), { code: 'not-found' });
 });
 
 function basicTransactionFirestore(state) {

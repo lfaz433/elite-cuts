@@ -11,6 +11,7 @@ class HttpsError extends Error {
   constructor(code, message) { super(message); this.code = code; }
 }
 let defaultFirestore;
+let browserProfiles = [];
 function builder(region) {
   return { https: { onCall: handler => handler }, firestore: {
     document: path => ({ onWrite: handler => Object.assign(handler, { path, region }) }),
@@ -19,6 +20,7 @@ function builder(region) {
 const sdk = {
   'firebase-functions': { ...builder(), https: { ...builder().https, HttpsError }, region: value => builder(value) },
   'firebase-admin': { firestore: Object.assign(() => defaultFirestore, { FieldValue: { serverTimestamp: () => 'server-timestamp' } }) },
+  'firebase/functions': { httpsCallable: () => async () => ({ data: browserProfiles }) },
 };
 
 function loadSource(filename = resolve(__dirname, 'publicProfiles.ts'), cache = new Map()) {
@@ -28,7 +30,7 @@ function loadSource(filename = resolve(__dirname, 'publicProfiles.ts'), cache = 
   const output = ts.transpileModule(readFileSync(filename, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }, fileName: filename,
   }).outputText;
-  new Function('require', 'module', 'exports', output)(request => request.startsWith('.')
+  new Function('require', 'module', 'exports', output)(request => request.endsWith('/firebase') ? { functions: {} } : request.startsWith('.')
     ? loadSource(resolve(dirname(filename), `${request}.ts`), cache)
     : sdk[request] ?? require(request), loaded, loaded.exports);
   return loaded.exports;
@@ -80,6 +82,37 @@ test('keeps a legacy approved profile in Discover using absent-field defaults', 
   assert.equal(Object.hasOwn(legacy, 'availabilityByMode'), false);
 });
 
+test('refresh preserves an approved original profile without identity or slug in Discover only', async () => {
+  // The original Discover fixture predates all enhanced profile/save fields.
+  const legacy = { displayName: 'Amine Fade', visible: true,
+    publicProfile: { ...source.publicProfile, approvalStatus: 'approved' } };
+  let projection;
+  const firestore = { collection: name => ({ doc: id => ({ name, id }), where: () => ({ name }) }),
+    runTransaction: fn => fn({ get: async ref => ref.name === 'freelancerProfiles'
+      ? { exists: true, data: () => legacy } : { docs: [] },
+    set: (_ref, value) => { projection = value; }, delete: () => { projection = null; } }) };
+  await refreshFreelancerPublicProfile('freelancer-a', firestore);
+  assert.ok(projection); assert.equal(projection.publicSlug, undefined);
+  assert.equal(sanitizePublicProfile('freelancer__freelancer-a', projection)?.displayName, 'Amine Fade');
+  browserProfiles = [sanitizePublicProfile('freelancer__freelancer-a', projection)];
+  const discovery = loadSource(resolve(__dirname, '../../src/app/lib/marketplace/discovery.ts'));
+  assert.deepEqual((await discovery.listPublicProfiles({ cityId: 'fr-paris' })).map(profile => profile.displayName), ['Amine Fade']);
+  const state = directPageStore(); state.publicProfiles['freelancer__freelancer-a'] = projection;
+  await assert.rejects(getPublicFreelancerPageBySlug('amine-fade', lookupFirestore(state), lookupNow), { code: 'not-found' });
+});
+test('direct page discloses the official home travel fee without private origin', async () => {
+  const page = await getPublicFreelancerPageBySlug('amine-fade', lookupFirestore(directPageStore()), lookupNow);
+  assert.equal(page.travelFeeMinor, 500);
+  assert.doesNotMatch(JSON.stringify(page), /homeOrigin|latitude|longitude|clientEmail/);
+});
+test('public slots list only services that fit before or after occupied intervals', async () => {
+  const state = directPageStore();
+  state.publicProfiles['freelancer__freelancer-a'].services.push({ id: 'quick', label: 'Quick', priceMinor: 1000, durationMinutes: 15 });
+  state.availability['freelancer-a'].reservedIntervals = [{ slot: '2099-09-05T10:30', startMs: Date.parse('2099-09-05T08:30Z'), endMs: Date.parse('2099-09-05T09:15Z') }];
+  const page = await getPublicFreelancerPageBySlug('amine-fade', lookupFirestore(state), lookupNow);
+  assert.deepEqual(page.slots, [{ value: '2099-09-05T10:00', appointmentMode: 'home', serviceIds: ['quick'] }]);
+});
+
 test.each([
   { serviceDurationMinutes: null },
   { serviceDurationMinutes: {} },
@@ -102,7 +135,7 @@ test('projects a visible pending freelancer for a direct shared link', () => {
     bio: 'Coupe et barbe.', socialLinks: { instagram: 'https://instagram.com/amine' },
     profileImageUrl: 'https://example.test/profile.jpg',
     services: [{ id: 'coupe-degrade', label: 'Coupe degrade', priceMinor: 2500, durationMinutes: 45 }],
-    workModes: { home: true, chair: true }, workplace, cancellationWindowHours: 24,
+    workModes: { home: true, chair: true }, workplace, cancellationWindowHours: 24, travelFeeMinor: 500,
     reviewSummary: { average: null, count: 0, reviews: [] },
   });
 });
@@ -122,7 +155,7 @@ test('projects only safe fields and derives service labels from the saved servic
     publicSlug: 'amine-fade', bio: 'Coupe et barbe.', socialLinks: { instagram: 'https://instagram.com/amine' },
     profileImageUrl: 'https://example.test/profile.jpg',
     services: [{ id: 'coupe-degrade', label: 'Coupe degrade', priceMinor: 2500, durationMinutes: 45 }],
-    workModes: { home: true, chair: true }, workplace, cancellationWindowHours: 24,
+    workModes: { home: true, chair: true }, workplace, cancellationWindowHours: 24, travelFeeMinor: 500,
     reviewSummary: { average: null, count: 0, reviews: [] },
   });
 });
@@ -205,14 +238,22 @@ function directPageStore() {
 }
 function lookupFirestore(state) {
   return { collection(name) {
-    if (!['publicProfileSlugs', 'publicProfiles', 'availability'].includes(name)) {
+    if (!['publicProfileSlugs', 'publicProfiles', 'availability', 'bookingRequests'].includes(name)) {
       throw new Error(`Public resolver must not read ${name}`);
     }
-    return { doc(id) { return { get: async () => ({
+    return { where: (field, op, value) => ({ get: async () => ({ docs: Object.values(state[name] ?? {})
+      .filter(data => data[field] === value).map(data => ({ data: () => data })) }) }), doc(id) { return { get: async () => ({
       id, exists: Boolean(state[name]?.[id]), data: () => structuredClone(state[name]?.[id]),
     }) }; } };
   } };
 }
+test('older reservations without interval metadata still hide overlapping public starts', async () => {
+  const state = directPageStore();
+  state.availability['freelancer-a'].reservedSlots = ['2099-09-05T10:30'];
+  state.bookingRequests = { old: { ownerId: 'freelancer-a', ownerType: 'freelancer', date: '2099-09-05', time: '10:30', status: 'confirmed', durationMinutes: 45 } };
+  const page = await getPublicFreelancerPageBySlug('amine-fade', lookupFirestore(state), lookupNow);
+  assert.deepEqual(page.slots, []);
+});
 
 test('profile and review changes rebuild the projection from current source and approved reviews', async () => {
   assert.equal(typeof refreshFreelancerPublicProfile, 'function');
@@ -290,7 +331,7 @@ test.each(['pending', 'approved'])('resolves visible direct profiles independent
     portfolioUrls: ['https://example.test/approved.jpg'],
     services: [{ id: 'coupe-degrade', label: 'Coupe degrade', priceMinor: 2500, durationMinutes: 45 }],
     workModes: { home: true, chair: true }, workplace,
-    socialLinks: { instagram: 'https://instagram.com/amine' }, cancellationWindowHours: 24,
+    socialLinks: { instagram: 'https://instagram.com/amine' }, cancellationWindowHours: 24, travelFeeMinor: 500,
     reviewSummary: { average: null, count: 0, reviews: [] },
     slots: [
       { value: '2099-09-05T10:00', appointmentMode: 'home' },
@@ -310,7 +351,7 @@ test('selects a closed public response without private source, contacts, coordin
   const page = await getPublicFreelancerPageBySlug('amine-fade', lookupFirestore(state), lookupNow);
   assert.deepStrictEqual(Object.keys(page).sort(), [
     'id', 'publicSlug', 'displayName', 'cityId', 'bio', 'serviceSummary', 'profileImageUrl',
-    'portfolioUrls', 'services', 'workModes', 'workplace', 'socialLinks', 'cancellationWindowHours', 'reviewSummary', 'slots',
+    'portfolioUrls', 'services', 'workModes', 'workplace', 'socialLinks', 'cancellationWindowHours', 'travelFeeMinor', 'reviewSummary', 'slots',
   ].sort());
   assert.doesNotMatch(JSON.stringify(page), /12 rue|clientEmail|clientPhone|clientAddress|rawProfile|homeOrigin|latitude|pending\.jpg/);
 });

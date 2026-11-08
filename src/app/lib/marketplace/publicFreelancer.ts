@@ -25,8 +25,9 @@ export type PublicFreelancerPage = {
   workplace?: FreelancerWorkplace;
   socialLinks: Record<string, string>;
   cancellationWindowHours: number;
+  travelFeeMinor: number;
   reviewSummary: { average: number | null; count: number; reviews: PublicFreelancerReview[] };
-  slots: Array<{ value: string; appointmentMode: AppointmentMode }>;
+  slots: Array<{ value: string; appointmentMode: AppointmentMode; serviceIds?: string[] }>;
 };
 
 export function bookingFieldsFor(mode: AppointmentMode): string[] {
@@ -86,7 +87,7 @@ function futureSlot(value: unknown, now: number): value is string {
 export function parsePublicFreelancerPage(value: unknown, now = Date.now()): PublicFreelancerPage | null {
   const page = closedRecord(value, [
     'id', 'publicSlug', 'displayName', 'cityId', 'bio', 'serviceSummary', 'profileImageUrl', 'portfolioUrls',
-    'services', 'workModes', 'workplace', 'socialLinks', 'cancellationWindowHours', 'reviewSummary', 'slots',
+    'services', 'workModes', 'workplace', 'socialLinks', 'cancellationWindowHours', 'travelFeeMinor', 'reviewSummary', 'slots',
   ]);
   if (!page || !Number.isFinite(now) || typeof page.id !== 'string' || !/^freelancer__[A-Za-z0-9_-]{1,128}$/.test(page.id)
     || typeof page.publicSlug !== 'string' || !/^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/.test(page.publicSlug)
@@ -95,7 +96,8 @@ export function parsePublicFreelancerPage(value: unknown, now = Date.now()): Pub
     || (page.profileImageUrl !== undefined && !httpsUrl(page.profileImageUrl))
     || !Array.isArray(page.portfolioUrls) || page.portfolioUrls.length > 12 || !page.portfolioUrls.every(httpsUrl)
     || !Array.isArray(page.services) || page.services.length === 0 || page.services.length > 24
-    || !Array.isArray(page.slots) || page.slots.length > 200 || !integer(page.cancellationWindowHours, 0, 720)) return null;
+    || !Array.isArray(page.slots) || page.slots.length > 200 || !integer(page.cancellationWindowHours, 0, 720)
+    || !integer(page.travelFeeMinor, 0, 1_000_000)) return null;
   try { if (normalizePublicSlug(page.publicSlug) !== page.publicSlug) return null; } catch { return null; }
   const modes = closedRecord(page.workModes, ['home', 'chair']);
   if (!modes || typeof modes.home !== 'boolean' || typeof modes.chair !== 'boolean' || (!modes.home && !modes.chair)) return null;
@@ -132,10 +134,13 @@ export function parsePublicFreelancerPage(value: unknown, now = Date.now()): Pub
   }
   const slots: PublicFreelancerPage['slots'] = [];
   for (const value of page.slots) {
-    const slot = closedRecord(value, ['value', 'appointmentMode']);
+    const slot = closedRecord(value, ['value', 'appointmentMode', 'serviceIds']);
     if (!slot || !futureSlot(slot.value, now) || (slot.appointmentMode !== 'home' && slot.appointmentMode !== 'chair')
       || !modes[slot.appointmentMode] || slots.some(existing => existing.value === slot.value)) return null;
-    slots.push({ value: slot.value, appointmentMode: slot.appointmentMode });
+    if (slot.serviceIds !== undefined && (!Array.isArray(slot.serviceIds) || !slot.serviceIds.length
+      || slot.serviceIds.some(id => !services.some(service => service.id === id)))) return null;
+    slots.push({ value: slot.value, appointmentMode: slot.appointmentMode,
+      ...(Array.isArray(slot.serviceIds) ? { serviceIds: [...slot.serviceIds] as string[] } : {}) });
   }
   return {
     id: page.id, publicSlug: page.publicSlug, displayName: page.displayName, cityId: page.cityId,
@@ -143,6 +148,7 @@ export function parsePublicFreelancerPage(value: unknown, now = Date.now()): Pub
     ...(typeof page.profileImageUrl === 'string' ? { profileImageUrl: page.profileImageUrl } : {}),
     portfolioUrls: [...page.portfolioUrls], services, workModes: { home: modes.home, chair: modes.chair },
     ...(workplace ? { workplace } : {}), socialLinks, cancellationWindowHours: page.cancellationWindowHours,
+    travelFeeMinor: page.travelFeeMinor,
     reviewSummary: { average: typeof summary.average === 'number' ? summary.average : null, count: summary.count, reviews }, slots,
   };
 }

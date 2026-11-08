@@ -122,6 +122,25 @@ test('rejects a slot that appears in both modes', () => {
     availabilityByMode: { home: [homeSlot], chair: [homeSlot] },
   }), /availabilityByMode contains duplicate slots/);
 });
+test('saving services preserves booked duration intervals and does not reopen overlapping starts', async () => {
+  const intervals = [{ slot: chairSlot, startMs: Date.parse('2099-09-05T09:00Z'), endMs: Date.parse('2099-09-05T09:45Z') }];
+  const { state, firestore } = firestoreState({ availability: { 'freelancer-a': {
+    availableSlots: [homeSlot], reservedSlots: [chairSlot], reservedIntervals: intervals, modeBySlot: { [chairSlot]: 'chair' },
+  } } });
+  await saveFreelancerProfile('freelancer-a', { ...mixedModeInput, serviceDurationMinutes: { 'coupe-degrade': 15 },
+    availabilityByMode: { home: [homeSlot, '2099-09-05T11:30'], chair: [chairSlot, '2099-09-05T11:45'] } }, firestore);
+  assert.deepEqual(state.availability['freelancer-a'].availableSlots, [homeSlot, '2099-09-05T11:45']);
+  assert.deepEqual(state.availability['freelancer-a'].reservedIntervals, intervals);
+});
+test('saving an older reservation without interval metadata recovers its booked duration', async () => {
+  const { state, firestore } = firestoreState({
+    availability: { 'freelancer-a': { availableSlots: [homeSlot], reservedSlots: [chairSlot] } },
+    bookingRequests: { older: { ownerId: 'freelancer-a', ownerType: 'freelancer', date: '2099-09-05', time: '11:00', status: 'confirmed', durationMinutes: 45 } },
+  });
+  await saveFreelancerProfile('freelancer-a', { ...mixedModeInput,
+    availabilityByMode: { home: [homeSlot, '2099-09-05T11:30'], chair: [chairSlot] } }, firestore);
+  assert.deepEqual(state.availability['freelancer-a'].availableSlots, [homeSlot]);
+});
 
 test.each([
   { home: [homeSlot, homeSlot], chair: [chairSlot] },

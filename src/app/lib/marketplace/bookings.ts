@@ -1,8 +1,9 @@
 import { httpsCallable } from 'firebase/functions';
 import { functions } from '../firebase';
-import { ensureGuestBookingSession } from './guestBookingSession';
+import { ensureGuestBookingSession, existingGuestBookingSession } from './guestBookingSession';
 import {
   parseSalonBookingWorkspace,
+  parseMarketplaceBooking,
   type BookingStatus,
   type MarketplaceBooking,
   type SalonBookingWorkspace,
@@ -39,6 +40,8 @@ const requestPublicFreelancerBookingCall = httpsCallable<PublicFreelancerBooking
 );
 const respondToBookingCall = httpsCallable<{ bookingId: string; decision: 'accept' | 'decline' }, unknown>(functions, 'respondToBooking');
 const cancelBookingCall = httpsCallable<{ bookingId: string }, unknown>(functions, 'cancelBooking');
+const completeFreelancerBookingCall = httpsCallable<{ bookingId: string }, unknown>(functions, 'completeFreelancerBooking');
+const getGuestFreelancerBookingCall = httpsCallable<{ bookingId: string }, unknown>(functions, 'getGuestFreelancerBooking');
 const getBookingAddressCall = httpsCallable<{ bookingId: string }, unknown>(functions, 'getBookingAddress');
 const saveSalonAvailabilityCall = httpsCallable<{
   locationId: string; configuredSlots: string[];
@@ -76,6 +79,38 @@ export async function respondToBooking(input: { bookingId: string; decision: 'ac
 export async function cancelBooking(bookingId: string): Promise<void> {
   const result = await cancelBookingCall({ bookingId });
   if (!result.data || typeof result.data !== 'object' || (result.data as Record<string, unknown>).status !== 'cancelled') throw new Error('The booking service returned an invalid response');
+}
+export async function completeFreelancerBooking(bookingId: string): Promise<void> {
+  const result = await completeFreelancerBookingCall({ bookingId });
+  const data = result.data as Record<string, unknown> | null;
+  if (!data || data.bookingId !== bookingId || data.status !== 'completed') throw new Error('Invalid completion response');
+}
+
+export type GuestBookingFollowUp = {
+  booking: MarketplaceBooking;
+  canCancel: boolean;
+  reviewState: 'ineligible' | 'eligible' | 'reviewed';
+};
+export async function getGuestFreelancerBooking(bookingId: string): Promise<GuestBookingFollowUp> {
+  const uid = await existingGuestBookingSession();
+  if (!uid) throw new Error('The original booking session is unavailable');
+  if (!/^[A-Za-z0-9_-]{1,256}$/.test(bookingId)) throw new Error('Invalid booking reference');
+  const result = await getGuestFreelancerBookingCall({ bookingId });
+  const closed = (value: unknown, keys: string[]): Record<string, unknown> | null => value && typeof value === 'object'
+    && !Array.isArray(value) && Object.keys(value).every(key => keys.includes(key)) ? value as Record<string, unknown> : null;
+  const data = closed(result.data, ['booking', 'canCancel', 'reviewState']);
+  const raw = closed(data?.booking, ['id', 'ownerId', 'ownerType', 'profileId', 'clientId', 'serviceId', 'date', 'time',
+    'status', 'appointmentMode', 'guestBooking', 'servicePriceMinor', 'totalPriceMinor', 'travelFeeMinor',
+    'durationMinutes', 'cancellationWindowHours', 'workplaceSnapshot']);
+  const booking = raw && parseMarketplaceBooking(bookingId, uid, { ...raw, clientName: '' });
+  if (!data || !raw || !booking || raw.id !== bookingId || booking.ownerType !== 'freelancer' || !booking.guestBooking
+    || booking.profileId !== `freelancer__${booking.ownerId}` || typeof data.canCancel !== 'boolean'
+    || !['ineligible', 'eligible', 'reviewed'].includes(String(data.reviewState))
+    || (data.reviewState === 'eligible' && booking.status !== 'completed')
+    || (data.canCancel && !['pending_approval', 'confirmed'].includes(booking.status))
+    || (raw.workplaceSnapshot !== undefined && !closed(raw.workplaceSnapshot, ['name', 'line1', 'postalCode', 'city']))
+    || await existingGuestBookingSession() !== uid) throw new Error('Invalid guest booking response');
+  return { booking, canCancel: data.canCancel, reviewState: data.reviewState as GuestBookingFollowUp['reviewState'] };
 }
 export async function getBookingAddress(bookingId: string): Promise<HomeAddress> {
   const result = await getBookingAddressCall({ bookingId });

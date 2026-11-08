@@ -109,6 +109,14 @@ function nodes(node) {
   return [node, ...[node.props?.children].flat(Infinity).flatMap(nodes)];
 }
 function render(component, props) { state = []; cursor = 0; return component(props); }
+test('confirmed owner booking card offers completion and sends the selected booking id', () => {
+  const Card = load('../freelancer/workspace/BookingCard.tsx').default;
+  const calls = []; const booking = { id: 'request-a', appointmentMode: 'chair', status: 'confirmed', serviceId: 'cut', date: '2099-09-05', time: '11:00', clientName: 'Ada' };
+  const props = { booking, onComplete: id => calls.push(id) };
+  const button = nodes(render(Card, props)).find(node => node.type === 'button' && node.props.children === 'Marquer comme terminé');
+  assert.ok(button); button.props.onClick(); assert.deepEqual(calls, ['request-a']);
+  assert.equal(nodes(render(Card, { ...props, booking: { ...booking, status: 'pending_approval' } })).some(node => node.props.children === 'Marquer comme terminé'), false);
+});
 
 test('mobile Plus exposes the four remaining views and desktop navigation has seven entries', () => {
   const Shell = load('../freelancer/workspace/FreelancerShell.tsx').default;
@@ -153,6 +161,12 @@ test('calendar combines bookings and available slots chronologically without dou
   const booking = { id: 'one', date: '2099-01-02', time: '10:00', status: 'confirmed', appointmentMode: 'home' };
   assert.deepEqual(helpers.calendarEntries(profile, [booking], 'all').map(item => [item.slot, item.kind]), [['2099-01-01T09:00', 'available'], ['2099-01-02T10:00', 'booking'], ['2099-01-02T11:00', 'available']]);
   assert.equal(helpers.calendarEntries(profile, [booking], 'chair').length, 1);
+});
+test('calendar hides overlapping available starts across modes using the booking duration snapshot', () => {
+  const profile = { ...records.emptyFreelancerProfile('Ada'), workModes: { home: true, chair: true },
+    serviceDurationMinutes: { cut: 15 }, availabilityByMode: { home: ['2099-01-02T11:30', '2099-01-02T11:45'], chair: ['2099-01-02T11:00'] } };
+  const booking = { appointmentMode: 'chair', date: '2099-01-02', time: '11:00', durationMinutes: 45, status: 'confirmed' };
+  assert.deepEqual(helpers.calendarEntries(profile, [booking], 'home').map(entry => entry.slot), ['2099-01-02T11:45']);
 });
 
 test('availability edits retain per-mode slots and synchronize the legacy home field', () => {

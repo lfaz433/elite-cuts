@@ -37,7 +37,7 @@ function validPage() {
     workModes: { home: true, chair: true },
     workplace: { name: 'Studio', line1: '10 rue du Temple', postalCode: '75003', city: 'Paris' },
     socialLinks: { instagram: 'https://instagram.com/amine', whatsapp: '+33612345678' },
-    cancellationWindowHours: 24, reviewSummary: { average: null, count: 0, reviews: [] },
+    travelFeeMinor: 500, cancellationWindowHours: 24, reviewSummary: { average: null, count: 0, reviews: [] },
     slots: [{ value: '2099-09-05T10:00', appointmentMode: 'chair' }],
   };
 }
@@ -50,6 +50,12 @@ test('parses the complete direct page contract into an independent safe value', 
   raw.services[0].label = 'changed'; raw.slots[0].value = 'changed'; raw.portfolioUrls.push('private');
   raw.workplace.line1 = 'changed'; raw.socialLinks.instagram = 'changed';
   assert.deepStrictEqual(parsed, validPage());
+});
+test('rejects missing or invalid travel fees and preserves service-specific slot eligibility', () => {
+  for (const travelFeeMinor of [undefined, -1, '500', 1.5]) assert.equal(parsePublicFreelancerPage({ ...validPage(), travelFeeMinor }, now), null);
+  const raw = validPage(); raw.slots[0].serviceIds = ['cut'];
+  assert.deepEqual(parsePublicFreelancerPage(raw, now)?.slots[0].serviceIds, ['cut']);
+  raw.slots[0].serviceIds = ['private-service']; assert.equal(parsePublicFreelancerPage(raw, now), null);
 });
 
 for (const key of ['clientAddress', 'clientEmail', 'clientPhone', 'homeOrigin', 'latitude', 'longitude',

@@ -1,4 +1,5 @@
 import { useId, useRef, useState, type FormEvent } from 'react';
+import { useNavigate } from 'react-router';
 import { bookingFieldsFor, type PublicFreelancerPage } from '../../lib/marketplace/publicFreelancer';
 import { ensureGuestBookingSession } from '../../lib/marketplace/guestBookingSession';
 import {
@@ -54,6 +55,7 @@ function resultMessage(status: PublicFreelancerBookingResult['status']): string 
 
 export default function GuestFreelancerBookingForm({ page }: { page: PublicFreelancerPage }) {
   const id = useId();
+  const navigate = useNavigate();
   const [draft, setDraft] = useState<Draft>(() => initialDraft(page));
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
@@ -65,7 +67,10 @@ export default function GuestFreelancerBookingForm({ page }: { page: PublicFreel
   // interruption. No contact or address data is stored in this reference.
   const requestId = useRef<string | null>(null);
   const fields = bookingFieldsFor(draft.appointmentMode);
-  const slots = page.slots.filter(slot => slot.appointmentMode === draft.appointmentMode && !unavailableSlots.includes(slot.value));
+  const slots = page.slots.filter(slot => slot.appointmentMode === draft.appointmentMode
+    && (!slot.serviceIds || slot.serviceIds.includes(draft.serviceId)) && !unavailableSlots.includes(slot.value));
+  const selectedService = page.services.find(service => service.id === draft.serviceId);
+  const travelFeeMinor = draft.appointmentMode === 'home' ? page.travelFeeMinor : 0;
 
   function edit(next: Draft) {
     if (submitting.current) return;
@@ -119,6 +124,7 @@ export default function GuestFreelancerBookingForm({ page }: { page: PublicFreel
       setResult(saved);
       setDraft(initialDraft(page));
       requestId.current = null;
+      navigate(`/b/reservations/${encodeURIComponent(saved.bookingId)}`, { replace: true });
     } catch (error) {
       const failure = bookingFailure(error);
       setError(failure.message);
@@ -138,6 +144,7 @@ export default function GuestFreelancerBookingForm({ page }: { page: PublicFreel
     <h3 className="text-xl font-semibold">{result.status === 'pending_approval' ? 'Demande envoyée' : 'Votre réservation'}</h3>
     <p className="mt-2 text-white/80">{resultMessage(result.status)}</p>
     <p className="mt-3 break-all text-sm text-white/60">Référence à conserver : {result.bookingId}</p>
+    <a href={`/b/reservations/${encodeURIComponent(result.bookingId)}`} className="mt-4 inline-block font-semibold underline">Suivre ma réservation</a>
   </div>;
 
   return <form onSubmit={submit} aria-busy={pending} aria-describedby={error ? `${id}-error` : undefined}>
@@ -160,6 +167,11 @@ export default function GuestFreelancerBookingForm({ page }: { page: PublicFreel
         </select>
       </label>
       <p id={`${id}-timezone`} className="text-xs text-white/60">Horaires indiqués à l’heure de Paris.</p>
+      {selectedService && <div aria-live="polite" className="rounded-xl border border-[#D4AF37]/25 bg-[#D4AF37]/5 p-4 text-sm">
+        <p>Prestation : {money.format(selectedService.priceMinor / 100)}</p>
+        <p>Déplacement : {money.format(travelFeeMinor / 100)}</p>
+        <p className="mt-2 font-semibold">Total : {money.format((selectedService.priceMinor + travelFeeMinor) / 100)}</p>
+      </div>}
       <div className="border-t border-white/10 pt-5">
         <p className="mb-4 font-semibold">Vos coordonnées</p>
         <div className="space-y-4">

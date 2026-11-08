@@ -5,6 +5,7 @@ import { europeFunctions } from './runtime';
 import { normalizePublicSlug, AppointmentMode, FreelancerWorkplace } from './freelancers';
 import { isReferralEligibleCompletion } from './bookingStatus';
 import { processReferralBookingCompletion } from './referrals';
+import { freeSlot, intervalIsFree, minimumServiceDuration, storedIntervals, type ReservedInterval } from './freelancerAvailability';
 
 export type MarketplaceBookingStatus =
   | 'pending_approval'
@@ -330,8 +331,10 @@ function configuredForAppointmentMode(
   slot: string,
 ): boolean {
   const modes = profile?.workModes as RecordValue | undefined;
-  const slots = (profile?.availabilityByMode as RecordValue | undefined)?.[mode];
-  return modes?.[mode] === true && Array.isArray(slots) && slots.includes(slot);
+  const enabled = modes === undefined ? mode === 'home' : modes?.[mode] === true;
+  const slots = profile?.availabilityByMode === undefined && mode === 'home'
+    ? profile?.availability : (profile?.availabilityByMode as RecordValue | undefined)?.[mode];
+  return enabled && Array.isArray(slots) && slots.includes(slot);
 }
 
 function releaseAvailability(
@@ -348,16 +351,30 @@ function releaseAvailability(
   const modeBooking = booking?.ownerType === 'freelancer' && (mode === 'home' || mode === 'chair');
   // A reservation retains its original modeBySlot while the owner can change
   // the desired schedule. Both records must still agree before reopening it.
-  const shouldRestore = modeBooking
-    ? configuredSlots?.includes(slot) === true
-      && (value?.modeBySlot as RecordValue | undefined)?.[slot] === mode
-      && configuredForAppointmentMode(profile, mode, slot)
-    : configuredSlots === undefined || configuredSlots.includes(slot);
+  const matchesMode = (candidate: string, appointmentMode: AppointmentMode) => (
+    (configuredSlots === undefined || configuredSlots.includes(candidate))
+    && (value?.modeBySlot === undefined ? appointmentMode === 'home'
+      : (value.modeBySlot as RecordValue)?.[candidate] === appointmentMode)
+    && configuredForAppointmentMode(profile, appointmentMode, candidate)
+  );
+  const shouldRestore = modeBooking ? matchesMode(slot, mode) : configuredSlots === undefined || configuredSlots.includes(slot);
+  const previousIntervals = storedIntervals(value?.reservedIntervals);
+  const remainingIntervals = previousIntervals.filter(interval => interval.slot !== slot);
+  const releasedInterval = previousIntervals.find(interval => interval.slot === slot);
+  const restored = shouldRestore ? [slot] : [];
+  // Reopen only starts blocked by this reservation, still configured in their
+  // own mode and clear of every remaining reservation.
+  if (modeBooking && releasedInterval) for (const candidate of configuredSlots ?? []) {
+    const candidateMode = (value?.modeBySlot as RecordValue | undefined)?.[candidate];
+    if ((candidateMode === 'home' || candidateMode === 'chair') && matchesMode(candidate, candidateMode)
+      && !freeSlot(candidate, minimumServiceDuration(profile?.serviceDurationMinutes), [releasedInterval])
+      && freeSlot(candidate, minimumServiceDuration(profile?.serviceDurationMinutes), remainingIntervals)) restored.push(candidate);
+  }
   return {
-    availableSlots: shouldRestore
-      ? [...new Set([...availabilitySlots(value, 'availableSlots'), slot])].sort()
-      : availabilitySlots(value, 'availableSlots'),
+    availableSlots: [...new Set([...availabilitySlots(value, 'availableSlots'), ...restored])].filter(candidate =>
+      !modeBooking || freeSlot(candidate, minimumServiceDuration(profile?.serviceDurationMinutes), remainingIntervals)).sort(),
     reservedSlots: availabilitySlots(value, 'reservedSlots').filter(candidate => candidate !== slot),
+    ...(value?.reservedIntervals === undefined ? {} : { reservedIntervals: remainingIntervals }),
   };
 }
 
@@ -726,6 +743,20 @@ export async function createPublicFreelancerBooking(
     }
     const servicePriceMinor = bookingSnapshotInteger(storedRecord(owner.servicePricesMinor)?.[input.serviceId], 0, 1_000_000);
     const durationMinutes = bookingSnapshotInteger(storedRecord(owner.serviceDurationMinutes)?.[input.serviceId], 15, 360);
+    // Read authoritative booking snapshots in the reservation transaction.
+    // The shared availability write serializes competing requests across modes.
+    const existingBookings = await transaction.get(firestore.collection('bookingRequests').where('ownerId', '==', ownerId));
+    const intervals: ReservedInterval[] = existingBookings.docs.flatMap(document => {
+      const booking = document.data();
+      if (booking.ownerType !== 'freelancer' || ['declined', 'cancelled'].includes(booking.status)) return [];
+      const startMs = appointmentEpochMsInParis(booking.date, booking.time);
+      const duration = bookingSnapshotInteger(booking.durationMinutes ?? booking.serviceDurationMinutes ?? 30, 15, 360);
+      return [{ slot: `${booking.date}T${booking.time}`, startMs, endMs: startMs + duration * 60_000 }];
+    });
+    if (!intervalIsFree(appointmentEpochMs, durationMinutes, intervals)) {
+      throw new functions.https.HttpsError('failed-precondition', 'This time is no longer available');
+    }
+    intervals.push({ slot, startMs: appointmentEpochMs, endMs: appointmentEpochMs + durationMinutes * 60_000 });
     const cancellationWindowHours = bookingSnapshotInteger(owner.cancellationWindowHours, 0, 720);
     const locationDetails = input.appointmentMode === 'home'
       ? { travelFeeMinor: bookingSnapshotInteger(owner.travelFeeMinor, 0, 1_000_000) }
@@ -743,7 +774,11 @@ export async function createPublicFreelancerBooking(
       ...locationDetails, status: 'pending_approval', addressReleased: false,
       createdAt: now, statusUpdatedAt: now, statusUpdatedBy: callerUid,
     });
-    transaction.update(availabilityRef, reserveAvailability(availability, slot));
+    transaction.update(availabilityRef, {
+      ...reserveAvailability(availability, slot), reservedIntervals: intervals,
+      availableSlots: availabilitySlots(availability, 'availableSlots').filter(candidate =>
+        freeSlot(candidate, minimumServiceDuration(owner.serviceDurationMinutes), intervals)),
+    });
     if (input.homeAddress) {
       transaction.create(privateRef, { clientId: callerUid, address: input.homeAddress, createdAt: now });
     }
@@ -1039,6 +1074,70 @@ export async function cancelMarketplaceBooking(
   return { bookingId, status: 'cancelled' };
 }
 
+function singleBookingId(value: unknown): string {
+  const input = storedRecord(value);
+  if (!input || Object.keys(input).length !== 1) throw new functions.https.HttpsError('invalid-argument', 'bookingId is required');
+  return documentId(input.bookingId, 'bookingId');
+}
+
+export async function completeFreelancerBooking(
+  callerUid: string | null, value: unknown, firestore: Firestore = admin.firestore(),
+): Promise<{ bookingId: string; status: 'completed' }> {
+  if (!callerUid) throw new functions.https.HttpsError('unauthenticated', 'Authentication is required');
+  const bookingId = singleBookingId(value);
+  const reference = firestore.collection('bookingRequests').doc(bookingId);
+  const auditRef = firestore.collection('auditEvents').doc();
+  await firestore.runTransaction(async transaction => {
+    const snapshot = await transaction.get(reference);
+    const booking = snapshot.data();
+    if (!snapshot.exists || !booking) throw new functions.https.HttpsError('not-found', 'Booking not found');
+    if (booking.ownerType !== 'freelancer' || booking.ownerId !== callerUid
+      || booking.profileId !== `freelancer__${callerUid}`) {
+      throw new functions.https.HttpsError('permission-denied', 'Only the assigned freelancer can complete this booking');
+    }
+    if (booking.status !== 'confirmed') throw new functions.https.HttpsError('failed-precondition', 'Only a confirmed booking can be completed');
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    transaction.update(reference, { status: 'completed', statusUpdatedAt: now, statusUpdatedBy: callerUid });
+    transaction.create(auditRef, { action: 'FREELANCER_BOOKING_COMPLETED', actorUid: callerUid, bookingId, createdAt: now });
+  });
+  return { bookingId, status: 'completed' };
+}
+
+export async function getGuestFreelancerBooking(
+  callerUid: string | null, value: unknown, firestore: Firestore = admin.firestore(), currentTime = new Date(),
+) {
+  if (!callerUid) throw new functions.https.HttpsError('unauthenticated', 'Authentication is required');
+  const bookingId = singleBookingId(value);
+  return firestore.runTransaction(async transaction => {
+    const [snapshot, review] = await transaction.getAll(
+      firestore.collection('bookingRequests').doc(bookingId), firestore.collection('freelancerReviews').doc(bookingId),
+    );
+    const booking = snapshot.data();
+    // Existence is private too. A reference alone never grants access.
+    if (!snapshot.exists || booking?.clientId !== callerUid || booking.ownerType !== 'freelancer' || booking.guestBooking !== true) {
+      throw new functions.https.HttpsError('not-found', 'Booking not found for this session');
+    }
+    if (!BOOKING_STATUSES.has(booking.status)) throw new functions.https.HttpsError('failed-precondition', 'Invalid booking status');
+    const mode = booking.appointmentMode === 'chair' ? 'chair' : 'home';
+    const deadline = cancellationDeadlineForBooking(booking);
+    // Deliberate DTO: no contacts, client name, private address or request digest.
+    return {
+      booking: {
+        id: bookingId, ownerId: booking.ownerId, ownerType: 'freelancer', profileId: booking.profileId,
+        clientId: callerUid, serviceId: booking.serviceId, date: booking.date, time: booking.time,
+        status: booking.status, appointmentMode: mode, guestBooking: true,
+        servicePriceMinor: booking.servicePriceMinor, totalPriceMinor: booking.totalPriceMinor,
+        durationMinutes: booking.durationMinutes, cancellationWindowHours: booking.cancellationWindowHours,
+        ...(mode === 'chair' ? { workplaceSnapshot: commercialWorkplace(booking.workplaceSnapshot) }
+          : { travelFeeMinor: booking.travelFeeMinor }),
+      },
+      canCancel: ['pending_approval', 'confirmed'].includes(booking.status)
+        && (deadline === undefined || currentTime.getTime() < deadline),
+      reviewState: review.exists ? 'reviewed' : booking.status === 'completed' ? 'eligible' : 'ineligible',
+    };
+  });
+}
+
 export async function getMarketplaceBookingAddress(
   callerUid: string | null,
   bookingId: string,
@@ -1053,7 +1152,7 @@ export async function getMarketplaceBookingAddress(
     firestore.collection('bookingRequestPrivate').doc(bookingId).get(),
   ]);
   const booking = bookingSnapshot.data() as RecordValue | undefined;
-  if (!bookingSnapshot.exists || !booking || booking.status !== 'confirmed') {
+  if (!bookingSnapshot.exists || !booking || booking.status !== 'confirmed' || booking.appointmentMode === 'chair') {
     throw new functions.https.HttpsError('failed-precondition', 'Address is not available before acceptance');
   }
   if (booking.clientId !== callerUid && !(booking.ownerType === 'freelancer' && booking.ownerId === callerUid)) {
@@ -1087,6 +1186,15 @@ export const requestPublicFreelancerBookingFunction = europeFunctions
 export const respondToBookingFunction = europeFunctions.https.onCall(async (data, context) => (
   respondToMarketplaceBooking(context.auth?.uid ?? null, data)
 ));
+
+export const completeFreelancerBookingFunction = europeFunctions.https.onCall((data, context) => (
+  completeFreelancerBooking(context.auth?.uid ?? null, data)
+));
+export const getGuestFreelancerBookingFunction = europeFunctions.runWith({ enforceAppCheck: true, maxInstances: 2 }).https.onCall((data, context) => {
+  if (!context.auth?.uid) throw new functions.https.HttpsError('unauthenticated', 'Authentication is required');
+  if (!context.app) throw new functions.https.HttpsError('failed-precondition', 'Firebase App Check is required');
+  return getGuestFreelancerBooking(context.auth.uid, data);
+});
 
 export const cancelBookingFunction = europeFunctions.https.onCall(async (data, context) => {
   if (!data || typeof data !== 'object' || Array.isArray(data) || Object.keys(data).length !== 1) {

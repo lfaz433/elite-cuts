@@ -2,6 +2,7 @@ import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions';
 import { europeFunctions } from './runtime';
 import { buildApprovedReviewSummary, FreelancerReviewSummary } from './reviews';
+import { freeSlot, intervalsFromBookings, storedIntervals } from './freelancerAvailability';
 import {
   parseFreelancerProfileInput, normalizePublicSlug, sanitizeSocialLinks,
   AppointmentMode, FreelancerWorkModes, FreelancerWorkplace,
@@ -37,6 +38,7 @@ export interface FreelancerPublicProfileProjection extends PublicProfileProjecti
   workModes: FreelancerWorkModes;
   workplace?: FreelancerWorkplace;
   cancellationWindowHours: number;
+  travelFeeMinor: number;
   reviewSummary: FreelancerReviewSummary;
 }
 
@@ -61,8 +63,9 @@ export type PublicFreelancerPage = {
   workplace?: FreelancerWorkplace;
   socialLinks: Record<string, string>;
   cancellationWindowHours: number;
+  travelFeeMinor: number;
   reviewSummary: { average: number | null; count: number; reviews: PublicFreelancerReview[] };
-  slots: Array<{ value: string; appointmentMode: AppointmentMode }>;
+  slots: Array<{ value: string; appointmentMode: AppointmentMode; serviceIds?: string[] }>;
 };
 
 export interface PublicProfile extends Omit<PublicProfileProjection, 'approvalStatus'> {
@@ -253,7 +256,7 @@ export function projectSalonPublicProfile(
 export function projectFreelancerPublicProfile(
   uid: string,
   source: unknown,
-): FreelancerPublicProfileProjection | null {
+): FreelancerPublicProfileProjection | PublicProfileProjection | null {
   void uid;
   const profile = record(source);
   if (!profile || profile.visible !== true) return null;
@@ -264,6 +267,10 @@ export function projectFreelancerPublicProfile(
     profile?.cityId ?? profile?.city,
   );
   if (!base) return null;
+  // Original approved Discover records predate the bio identity contract.
+  // Preserve their safe Discover DTO; no slug or direct-booking fields exist.
+  if (base.approvalStatus === 'approved' && (profile.identity === undefined
+    || (record(profile.identity) && record(profile.identity)?.publicSlug === undefined))) return base;
   try {
     // Validate the stored contract as strictly as a save, but select its input
     // fields explicitly so unrelated private source data can never be copied.
@@ -315,6 +322,7 @@ export function projectFreelancerPublicProfile(
       workModes: input.workModes,
       ...(input.workModes.chair && input.workplace ? { workplace: input.workplace } : {}),
       cancellationWindowHours: input.cancellationWindowHours,
+      travelFeeMinor: input.travelFeeMinor,
       reviewSummary: { average: null, count: 0, reviews: [] },
     };
   } catch {
@@ -437,7 +445,7 @@ function directProfilePage(id: string, slug: string, value: unknown, now: number
     || !profile.portfolioUrls.every(publicHttpsUrl)
     || (profile.profileImageUrl !== undefined && !publicHttpsUrl(profile.profileImageUrl))
     || !Array.isArray(profile.services) || profile.services.length === 0 || profile.services.length > MAX_SERVICE_IDS
-    || !publicInteger(profile.cancellationWindowHours, 0, 720)
+    || !publicInteger(profile.cancellationWindowHours, 0, 720) || !publicInteger(profile.travelFeeMinor, 0, 1_000_000)
     || !summary || !publicInteger(summary.count, 0, Number.MAX_SAFE_INTEGER) || !Array.isArray(summary.reviews)
     || summary.reviews.length > summary.count || summary.reviews.length > 5
     || (summary.count === 0 ? summary.average !== null
@@ -484,6 +492,7 @@ function directProfilePage(id: string, slug: string, value: unknown, now: number
     ...(typeof profile.profileImageUrl === 'string' ? { profileImageUrl: profile.profileImageUrl } : {}),
     portfolioUrls: [...profile.portfolioUrls], services, workModes: { home: modes.home, chair: modes.chair },
     ...(workplace ? { workplace } : {}), socialLinks, cancellationWindowHours: profile.cancellationWindowHours,
+    travelFeeMinor: profile.travelFeeMinor,
     reviewSummary: { average: typeof summary.average === 'number' ? summary.average : null, count: summary.count, reviews },
     slots: [],
   };
@@ -511,12 +520,17 @@ export async function getPublicFreelancerPageBySlug(
     || !Array.isArray(availability.availableSlots) || !Array.isArray(availability.reservedSlots)
     || !availability.reservedSlots.every(publicSlot) || !modeBySlot || !Number.isFinite(now)) throw notFound();
   const reserved = new Set(availability.reservedSlots);
+  const intervals = availability.reservedIntervals === undefined && reserved.size
+    ? intervalsFromBookings((await firestore.collection('bookingRequests').where('ownerId', '==', index.freelancerId).get()).docs.map(doc => doc.data()))
+    : storedIntervals(availability.reservedIntervals);
   page.slots = [...new Set(availability.availableSlots.filter(publicSlot))].sort().flatMap(value => {
     const appointmentMode = modeBySlot[value];
     const epochMs = publicSlotEpochMsInParis(value);
     if (epochMs === null || epochMs <= now || reserved.has(value)
       || (appointmentMode !== 'home' && appointmentMode !== 'chair') || !page.workModes[appointmentMode]) return [];
-    return [{ value, appointmentMode }];
+    const serviceIds = page.services.filter(service => freeSlot(value, service.durationMinutes, intervals)).map(service => service.id);
+    if (!serviceIds.length) return [];
+    return [{ value, appointmentMode, ...(intervals.length ? { serviceIds } : {}) }];
   });
   return page;
 }
@@ -588,7 +602,7 @@ export async function refreshFreelancerPublicProfile(
     const projection = snapshot.exists ? projectFreelancerPublicProfile(uid, snapshot.data()) : null;
     if (!projection) { transaction.delete(targetRef); return; }
     const reviews = await transaction.get(firestore.collection('freelancerReviews').where('freelancerId', '==', uid));
-    projection.reviewSummary = buildApprovedReviewSummary(uid, reviews.docs.map(document => document.data()));
+    if ('reviewSummary' in projection) projection.reviewSummary = buildApprovedReviewSummary(uid, reviews.docs.map(document => document.data()));
     transaction.set(targetRef, projection);
   });
 }

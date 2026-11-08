@@ -34,12 +34,18 @@ export type IdentityErrors = Partial<Record<'publicSlug' | 'profileImageUrl' | S
 type CalendarEntry = { slot: string; mode: AppointmentMode } & ({ kind: 'available' } | { kind: 'booking'; booking: MarketplaceBooking });
 export function calendarEntries(profile: FreelancerProfileInput, bookings: MarketplaceBooking[], mode: 'all' | AppointmentMode): CalendarEntry[] {
   const scheduled = bookings.filter(booking => booking.status === 'confirmed' || booking.status === 'pending_approval' || booking.status === 'completed');
-  const occupied = new Set(scheduled.map(booking => `${booking.date}T${booking.time}`));
+  const occupied = scheduled.map(booking => ({
+    start: Date.parse(`${booking.date}T${booking.time}:00Z`), duration: booking.durationMinutes ?? 30,
+  }));
+  const durations = Object.values(profile.serviceDurationMinutes);
+  const minimumDuration = durations.length ? Math.min(...durations) : 30;
   const entries: CalendarEntry[] = scheduled.map(booking => ({ kind: 'booking', slot: `${booking.date}T${booking.time}`, mode: booking.appointmentMode, booking }));
   for (const appointmentMode of ['home', 'chair'] as const) {
     if (profile.workModes[appointmentMode]) {
       for (const slot of profile.availabilityByMode[appointmentMode]) {
-        if (!occupied.has(slot)) entries.push({ kind: 'available', slot, mode: appointmentMode });
+        const start = Date.parse(`${slot}:00Z`);
+        if (occupied.every(interval => start + minimumDuration * 60_000 <= interval.start
+          || start >= interval.start + interval.duration * 60_000)) entries.push({ kind: 'available', slot, mode: appointmentMode });
       }
     }
   }

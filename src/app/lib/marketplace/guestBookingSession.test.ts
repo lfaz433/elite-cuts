@@ -6,7 +6,8 @@ import test from 'node:test';
 import ts from '../../../../functions/node_modules/typescript/lib/typescript.js';
 
 function sessionModules() {
-  const auth = { currentUser: null };
+  let restore = async () => {};
+  const auth = { currentUser: null, authStateReady: () => restore() };
   const events = [];
   let signInResult = { user: { uid: 'anonymous-uid' } };
   let callableResult = { bookingId: 'anonymous-uid_5ab1ddea-7c82-4c19-9545-40781b317b01', status: 'pending_approval' };
@@ -37,6 +38,7 @@ function sessionModules() {
   };
   return { auth, events, session: load(resolve(import.meta.dirname, 'guestBookingSession.ts')),
     bookings: load(resolve(import.meta.dirname, 'bookings.ts')),
+    setRestore: value => { restore = value; },
     setSignIn: value => { signInResult = value; }, setResponse: value => { callableResult = value; } };
 }
 const request = {
@@ -44,6 +46,29 @@ const request = {
   clientName: 'Ada', clientEmail: 'ada@example.test', clientPhone: '+33612345678',
   clientRequestId: '5ab1ddea-7c82-4c19-9545-40781b317b01',
 };
+test('reload waits for persisted auth before creating a new anonymous session', async () => {
+  const setup = sessionModules();
+  setup.setRestore(async () => { setup.auth.currentUser = { uid: 'restored-guest' }; });
+  assert.equal(await setup.session.ensureGuestBookingSession(), 'restored-guest');
+  assert.deepEqual(setup.events, []);
+});
+test('follow-up never creates a replacement session and rejects unrelated or overbroad responses', async () => {
+  const setup = sessionModules();
+  assert.equal(typeof setup.bookings.getGuestFreelancerBooking, 'function');
+  await assert.rejects(setup.bookings.getGuestFreelancerBooking('booking-id'), /session/i);
+  assert.deepEqual(setup.events, []);
+  setup.auth.currentUser = { uid: 'guest' };
+  const booking = { id: 'booking-id', ownerId: 'freelancer-a', ownerType: 'freelancer', profileId: 'freelancer__freelancer-a',
+    clientId: 'guest', serviceId: 'cut', date: '2099-09-05', time: '11:00', status: 'completed', appointmentMode: 'chair', guestBooking: true,
+    durationMinutes: 45, servicePriceMinor: 2500, totalPriceMinor: 2500, cancellationWindowHours: 24,
+    workplaceSnapshot: { name: 'Studio', line1: '10 rue du Salon', postalCode: '75003', city: 'Paris' } };
+  setup.setResponse({ booking, canCancel: false, reviewState: 'eligible' });
+  assert.equal((await setup.bookings.getGuestFreelancerBooking('booking-id')).booking.status, 'completed');
+  for (const patch of [{ clientId: 'stranger' }, { id: 'other-id' }, { clientEmail: 'private' }, { workplaceSnapshot: { ...booking.workplaceSnapshot, homeAddress: 'private' } }]) {
+    setup.setResponse({ booking: { ...booking, ...patch }, canCancel: false, reviewState: 'eligible' });
+    await assert.rejects(setup.bookings.getGuestFreelancerBooking('booking-id'), /invalid/i);
+  }
+});
 test('guest helper reuses an existing Firebase session', async () => {
   const setup = sessionModules(); setup.auth.currentUser = { uid: 'existing-client' };
   assert.equal(typeof setup.session.ensureGuestBookingSession, 'function');

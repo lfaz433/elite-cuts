@@ -29,6 +29,7 @@ export interface MarketplaceBooking {
   servicePriceMinor?: number;
   travelFeeMinor?: number;
   totalPriceMinor?: number;
+  durationMinutes?: number;
   serviceRadiusKm?: number;
   distanceKm?: number;
   cancellationWindowHours?: number;
@@ -128,6 +129,7 @@ export function parseMarketplaceBooking(
     ...optionalNumeric('servicePriceMinor'),
     ...optionalNumeric('travelFeeMinor'),
     ...optionalNumeric('totalPriceMinor'),
+    ...optionalNumeric('durationMinutes'),
     ...optionalNumeric('serviceRadiusKm'),
     ...optionalNumeric('distanceKm'),
     ...optionalNumeric('cancellationWindowHours'),

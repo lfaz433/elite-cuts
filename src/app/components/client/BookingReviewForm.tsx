@@ -12,7 +12,7 @@ export function canReviewBooking(booking: MarketplaceBooking, callerUid?: string
     && booking.ownerType === 'freelancer' && booking.status === 'completed';
 }
 
-export function BookingReviewForm({ booking, callerUid }: { booking: MarketplaceBooking; callerUid?: string }) {
+export function BookingReviewForm({ booking, callerUid, onSubmitted }: { booking: MarketplaceBooking; callerUid?: string; onSubmitted?: () => void }) {
   const id = useId();
   const [rating, setRating] = useState(0);
   const [text, setText] = useState('');
@@ -34,8 +34,9 @@ export function BookingReviewForm({ booking, callerUid }: { booking: Marketplace
       if (!data || typeof data !== 'object' || Array.isArray(data) || Object.keys(data).length !== 2
         || data.reviewId !== booking.id || data.status !== 'approved') throw new Error('Invalid review response');
       setSubmitted(true);
+      onSubmitted?.();
     } catch (failure) {
-      if ((failure as { code?: string })?.code === 'functions/already-exists') setSubmitted(true);
+      if ((failure as { code?: string })?.code === 'functions/already-exists') { setSubmitted(true); onSubmitted?.(); }
       else setError('Votre avis n’a pas pu être envoyé. Vous pouvez réessayer.');
     } finally {
       inFlight.current = false; setSubmitting(false);

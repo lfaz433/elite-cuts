@@ -20,7 +20,7 @@ function fixture() {
     workModes: { home: true, chair: true },
     workplace: { name: 'Studio Paris', line1: '8 rue du Salon', postalCode: '75003', city: 'Paris' },
     socialLinks: { instagram: 'https://instagram.com/ada', whatsapp: '+33612345678' },
-    cancellationWindowHours: 24, reviewSummary: { count: 0, average: null, reviews: [] },
+    travelFeeMinor: 500, cancellationWindowHours: 24, reviewSummary: { count: 0, average: null, reviews: [] },
     slots: [{ value: '2099-09-05T10:00', appointmentMode: 'chair' }, { value: '2099-09-05T11:00', appointmentMode: 'home' }],
   };
 }
@@ -62,10 +62,16 @@ function load(relative, options = {}, cache = new Map()) {
   const isApp = filename.endsWith('/app/App.tsx');
   new Function('require', 'module', 'exports', output + (isApp ? '\nexports.testRoutes = AppRoutes; exports.testContent = AppContent;' : ''))(request => {
     if (request === 'react') return options.react ?? React;
-    if (request === 'react-router') return { useParams: () => ({ publicSlug: options.slug ?? 'ada-cuts' }), useLocation: () => ({ pathname: '/b/ada-cuts' }), Route: 'route', Routes: 'routes', Navigate: 'redirect' };
+    if (request === 'react-router') return { useNavigate: () => options.navigate ?? (() => {}), useParams: () => ({ publicSlug: options.slug ?? 'ada-cuts', bookingId: options.bookingId ?? 'booking-1' }), useLocation: () => ({ pathname: '/b/ada-cuts' }), Route: 'route', Routes: 'routes', Navigate: 'redirect' };
     if (isApp && request.startsWith('.')) return new Proxy({}, { get: (_target, key) => key === 'default' ? request : () => ({}) });
     if (request.endsWith('/guestBookingSession')) return { ensureGuestBookingSession: options.session ?? (async () => 'anon') };
-    if (request.endsWith('/bookings')) return { requestPublicFreelancerBooking: options.submit ?? (async () => ({ bookingId: 'booking-1', status: 'pending_approval' })) };
+    if (request.endsWith('/bookings')) return {
+      requestPublicFreelancerBooking: options.submit ?? (async () => ({ bookingId: 'booking-1', status: 'pending_approval' })),
+      bookingStatusLabel: status => status,
+      getBookingAddress: options.address ?? (async () => { throw new Error('No home address'); }),
+      cancelBooking: options.cancel ?? (async () => {}), getGuestFreelancerBooking: options.followup ?? (async () => { throw new Error('Missing session'); }),
+    };
+    if (request === 'sonner') return { toast: { success() {}, error() {} } };
     if (request === 'firebase/functions') return { httpsCallable: (_functions, name) => async input => ({ data: await (options.callable ?? (() => fixture()))(name, input) }) };
     if (request.endsWith('/firebase')) return { functions: {} };
     if (request.startsWith('.')) {
@@ -129,6 +135,65 @@ test('address field selection is limited to home appointments', () => {
   assert.equal(typeof bookingFieldsFor, 'function');
   assert.deepEqual(bookingFieldsFor('chair'), ['clientName', 'clientEmail', 'clientPhone']);
   assert.deepEqual(bookingFieldsFor('home'), ['clientName', 'clientEmail', 'clientPhone', 'approximateArea', 'homeAddress']);
+});
+test('selected mode shows service, travel and total before submit', () => {
+  const form = formHarness();
+  assert.match(markup(form.render()), /Total[^]*25,00/);
+  form.change('appointmentMode', 'home');
+  assert.match(markup(form.render()), /Déplacement[^]*5,00/);
+  assert.match(markup(form.render()), /Total[^]*30,00/);
+  form.change('appointmentMode', 'chair');
+  assert.doesNotMatch(markup(form.render()), /30,00/);
+});
+test('confirmation links to a refreshable account-free follow-up', async () => {
+  const navigation = []; const form = formHarness(fixture(), { navigate: (...args) => navigation.push(args) }); form.contact(); form.change('slot', '2099-09-05T10:00'); await form.submit();
+  assert.match(markup(form.render()), /href="\/b\/reservations\/booking-1"/);
+  assert.match(markup(form.render()), /Suivre ma réservation/);
+  assert.deepEqual(navigation, [['/b/reservations/booking-1', { replace: true }]]);
+});
+test('client chair card shows the commercial snapshot and never loads a private address', async () => {
+  let requests = 0; const state = hooks();
+  const Card = load('../booking/BookingStatusCard.tsx', { react: state.api, address: async () => { requests++; return { line1: 'private', city: 'Paris' }; } }).BookingStatusCard;
+  const booking = { id: 'chair', source: 'marketplace', ownerType: 'freelancer', appointmentMode: 'chair', status: 'confirmed', serviceId: 'cut', date: '2099-09-05', time: '11:00', workplaceSnapshot: fixture().workplace };
+  const html = markup(state.render(Card, { booking })); state.effects(); await flush();
+  assert.match(html, /En salon/); assert.match(html, /Studio Paris/); assert.match(html, /8 rue du Salon/); assert.match(html, /75003/);
+  assert.doesNotMatch(html, /À domicile/); assert.equal(requests, 0);
+  state.render(Card, { booking: { ...booking, id: 'home', appointmentMode: 'home' } }); state.effects(); await flush();
+  assert.equal(requests, 1);
+});
+
+test('guest follow-up loads the URL reference, refreshes status, cancels and presents review state without signup', async () => {
+  const state = hooks(); const calls = []; const booking = {
+    id: 'booking-1', source: 'marketplace', clientId: 'anon', ownerType: 'freelancer', appointmentMode: 'chair', guestBooking: true,
+    serviceId: 'cut', date: '2099-09-05', time: '11:00', status: 'pending_approval', workplaceSnapshot: fixture().workplace,
+  };
+  let response = { booking, canCancel: true, reviewState: 'ineligible' };
+  const Page = load('./GuestBookingFollowUpPage.tsx', { react: state.api,
+    followup: async id => { calls.push(id); return response; },
+    cancel: async id => { assert.equal(id, 'booking-1'); response = { ...response, booking: { ...booking, status: 'cancelled' }, canCancel: false }; },
+  }).default;
+  assert.equal(typeof Page, 'function');
+  const render = () => state.render(Page, {});
+  render(); state.effects(); await flush();
+  assert.deepEqual(calls, ['booking-1']);
+  let tree = render(); assert.match(markup(tree), /Votre réservation/); assert.doesNotMatch(markup(tree), /register|signup|Créer un compte/);
+  await nodes(tree).find(node => node.type === 'button' && node.props.children === 'Annuler ma réservation').props.onClick();
+  render(); state.effects(); await flush(); tree = render();
+  assert.match(markup(tree), /cancelled/);
+  assert.equal(nodes(tree).some(node => node.props.children === 'Annuler ma réservation'), false);
+  response = { booking: { ...booking, status: 'completed' }, canCancel: false, reviewState: 'eligible' };
+  await nodes(tree).find(node => node.type === 'button' && node.props.children === 'Actualiser le statut').props.onClick();
+  render(); state.effects(); await flush(); tree = render();
+  assert.ok(nodes(tree).some(node => typeof node.type === 'function' && node.type.name === 'BookingReviewForm'));
+  response = { ...response, reviewState: 'reviewed' };
+  await nodes(tree).find(node => node.props.children === 'Actualiser le statut').props.onClick(); render(); state.effects(); await flush();
+  assert.match(markup(render()), /avis.*enregistré/i);
+});
+test('follow-up error exposes no booking and offers retry in the original browser', async () => {
+  const state = hooks(); const Page = load('./GuestBookingFollowUpPage.tsx', { react: state.api, followup: async () => { throw new Error('private@example.test'); } }).default;
+  assert.equal(typeof Page, 'function'); state.render(Page, {}); state.effects(); await flush();
+  const html = markup(state.render(Page, {})); assert.match(html, /navigateur|session/i); assert.match(html, /Réessayer/);
+  assert.doesNotMatch(html, /private@example|<form/);
 });
 
 test('mode changes show matching slots and discard exact and approximate home details from state', () => {
@@ -261,5 +326,7 @@ test('registers the lazy public bio route inside PublicLayout without an authent
   assert.ok(route, '/b/:publicSlug must be a public child route');
   assert.equal(parent.props.element.type, './components/layouts/PublicLayout');
   assert.equal(route.props.element.type.$$typeof, Symbol.for('react.lazy'));
+  const followup = nodes(parent).find(node => node.props.path === 'b/reservations/:bookingId');
+  assert.ok(followup); assert.equal(followup.props.element.type.$$typeof, Symbol.for('react.lazy'));
   assert.equal(app.testContent().type, 'div');
 });

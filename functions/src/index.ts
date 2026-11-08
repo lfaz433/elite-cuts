@@ -30,6 +30,8 @@ import {
 } from './publicProfiles';
 import {
   cancelBookingFunction,
+  completeFreelancerBookingFunction,
+  getGuestFreelancerBookingFunction,
   getBookingAddressFunction,
   listSalonBookingWorkspaceFunction,
   processCompletedBookingReferralFunction,
@@ -95,6 +97,8 @@ export const requestBooking = requestBookingFunction;
 export const requestPublicFreelancerBooking = requestPublicFreelancerBookingFunction;
 export const respondToBooking = respondToBookingFunction;
 export const cancelBooking = cancelBookingFunction;
+export const completeFreelancerBooking = completeFreelancerBookingFunction;
+export const getGuestFreelancerBooking = getGuestFreelancerBookingFunction;
 export const getBookingAddress = getBookingAddressFunction;
 export const listSalonBookingWorkspace = listSalonBookingWorkspaceFunction;
 export const saveSalonAvailability = saveSalonAvailabilityFunction;
