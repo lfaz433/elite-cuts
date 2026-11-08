@@ -1163,15 +1163,21 @@ export async function getMarketplaceBookingAddress(
   return parseHomeAddress(address) as HomeAddress;
 }
 
-export const requestBookingFunction = europeFunctions.https.onCall(async (data, context) => (
-  createMarketplaceBooking(context.auth?.uid ?? null, data)
-));
-
 export const publicFreelancerBookingCallableOptions = {
   enforceAppCheck: true,
   consumeAppCheckToken: true,
   maxInstances: 2,
 };
+
+export const requestBookingFunction = europeFunctions
+  .runWith(publicFreelancerBookingCallableOptions).https.onCall((data, context) => {
+    if (!context.auth?.uid) throw new functions.https.HttpsError('unauthenticated', 'Authentication is required');
+    if (!context.app) throw new functions.https.HttpsError('failed-precondition', 'Firebase App Check is required');
+    if (context.app.alreadyConsumed) {
+      throw new functions.https.HttpsError('failed-precondition', 'This App Check token was already consumed');
+    }
+    return createMarketplaceBooking(context.auth.uid, data);
+  });
 
 export const requestPublicFreelancerBookingFunction = europeFunctions
   .runWith(publicFreelancerBookingCallableOptions).https.onCall((data, context) => {

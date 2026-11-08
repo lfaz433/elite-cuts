@@ -102,6 +102,16 @@ test('guest cancellation requests a limited-use App Check token through the Fire
   assert.deepStrictEqual(setup.events, [{ name: 'cancelBooking', input: { bookingId: 'booking-id' },
     options: { limitedUseAppCheckTokens: true }, uid: 'original-guest' }]);
 });
+test('salon booking requests a limited-use App Check token and preserves the current anonymous session', async () => {
+  const setup = sessionModules(); setup.auth.currentUser = { uid: 'salon-guest', isAnonymous: true };
+  const input = {
+    profileId: 'salon__location-a', serviceId: 'cut', date: '2099-09-05', time: '10:30', clientName: 'Ada Client',
+  };
+  setup.setResponse({ bookingId: 'salon-booking', status: 'confirmed' });
+  assert.deepStrictEqual(await setup.bookings.requestBooking(input), { bookingId: 'salon-booking', status: 'confirmed' });
+  assert.deepStrictEqual(setup.events, [{ name: 'requestBooking', input,
+    options: { limitedUseAppCheckTokens: true }, uid: 'salon-guest' }]);
+});
 test('public submission stops at sign-in failure and preserves callable errors', async () => {
   const setup = sessionModules(); assert.equal(typeof setup.bookings.requestPublicFreelancerBooking, 'function');
   const error = new Error('auth failed'); setup.setSignIn(error);

@@ -34,7 +34,9 @@ function isBookingResult(value: unknown): value is { bookingId: string; status: 
   return !!value && typeof value === 'object' && typeof (value as Record<string, unknown>).bookingId === 'string'
     && ((value as Record<string, unknown>).status === 'confirmed' || (value as Record<string, unknown>).status === 'pending_approval');
 }
-const requestBookingCall = httpsCallable<BookingRequestInput, unknown>(functions, 'requestBooking');
+const requestBookingCall = httpsCallable<BookingRequestInput, unknown>(
+  functions, 'requestBooking', { limitedUseAppCheckTokens: true },
+);
 const requestPublicFreelancerBookingCall = httpsCallable<PublicFreelancerBookingInput, unknown>(
   functions, 'requestPublicFreelancerBooking', { limitedUseAppCheckTokens: true },
 );

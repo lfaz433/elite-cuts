@@ -809,6 +809,72 @@ for (const action of ['cancel', 'decline']) for (const storedMode of ['home', 'c
   });
 }
 
+const salonRequest = {
+  profileId: 'salon__location-a', serviceId: 'cut', date: '2099-09-05', time: '10:30',
+  clientName: 'Ada Client',
+};
+function salonBookingStore(bookingPolicy = 'automatic') {
+  const state = {
+    publicProfiles: {
+      'salon__location-a': {
+        kind: 'salon', visible: true, approvalStatus: 'approved', serviceIds: ['cut'], homeVisit: false,
+      },
+    },
+    salonLocations: { 'location-a': { brandId: 'brand-a', bookingPolicy } },
+    availability: { 'location-a': { availableSlots: ['2099-09-05T10:30'] } },
+    bookingRequests: {}, bookingRequestPrivate: {}, auditEvents: {},
+  };
+  return { state, firestore: basicTransactionFirestore(state) };
+}
+
+test('salon booking registers App Check enforcement and replay protection in Europe', () => {
+  assert.deepStrictEqual(loadBookings().requestBookingFunction.options, {
+    region: 'europe-west1', enforceAppCheck: true, consumeAppCheckToken: true, maxInstances: 2,
+  });
+});
+
+for (const [name, verification] of [
+  ['missing', {}],
+  // Invalid tokens cannot establish the SDK-verified context.app, even with an auth UID.
+  ['invalid', { rawRequest: { headers: { 'x-firebase-appcheck': 'invalid-token' } } }],
+  ['null context', { app: null }],
+  ['consumed', { app: { appId: 'app', alreadyConsumed: true } }],
+]) test(`salon booking rejects ${name} App Check without writing booking, availability or audit data`, async () => {
+  const { state, firestore } = salonBookingStore(); defaultFirestore = firestore;
+  const before = structuredClone(state);
+  await assert.rejects(async () => loadBookings().requestBookingFunction(salonRequest, {
+    auth: { uid: 'anon-client', token: { firebase: { sign_in_provider: 'anonymous' } } }, ...verification,
+  }), { code: 'failed-precondition' });
+  assert.deepStrictEqual(state, before);
+});
+
+for (const [policy, status] of [['automatic', 'confirmed'], ['manual', 'pending_approval']]) {
+  test(`verified anonymous salon booking preserves the ${policy} reservation flow`, async () => {
+    const { state, firestore } = salonBookingStore(policy); defaultFirestore = firestore;
+    const handler = loadBookings().requestBookingFunction;
+    const app = { appId: 'app', alreadyConsumed: false };
+    const before = structuredClone(state);
+    await assert.rejects(async () => handler(salonRequest, { app }), { code: 'unauthenticated' });
+    assert.deepStrictEqual(state, before);
+    assert.deepStrictEqual(await handler(salonRequest, {
+      app, auth: { uid: 'anon-client', token: { firebase: { sign_in_provider: 'anonymous' } } },
+    }), { bookingId: 'booking-a', status });
+    assert.deepStrictEqual(Object.keys(state.bookingRequests), ['booking-a']);
+    assert.partialDeepStrictEqual(state.bookingRequests['booking-a'], {
+      profileId: 'salon__location-a', brandId: 'brand-a', locationId: 'location-a',
+      ownerId: 'location-a', ownerType: 'salon', clientId: 'anon-client', clientName: 'Ada Client',
+      serviceId: 'cut', date: '2099-09-05', time: '10:30', status,
+    });
+    assert.deepStrictEqual(state.availability['location-a'].availableSlots, []);
+    assert.deepStrictEqual(state.availability['location-a'].reservedSlots, ['2099-09-05T10:30']);
+    assert.deepStrictEqual(state.bookingRequestPrivate, {});
+    assert.equal(Object.values(state.auditEvents).length, 1);
+    assert.partialDeepStrictEqual(Object.values(state.auditEvents)[0], {
+      action: 'MARKETPLACE_BOOKING_REQUESTED', actorUid: 'anon-client', bookingId: 'booking-a', status,
+    });
+  });
+}
+
 test('public callable enforces App Check consumption and European concurrency settings at registration', async () => {
   const handler = loadBookings().requestPublicFreelancerBookingFunction;
   assert.equal(typeof handler, 'function');
