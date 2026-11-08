@@ -10,7 +10,7 @@ const before = callback => globalThis.beforeAll
 // Exercise the real Firestore rules engine over REST, including query rules.
 // Unsigned tokens and the owner fixture token work only in the local emulator.
 const project = 'demo-freelancer-public-security';
-const host = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8188';
+const host = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080';
 if (!/^(127\.0\.0\.1|localhost):\d+$/.test(host)) throw new Error('Local emulator required');
 const base = `http://${host}`;
 const documents = `/v1/projects/${project}/databases/(default)/documents`;

@@ -178,14 +178,14 @@ test('apply fails closed before its first write when the plan has any conflict',
   expect(calls).toEqual([]);
 });
 
-test('migration CLI refuses production without exact confirmation before reading data', () => {
+test('migration CLI refuses the launch project without exact confirmation before reading data', () => {
   const script = resolve(__dirname, '..', 'scripts', 'migrate-legacy-authority.mjs');
-  const result = spawnSync(process.execPath, [script, '--project', 'production', '--apply'], {
-    env: { ...process.env, CONFIRM_PRODUCTION_MIGRATION: '' },
+  const result = spawnSync(process.execPath, [script, '--project', 'launch', '--apply'], {
+    env: { ...process.env, CONFIRM_LAUNCH_MIGRATION: '' },
   });
 
   expect(result.status).toBe(2);
-  expect(result.stderr.toString()).toContain('CONFIRM_PRODUCTION_MIGRATION=elite-cuts-app');
+  expect(result.stderr.toString()).toContain('CONFIRM_LAUNCH_MIGRATION=elitecuts-2fb0a');
 });
 
 test('rules no longer treat legacy tenant or role claims as tenant authority', () => {

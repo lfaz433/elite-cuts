@@ -1,4 +1,4 @@
-const { readFileSync } = require('node:fs');
+const { existsSync, readFileSync } = require('node:fs');
 const { dirname, isAbsolute, resolve } = require('node:path');
 const ts = require('typescript');
 
@@ -16,9 +16,20 @@ function loadTypeScriptModule(relativePath) {
   }).outputText;
   const loaded = { exports: {} };
   new Function('require', 'module', 'exports', output)(
-    request => request === 'firebase-admin' || request === 'firebase-functions'
-      ? require(resolve(__dirname, '..', 'functions', 'node_modules', request))
-      : require(request),
+    request => {
+      if (request.startsWith('.')) {
+        const resolvedRequest = resolve(dirname(filename), request);
+        const typescriptModule = resolvedRequest.endsWith('.ts')
+          ? resolvedRequest
+          : `${resolvedRequest}.ts`;
+        return existsSync(typescriptModule)
+          ? loadTypeScriptModule(typescriptModule)
+          : require(resolvedRequest);
+      }
+      return request === 'firebase-admin' || request === 'firebase-functions'
+        ? require(resolve(__dirname, '..', 'functions', 'node_modules', request))
+        : require(request);
+    },
     loaded,
     loaded.exports,
   );
@@ -121,7 +132,7 @@ test('stale source and public projections cannot advertise home visits', () => {
   };
 
   expect(projectFreelancerPublicProfile('freelancer-a', {
-    displayName: 'Ada Barber', cityId: 'fr-paris', publicProfile: stalePublicFields,
+    displayName: 'Ada Barber', cityId: 'fr-paris', visible: true, publicProfile: stalePublicFields,
   })).toEqual(expect.objectContaining({ kind: 'freelancer', homeVisit: false }));
   expect(sanitizePublicProfile('freelancer__freelancer-a', {
     kind: 'freelancer', displayName: 'Ada Barber', ...stalePublicFields,

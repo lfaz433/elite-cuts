@@ -7,7 +7,7 @@ const assert = require('node:assert/strict');
 // Native REST avoids loading the stalled baseline Firebase test SDK. These
 // requests still exercise the real local Firestore rules engine.
 const project = 'demo-freelancer-reviews';
-const host = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8188';
+const host = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080';
 if (!/^(127\.0\.0\.1|localhost):\d+$/.test(host)) throw new Error('Local emulator required');
 const base = `http://${host}`;
 const documents = `/v1/projects/${project}/databases/(default)/documents`;

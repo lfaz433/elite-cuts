@@ -6,7 +6,7 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite",
-    "test:rules": "firebase emulators:exec --only firestore \"npx jest --config rules-tests/jest.config.cjs --runInBand\"",
+    "test:rules": "bash scripts/run-firestore-rules-tests.sh",
     "test:launch": "npm run build && npm --prefix functions run build && node --experimental-strip-types --test src/app/lib/firebaseEnvironment.test.mjs && npm run test:rules"
   },
   "dependencies": {

@@ -24,12 +24,12 @@ test('legacy public documents are recursively scrubbed and marked safe', () => {
   });
 });
 
-test('public-document migration requires exact confirmation before production access', () => {
+test('public-document migration requires exact confirmation before launch access', () => {
   const result = spawnSync(process.execPath, [
     resolve(__dirname, '..', 'scripts', 'migrate-public-documents.mjs'),
-    '--project', 'production', '--dry-run',
-  ], { env: { ...process.env, CONFIRM_PRODUCTION_MIGRATION: '' } });
+    '--project', 'launch', '--dry-run',
+  ], { env: { ...process.env, CONFIRM_LAUNCH_MIGRATION: '' } });
 
   expect(result.status).toBe(2);
-  expect(result.stderr.toString()).toContain('CONFIRM_PRODUCTION_MIGRATION=elite-cuts-app');
+  expect(result.stderr.toString()).toContain('CONFIRM_LAUNCH_MIGRATION=elitecuts-2fb0a');
 });

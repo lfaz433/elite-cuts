@@ -14,31 +14,22 @@ const projectArgumentIndex = process.argv.indexOf('--project');
 const target = projectArgumentIndex >= 0 ? process.argv[projectArgumentIndex + 1] : undefined;
 const apply = args.has('--apply');
 
-const isStaging = target === 'staging' || target === EXPECTED_FIREBASE_PROJECTS.staging;
-const isProduction = target === 'production' || target === EXPECTED_FIREBASE_PROJECTS.production;
-if (!isStaging && !isProduction) {
-  console.error('Legacy authority migration requires --project staging or --project production.');
+const isLaunch = target === 'launch' || target === EXPECTED_FIREBASE_PROJECTS.launch;
+if (!isLaunch) {
+  console.error('Legacy authority migration requires --project launch.');
   process.exit(2);
 }
 if (
-  isProduction
-  && process.env.CONFIRM_PRODUCTION_MIGRATION !== EXPECTED_FIREBASE_PROJECTS.production
+  process.env.CONFIRM_LAUNCH_MIGRATION !== EXPECTED_FIREBASE_PROJECTS.launch
 ) {
-  console.error(`Production access refused. Set CONFIRM_PRODUCTION_MIGRATION=${EXPECTED_FIREBASE_PROJECTS.production}.`);
+  console.error(`Launch access refused. Set CONFIRM_LAUNCH_MIGRATION=${EXPECTED_FIREBASE_PROJECTS.launch}.`);
   process.exit(2);
 }
 if (args.has('--dry-run') && apply) {
   console.error('Choose either --dry-run or --apply.');
   process.exit(2);
 }
-if (apply && isStaging && process.env.CONFIRM_STAGING_WRITE !== EXPECTED_FIREBASE_PROJECTS.staging) {
-  console.error(`Staging apply requires CONFIRM_STAGING_WRITE=${EXPECTED_FIREBASE_PROJECTS.staging}.`);
-  process.exit(2);
-}
-
-const projectId = isProduction
-  ? EXPECTED_FIREBASE_PROJECTS.production
-  : EXPECTED_FIREBASE_PROJECTS.staging;
+const projectId = EXPECTED_FIREBASE_PROJECTS.launch;
 if (admin.apps.length === 0) admin.initializeApp({ projectId });
 const db = admin.firestore();
 const auth = admin.auth();

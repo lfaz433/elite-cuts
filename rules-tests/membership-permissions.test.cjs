@@ -1,4 +1,4 @@
-const { readFileSync } = require('node:fs');
+const { existsSync, readFileSync } = require('node:fs');
 const { dirname, resolve } = require('node:path');
 const ts = require('typescript');
 
@@ -14,11 +14,20 @@ function loadTypeScriptModule(relativePath) {
   }).outputText;
   const loaded = { exports: {} };
   new Function('require', 'module', 'exports', output)(
-    request => request.startsWith('.')
-      ? require(resolve(dirname(filename), request))
-      : request === 'firebase-admin' || request === 'firebase-functions'
+    request => {
+      if (request.startsWith('.')) {
+        const resolvedRequest = resolve(dirname(filename), request);
+        const typescriptModule = resolvedRequest.endsWith('.ts')
+          ? resolvedRequest
+          : `${resolvedRequest}.ts`;
+        return existsSync(typescriptModule)
+          ? loadTypeScriptModule(typescriptModule)
+          : require(resolvedRequest);
+      }
+      return request === 'firebase-admin' || request === 'firebase-functions'
         ? require(resolve(__dirname, '..', 'functions', 'node_modules', request))
-        : require(request),
+        : require(request);
+    },
     loaded,
     loaded.exports,
   );
