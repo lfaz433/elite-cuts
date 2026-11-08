@@ -36,12 +36,14 @@ export function extractSubdomain(hostname: string): string {
 export async function loadTenantForHost<T>(
   hostname: string,
   findTenant: (subdomain: string) => Promise<T | null>,
-  isDevelopment = import.meta.env.DEV,
+  _isDevelopment = import.meta.env.DEV,
 ): Promise<T | typeof PLATFORM_TENANT | null> {
   const normalizedHost = hostname.trim().toLowerCase();
-  if (isDevelopment && (normalizedHost === 'localhost' || normalizedHost === '127.0.0.1')) {
+  const subdomain = extractSubdomain(normalizedHost);
+
+  if (subdomain === PLATFORM_TENANT.subdomain) {
     return PLATFORM_TENANT;
   }
 
-  return findTenant(extractSubdomain(normalizedHost));
+  return findTenant(subdomain);
 }

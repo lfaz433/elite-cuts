@@ -48,6 +48,21 @@ test('uses the in-memory platform tenant for 127.0.0.1 in development without a 
   assert.equal(queried, false);
 });
 
+test('uses the in-memory platform tenant for the production main domain without a tenant query', async () => {
+  const { loadTenantForHost, PLATFORM_TENANT } = await viteServer.ssrLoadModule(
+    '/src/app/components/context/tenantResolution.ts',
+  );
+  let queried = false;
+
+  const tenant = await loadTenantForHost('www.example.com', async () => {
+    queried = true;
+    return null;
+  }, false);
+
+  assert.deepEqual(tenant, PLATFORM_TENANT);
+  assert.equal(queried, false);
+});
+
 test('continues querying custom subdomains outside development', async () => {
   const { loadTenantForHost } = await viteServer.ssrLoadModule(
     '/src/app/components/context/tenantResolution.ts',
