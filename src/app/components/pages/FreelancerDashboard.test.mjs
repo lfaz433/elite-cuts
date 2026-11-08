@@ -131,6 +131,28 @@ test('mobile Plus exposes the four remaining views and desktop navigation has se
   assert.deepEqual(nodes(nodes(tree).find(node => node.props?.id === 'freelancer-more')).filter(node => node.props?.to).map(node => node.props.to), ['/freelancer/services', '/freelancer/marketing', '/freelancer/analytics', '/freelancer/settings']);
 });
 
+test('groups navigation around daily work, growth and account without changing its routes', () => {
+  const Shell = load('../freelancer/workspace/FreelancerShell.tsx').default;
+  const props = { view: 'overview', profile: records.emptyFreelancerProfile('Ada'), publicUrl: null, onLogout() {}, children: 'Content' };
+  const tree = render(Shell, props);
+  const groups = nodes(tree).filter(node => node.type === 'section' && typeof node.props?.['aria-label'] === 'string' && node.props['aria-label'].startsWith('Navigation :'));
+  assert.deepEqual(groups.map(group => group.props['aria-label']), [
+    'Navigation : Gérer mon activité',
+    'Navigation : Développer mon activité',
+    'Navigation : Compte',
+  ]);
+  const desktop = nodes(tree).find(node => node.props?.['aria-label'] === 'Navigation principale');
+  assert.deepEqual(nodes(desktop).filter(node => node.props?.to?.startsWith('/freelancer/')).map(node => [node.props.to, node.props.children.at(-1)]), [
+    ['/freelancer/overview', 'Accueil'],
+    ['/freelancer/calendar', 'Planning'],
+    ['/freelancer/bookings', 'Réservations'],
+    ['/freelancer/services', 'Services & tarifs'],
+    ['/freelancer/marketing', 'Ma vitrine'],
+    ['/freelancer/analytics', 'Statistiques'],
+    ['/freelancer/settings', 'Paramètres'],
+  ]);
+});
+
 test('profile fields expose matching accessible errors and preserve the WhatsApp contract', () => {
   const Profile = load('../freelancer/ProfileSettings.tsx').default;
   let changed;

@@ -1,22 +1,45 @@
 import { useState } from 'react';
-import { ArrowLeft, BriefcaseBusiness, CalendarDays, Eye, MapPin, Scissors, Sparkles } from 'lucide-react';
-import { Link } from 'react-router';
 import { toast } from 'sonner';
-import type { FreelancerProfileInput } from '../../lib/marketplace/freelancer';
-import ServiceCatalog from '../freelancer/ServiceCatalog';
-import TravelSettings from '../freelancer/TravelSettings';
-
-const SAMPLE_PROFILE: FreelancerProfileInput = {
-  displayName: 'Amine Fade Studio', bio: 'Barbier indépendant spécialisé dans les dégradés précis et les finitions soignées.', cityId: 'fr-paris', languages: ['fr', 'ar'], serviceSummary: 'Dégradés, barbe et coupes modernes.', serviceIds: ['degrade', 'barbe', 'coupe-et-barbe'], servicePricesMinor: { degrade: 3000, barbe: 1800, 'coupe-et-barbe': 4500 }, visible: true, radiusKm: 12, travelFeeMinor: 500, deposit: { mode: 'none', value: 0 }, cancellationWindowHours: 24, availability: [],
-};
-
-const PORTFOLIO = [
-  ['Dégradé texturé', 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?auto=format&fit=crop&w=800&q=80'],
-  ['Finition barbe', 'https://images.unsplash.com/photo-1621605815971-fbc98d665033?auto=format&fit=crop&w=800&q=80'],
-  ['Coupe moderne', 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=800&q=80'],
-];
+import FreelancerPreviewShell from '../freelancer/preview/FreelancerPreviewShell';
+import { AnalyticsPanel, BookingsPanel, PlannerPanel, ServicesPanel, SettingsPanel, ShowcasePanel, TodayPanel } from '../freelancer/preview/PreviewPanels';
+import { addPreviewAvailability, addPreviewService, blockPreviewSlot, createPreviewState, markPreviewNotificationsRead, removePreviewSlot, respondToPreviewBooking, setPreviewView, togglePreviewService, type PreviewAvailabilityInput, type PreviewSlot } from '../freelancer/preview/freelancerPreviewModel';
 
 export default function FreelancerPreviewPage() {
-  const [profile, setProfile] = useState<FreelancerProfileInput>(SAMPLE_PROFILE);
-  return <div className="min-h-screen bg-[#070707] text-white"><header className="border-b border-white/10 bg-black/80"><div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4"><Link to="/" className="inline-flex items-center gap-2 text-sm font-bold text-white/60 transition hover:text-[#D4AF37]"><ArrowLeft className="h-4 w-4" /> Accueil</Link><span className="rounded-full border border-[#D4AF37]/30 bg-[#D4AF37]/10 px-3 py-1 text-xs font-bold text-[#D4AF37]">Aperçu démo — aucune donnée enregistrée</span></div></header><main className="mx-auto max-w-7xl space-y-6 px-5 py-7"><section className="overflow-hidden rounded-3xl border border-[#D4AF37]/25 bg-gradient-to-br from-[#2a210b] via-[#15120c] to-[#111] p-6 md:p-8"><div className="flex flex-wrap items-start justify-between gap-6"><div><div className="flex items-center gap-2 text-xs font-black uppercase tracking-[.2em] text-[#D4AF37]"><Sparkles className="h-4 w-4" /> Espace indépendant</div><h1 className="mt-3 text-3xl font-black md:text-4xl">Bonjour, Amine.</h1><p className="mt-2 max-w-xl text-white/60">Voici comment votre activité apparaîtra : services, tarifs, portfolio et opportunités de votre ville.</p></div><button type="button" onClick={() => toast.success('C’est un aperçu : rien n’a été enregistré.')} className="rounded-xl bg-[#D4AF37] px-5 py-3 text-sm font-black text-black">Prévisualiser mon profil</button></div><div className="mt-7 grid gap-3 sm:grid-cols-3"><div className="rounded-2xl border border-white/10 bg-black/30 p-4"><p className="text-xs text-white/45">Services actifs</p><p className="mt-2 text-2xl font-black">{profile.serviceIds.length}</p></div><div className="rounded-2xl border border-white/10 bg-black/30 p-4"><p className="text-xs text-white/45">Portfolio</p><p className="mt-2 text-2xl font-black">{PORTFOLIO.length} photos</p></div><div className="rounded-2xl border border-white/10 bg-black/30 p-4"><p className="text-xs text-white/45">Ville</p><p className="mt-2 text-2xl font-black">Paris</p></div></div></section><div className="grid gap-6 lg:grid-cols-[1.45fr_.8fr]"><div className="space-y-6"><ServiceCatalog value={profile} onChange={setProfile} /><TravelSettings value={profile} onChange={setProfile} /><section className="rounded-3xl border border-white/10 bg-[#111] p-6"><div className="flex items-start gap-3"><BriefcaseBusiness className="mt-1 h-5 w-5 text-[#D4AF37]" /><div><h2 className="text-xl font-black">Opportunités à Paris</h2><p className="mt-1 text-sm text-white/45">Les offres salariées et locations de fauteuil sont toujours séparées.</p></div></div><div className="mt-5 space-y-3"><article className="rounded-2xl border border-white/10 bg-black p-4"><p className="text-xs font-black uppercase tracking-wider text-[#D4AF37]">Poste salarié</p><h3 className="mt-2 font-bold">Barbier polyvalent · Studio Marais</h3><p className="mt-2 text-sm text-white/50">Temps plein · horaires flexibles · centre de Paris</p><button type="button" onClick={() => toast.info('Dans votre vrai espace, cette action ouvre le formulaire de candidature.')} className="mt-4 rounded-xl border border-[#D4AF37]/30 px-4 py-2 text-sm font-bold text-[#D4AF37]">Voir l’offre</button></article><article className="rounded-2xl border border-white/10 bg-black p-4"><p className="text-xs font-black uppercase tracking-wider text-sky-300">Location de fauteuil — indépendant</p><h3 className="mt-2 font-bold">Fauteuil disponible · République</h3><p className="mt-2 text-sm text-white/50">Indépendant · forfait mensuel · clientèle de passage</p></article></div></section></div><aside className="space-y-6"><section className="rounded-3xl border border-white/10 bg-[#111] p-6"><div className="flex items-center gap-3"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-[#D4AF37] text-black"><Scissors className="h-5 w-5" /></span><div><h2 className="font-black">Votre portfolio</h2><p className="text-sm text-white/45">Visible après modération</p></div></div><div className="mt-5 space-y-3">{PORTFOLIO.map(([caption, image]) => <article key={caption} className="overflow-hidden rounded-2xl border border-white/10 bg-black"><img src={image} alt={caption} className="h-32 w-full object-cover" /><div className="flex items-center justify-between p-3"><span className="text-sm font-bold">{caption}</span><span className="text-xs text-emerald-300">Approuvé</span></div></article>)}</div></section><section className="rounded-3xl border border-white/10 bg-[#111] p-6"><div className="flex items-center gap-2"><CalendarDays className="h-5 w-5 text-[#D4AF37]" /><h2 className="font-black">Prochaine demande</h2></div><p className="mt-4 text-sm font-bold">Dégradé · vendredi à 15:00</p><p className="mt-2 flex items-center gap-2 text-sm text-white/50"><MapPin className="h-4 w-4" /> Zone approximative : Paris 11e</p><p className="mt-3 text-xs text-white/40">Dans la vraie application, l’adresse exacte n’est révélée qu’après votre acceptation.</p><div className="mt-4 flex gap-2"><button type="button" onClick={() => toast.success('Aperçu : demande acceptée.')} className="rounded-xl bg-[#D4AF37] px-3 py-2 text-sm font-black text-black">Accepter</button><button type="button" onClick={() => toast.info('Aperçu : demande refusée.')} className="rounded-xl border border-white/10 px-3 py-2 text-sm font-bold">Refuser</button></div></section><section className="rounded-3xl border border-white/10 bg-[#111] p-6"><div className="flex items-center gap-2"><Eye className="h-5 w-5 text-[#D4AF37]" /><h2 className="font-black">Profil public</h2></div><p className="mt-3 text-sm text-white/50">Votre profil reste soumis à l’approbation de la plateforme avant d’apparaître dans la recherche.</p></section></aside></div></main></div>;
+  const [state, setState] = useState(createPreviewState);
+  const [selectedDay, setSelectedDay] = useState('2026-11-10');
+
+  const navigate = (view: typeof state.activeView) => setState(current => setPreviewView(current, view));
+  const applyMutation = (mutation: ReturnType<typeof addPreviewAvailability>, successMessage: string) => {
+    if (mutation.error) {
+      toast.error(mutation.error);
+      return;
+    }
+    setState(mutation.state);
+    toast.success(successMessage);
+  };
+  const addAvailability = (input: PreviewAvailabilityInput) => applyMutation(addPreviewAvailability(state, input), 'Créneau disponible ajouté à votre démo.');
+  const blockSlot = (input: Pick<PreviewSlot, 'day' | 'start' | 'end'>) => applyMutation(blockPreviewSlot(state, input), 'Plage bloquée dans votre démo.');
+  const respondBooking = (bookingId: string, response: 'confirmed' | 'declined') => {
+    setState(current => respondToPreviewBooking(current, bookingId, response));
+    toast.success(response === 'confirmed' ? 'Réservation confirmée dans la démo.' : 'Réservation refusée dans la démo.');
+  };
+  const addService = (input: Parameters<typeof addPreviewService>[1]) => {
+    const mutation = addPreviewService(state, input);
+    if (mutation.error) { toast.error(mutation.error); return; }
+    setState(mutation.state);
+    toast.success('Service ajouté à votre démo.');
+  };
+
+  let content;
+  switch (state.activeView) {
+    case 'planning': content = <PlannerPanel state={state} selectedDay={selectedDay} onSelectedDayChange={setSelectedDay} onAddAvailability={addAvailability} onBlock={blockSlot} onRemoveSlot={slotId => { setState(current => removePreviewSlot(current, slotId)); toast.success('Créneau supprimé de la démo.'); }} />; break;
+    case 'bookings': content = <BookingsPanel state={state} onBookingResponse={respondBooking} />; break;
+    case 'services': content = <ServicesPanel state={state} onAddService={addService} onToggleService={serviceId => setState(current => togglePreviewService(current, serviceId))} />; break;
+    case 'showcase': content = <ShowcasePanel state={state} />; break;
+    case 'analytics': content = <AnalyticsPanel state={state} />; break;
+    case 'settings': content = <SettingsPanel />; break;
+    default: content = <TodayPanel state={state} onNavigate={navigate} onBookingResponse={respondBooking} />;
+  }
+
+  return <FreelancerPreviewShell activeView={state.activeView} notifications={state.notifications} onNavigate={navigate} onMarkAllNotificationsRead={() => { setState(current => markPreviewNotificationsRead(current)); toast.success('Notifications marquées comme lues dans la démo.'); }}>{content}</FreelancerPreviewShell>;
 }
