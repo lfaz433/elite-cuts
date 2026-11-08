@@ -28,7 +28,11 @@ if (!getApps().length) {
       });
     }
   } catch (error) {
-    throw new Error('Could not initialize Firebase Admin credentials.', { cause: error });
+    const initializationError = new Error(
+      'Could not initialize Firebase Admin credentials.',
+    );
+    Object.assign(initializationError, { cause: error });
+    throw initializationError;
   }
 
   initializeApp({
