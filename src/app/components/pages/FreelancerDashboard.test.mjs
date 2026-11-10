@@ -191,16 +191,33 @@ test('calendar hides overlapping available starts across modes using the booking
   assert.deepEqual(helpers.calendarEntries(profile, [booking], 'home').map(entry => entry.slot), ['2099-01-02T11:45']);
 });
 
-test('availability edits retain per-mode slots and synchronize the legacy home field', () => {
+test('availability picker adds and removes individual slots without changing the other mode', () => {
   const Travel = load('../freelancer/TravelSettings.tsx').default;
-  let changed;
-  const profile = { ...records.emptyFreelancerProfile('Ada'), workModes: { home: true, chair: true }, availabilityByMode: { home: [], chair: ['2099-01-02T10:00'] } };
-  const tree = render(Travel, { value: profile, onChange: value => { changed = value; } });
-  const home = nodes(tree).find(node => node.props?.id === 'availability-home');
-  assert.ok(home);
-  home.props.onChange({ currentTarget: { value: '2099-01-01T09:00\n2099-01-01T10:00' } });
-  assert.deepEqual(changed.availability, ['2099-01-01T09:00', '2099-01-01T10:00']);
-  assert.deepEqual(changed.availabilityByMode.chair, ['2099-01-02T10:00']);
+  let profile = { ...records.emptyFreelancerProfile('Ada'), workModes: { home: true, chair: true }, availabilityByMode: { home: [], chair: ['2099-01-02T10:00'] } };
+  const props = () => ({ value: profile, onChange: value => { profile = value; } });
+  let tree = render(Travel, props());
+  const picker = nodes(tree).find(node => node.props?.id === 'availability-picker-home');
+  assert.equal(picker.props.type, 'datetime-local');
+  picker.props.onChange({ currentTarget: { value: '2099-01-01T09:00' } });
+  cursor = 0; tree = Travel(props());
+  nodes(tree).find(node => node.props?.['aria-label'] === 'Ajouter un créneau à domicile').props.onClick();
+  assert.deepEqual(profile.availabilityByMode.home, ['2099-01-01T09:00']);
+  assert.deepEqual(profile.availabilityByMode.chair, ['2099-01-02T10:00']);
+  cursor = 0; tree = Travel(props());
+  nodes(tree).find(node => node.props?.['aria-label'] === 'Supprimer le créneau 2099-01-01T09:00').props.onClick();
+  assert.deepEqual(profile.availabilityByMode.home, []);
+  assert.deepEqual(profile.availability, []);
+});
+
+test('settings uses one save action after its configuration fields', () => {
+  const Settings = load('../freelancer/workspace/FreelancerSettingsView.tsx').default;
+  const tree = render(Settings, { profile: records.emptyFreelancerProfile('Ada'), onChange() {}, onSave() {}, saving: false, errors: {}, saveError: null });
+  const heading = nodes(tree).find(node => node.type?.name === 'ViewHeading');
+  assert.equal(heading.props.action, null);
+  const children = [tree.props.children].flat(Infinity);
+  const fieldsIndex = children.findIndex(child => child?.type === 'fieldset');
+  const actionIndex = children.findIndex(child => child?.type === 'div' && nodes(child).some(node => node.type === 'button' && node.props?.type === 'submit'));
+  assert.ok(actionIndex > fieldsIndex);
 });
 
 test('marketing renders a QR for the published URL and immutable review statuses', () => {
@@ -293,25 +310,6 @@ test('booking card never renders a cached private address for an unaccepted home
   const text = nodes(tree).flatMap(node => [node.props.children].flat(Infinity)).filter(value => typeof value === 'string').join(' ');
   assert.match(text, /Zone approximative : Paris 11e/);
   assert.doesNotMatch(text, /99 private road/);
-});
-
-for (const mode of ['home', 'chair']) test(`${mode} availability preserves Enter and every character of a second slot until blur`, () => {
-  const Travel = load('../freelancer/TravelSettings.tsx').default;
-  let profile = { ...records.emptyFreelancerProfile('Ada'), workModes: { home: true, chair: true }, availabilityByMode: { home: [], chair: [], [mode]: ['2099-01-01T09:00'] } };
-  const props = () => ({ value: profile, onChange: next => { profile = next; } });
-  let tree = render(Travel, props());
-  let expected = '2099-01-01T09:00';
-  for (const character of '\n2099-01-02T10:00') {
-    const input = nodes(tree).find(node => node.props?.id === `availability-${mode}`);
-    input.props.onChange({ currentTarget: { value: input.props.value + character } });
-    expected += character;
-    cursor = 0; tree = Travel(props());
-    assert.equal(nodes(tree).find(node => node.props?.id === `availability-${mode}`).props.value, expected);
-  }
-  const input = nodes(tree).find(node => node.props?.id === `availability-${mode}`);
-  input.props.onBlur({ currentTarget: { value: `${expected}\n\n2099-01-01T09:00\n` } });
-  assert.deepEqual(profile.availabilityByMode[mode], ['2099-01-01T09:00', '2099-01-02T10:00']);
-  assert.deepEqual(profile.availability, profile.availabilityByMode.home);
 });
 
 test('a first visible draft stays unpublished and unavailable until its save succeeds, including after failure', async () => {
