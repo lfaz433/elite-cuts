@@ -191,22 +191,56 @@ test('calendar hides overlapping available starts across modes using the booking
   assert.deepEqual(helpers.calendarEntries(profile, [booking], 'home').map(entry => entry.slot), ['2099-01-02T11:45']);
 });
 
-test('availability picker adds and removes individual slots without changing the other mode', () => {
+test('availability range picker adds, edits and deletes a thirty-minute booking range', () => {
   const Travel = load('../freelancer/TravelSettings.tsx').default;
   let profile = { ...records.emptyFreelancerProfile('Ada'), workModes: { home: true, chair: true }, availabilityByMode: { home: [], chair: ['2099-01-02T10:00'] } };
   const props = () => ({ value: profile, onChange: value => { profile = value; } });
   let tree = render(Travel, props());
-  const picker = nodes(tree).find(node => node.props?.id === 'availability-picker-home');
-  assert.equal(picker.props.type, 'datetime-local');
-  picker.props.onChange({ currentTarget: { value: '2099-01-01T09:00' } });
+  const date = nodes(tree).find(node => node.props?.id === 'availability-date-home');
+  assert.equal(date.props.type, 'date');
+  date.props.onChange({ currentTarget: { value: '2099-01-01' } });
   cursor = 0; tree = Travel(props());
-  nodes(tree).find(node => node.props?.['aria-label'] === 'Ajouter un créneau à domicile').props.onClick();
-  assert.deepEqual(profile.availabilityByMode.home, ['2099-01-01T09:00']);
+  nodes(tree).find(node => node.props?.id === 'availability-start-home').props.onChange({ currentTarget: { value: '09:00' } });
+  cursor = 0; tree = Travel(props());
+  nodes(tree).find(node => node.props?.id === 'availability-end-home').props.onChange({ currentTarget: { value: '10:30' } });
+  cursor = 0; tree = Travel(props());
+  nodes(tree).find(node => node.props?.['aria-label'] === 'Ajouter la plage à domicile').props.onClick();
+  assert.deepEqual(profile.availabilityByMode.home, ['2099-01-01T09:00', '2099-01-01T09:30', '2099-01-01T10:00']);
   assert.deepEqual(profile.availabilityByMode.chair, ['2099-01-02T10:00']);
   cursor = 0; tree = Travel(props());
-  nodes(tree).find(node => node.props?.['aria-label'] === 'Supprimer le créneau 2099-01-01T09:00').props.onClick();
+  nodes(tree).find(node => node.props?.['aria-label'] === 'Modifier la plage 2099-01-01T09:00').props.onClick();
+  cursor = 0; tree = Travel(props());
+  nodes(tree).find(node => node.props?.id === 'availability-end-home').props.onChange({ currentTarget: { value: '11:00' } });
+  cursor = 0; tree = Travel(props());
+  nodes(tree).find(node => node.props?.['aria-label'] === 'Mettre à jour la plage à domicile').props.onClick();
+  assert.deepEqual(profile.availabilityByMode.home, ['2099-01-01T09:00', '2099-01-01T09:30', '2099-01-01T10:00', '2099-01-01T10:30']);
+  cursor = 0; tree = Travel(props());
+  nodes(tree).find(node => node.props?.['aria-label'] === 'Supprimer la plage 2099-01-01T09:00').props.onClick();
   assert.deepEqual(profile.availabilityByMode.home, []);
   assert.deepEqual(profile.availability, []);
+});
+
+test('availability range picker keeps legacy off-grid slots editable and blocks a conflicting mode', () => {
+  const Travel = load('../freelancer/TravelSettings.tsx').default;
+  let profile = { ...records.emptyFreelancerProfile('Ada'), workModes: { home: true, chair: true }, availabilityByMode: { home: ['2099-01-01T09:15'], chair: [] } };
+  const props = () => ({ value: profile, onChange: value => { profile = value; } });
+  let tree = render(Travel, props());
+  nodes(tree).find(node => node.props?.['aria-label'] === 'Modifier la plage 2099-01-01T09:15').props.onClick();
+  cursor = 0; tree = Travel(props());
+  assert.equal(nodes(tree).find(node => node.props?.id === 'availability-start-home').props.step, '60');
+  nodes(tree).find(node => node.props?.id === 'availability-end-home').props.onChange({ currentTarget: { value: '10:15' } });
+  cursor = 0; tree = Travel(props());
+  nodes(tree).find(node => node.props?.['aria-label'] === 'Mettre à jour la plage à domicile').props.onClick();
+  assert.deepEqual(profile.availabilityByMode.home, ['2099-01-01T09:15', '2099-01-01T09:45']);
+  cursor = 0; tree = Travel(props());
+  nodes(tree).find(node => node.props?.id === 'availability-date-chair').props.onChange({ currentTarget: { value: '2099-01-01' } });
+  cursor = 0; tree = Travel(props());
+  nodes(tree).find(node => node.props?.id === 'availability-start-chair').props.onChange({ currentTarget: { value: '09:00' } });
+  cursor = 0; tree = Travel(props());
+  nodes(tree).find(node => node.props?.id === 'availability-end-chair').props.onChange({ currentTarget: { value: '10:00' } });
+  cursor = 0; tree = Travel(props());
+  nodes(tree).find(node => node.props?.['aria-label'] === 'Ajouter la plage en salon').props.onClick();
+  assert.deepEqual(profile.availabilityByMode.chair, []);
 });
 
 test('settings uses one save action after its configuration fields', () => {
