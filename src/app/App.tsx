@@ -16,6 +16,7 @@ import { Scissors } from 'lucide-react';
 import { lazy } from 'react';
 import { brandDashboardHomePath, hasBrandDashboardAccess } from './lib/marketplace/access';
 import { loginPathForProtectedRoute, postLoginDestination } from './lib/authReturn';
+import { legacyProductionRedirect, type LegacyProductionPath } from './lib/productionRoutePolicy';
 
 const MAIN_DOMAIN = import.meta.env.VITE_MAIN_DOMAIN?.trim().toLowerCase() || '';
 
@@ -34,9 +35,6 @@ const AcceptInvitation = lazy(() => import('./components/pages/AcceptInvitation'
 const DiscoverPage = lazy(() => import('./components/pages/DiscoverPage'));
 const ProfilePage = lazy(() => import('./components/discovery/ProfilePage'));
 const FreelancerDashboard = lazy(() => import('./components/pages/FreelancerDashboard'));
-const FreelancerPreviewPage = lazy(() => import('./components/pages/FreelancerPreviewPage'));
-const ClientPreviewPage = lazy(() => import('./components/pages/ClientPreviewPage'));
-const BrandPreviewPage = lazy(() => import('./components/pages/BrandPreviewPage'));
 const ReferralLanding = lazy(() => import('./components/referrals/ReferralLanding'));
 const FreelancerPublicPage = lazy(() => import('./components/public/FreelancerPublicPage'));
 const GuestBookingFollowUpPage = lazy(() => import('./components/public/GuestBookingFollowUpPage'));
@@ -84,6 +82,10 @@ function AuthRequired({ children }: { children: React.ReactNode }) {
     return <Navigate to={loginPathForProtectedRoute(`${route.pathname}${route.search}`)} replace />;
   }
   return <>{children}</>;
+}
+
+function LegacyProductionRedirect({ path }: { path: LegacyProductionPath }) {
+  return <Navigate to={legacyProductionRedirect(path)} replace />;
 }
 
 function BrandRequired({ children }: { children: React.ReactNode }) {
@@ -140,12 +142,14 @@ function AppRoutes() {
         <Route path="docs" element={<DocsPage />} />
         <Route path="discover" element={<DiscoverPage />} />
       <Route path="discover/:profileId" element={<ProfilePage />} />
-      <Route path="freelancer-preview" element={<FreelancerPreviewPage />} />
-      <Route path="client-preview" element={<ClientPreviewPage />} />
-      <Route path="brand-preview" element={<BrandPreviewPage />} />
+      <Route path="freelancer-preview" element={<LegacyProductionRedirect path="freelancer-preview" />} />
+      <Route path="client-preview" element={<LegacyProductionRedirect path="client-preview" />} />
+      <Route path="brand-preview" element={<LegacyProductionRedirect path="brand-preview" />} />
+      <Route path="landing-v2-preview" element={<LegacyProductionRedirect path="landing-v2-preview" />} />
       <Route path="r/:code" element={<ReferralLanding />} />
-        <Route path="b/:publicSlug" element={<FreelancerPublicPage />} />
         <Route path="b/reservations/:bookingId" element={<GuestBookingFollowUpPage />} />
+        <Route path="b/:publicSlug" element={<FreelancerPublicPage />} />
+        <Route path="book/:legacySlug" element={<LegacyProductionRedirect path="book" />} />
         <Route path="book" element={<AuthRequired><LandingPage /></AuthRequired>} />
       </Route>
       <Route path="/boutique" element={<BoutiquePage />} />
@@ -184,9 +188,8 @@ function AppContent() {
     </div>
   );
 
-  // The public freelancer preview is intentionally self-contained: it must be
-  // explorable without a tenant, an account, or Firestore listener activity.
-  if (pathname === '/freelancer-preview' || pathname === '/client-preview' || pathname === '/brand-preview' || pathname.startsWith('/r/') || pathname.startsWith('/b/')) return routes;
+  // Referral and public booking pages work without a tenant or signed-in account.
+  if (pathname.startsWith('/r/') || pathname.startsWith('/b/')) return routes;
 
   return <BusinessProvider>{routes}</BusinessProvider>;
 }

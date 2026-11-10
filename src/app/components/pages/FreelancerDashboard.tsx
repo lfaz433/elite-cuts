@@ -18,12 +18,14 @@ import ServiceCatalog from '../freelancer/ServiceCatalog';
 import JobBoard from '../jobs/JobBoard';
 import FreelancerShell from '../freelancer/workspace/FreelancerShell';
 import FreelancerOverviewView from '../freelancer/workspace/FreelancerOverviewView';
+import FreelancerOnboardingView from '../freelancer/workspace/FreelancerOnboardingView';
 import FreelancerCalendarView from '../freelancer/workspace/FreelancerCalendarView';
 import FreelancerBookingsView from '../freelancer/workspace/FreelancerBookingsView';
 import FreelancerMarketingView from '../freelancer/workspace/FreelancerMarketingView';
 import FreelancerAnalyticsView from '../freelancer/workspace/FreelancerAnalyticsView';
 import FreelancerSettingsView from '../freelancer/workspace/FreelancerSettingsView';
 import { freelancerWorkspaceRedirect, resolveFreelancerWorkspaceView, type FreelancerWorkspaceView } from '../freelancer/workspace/freelancerWorkspaceRoutes';
+import { needsFreelancerOnboarding } from '../freelancer/workspace/freelancerOnboarding';
 import { publicFreelancerUrl, validateProfileIdentity, normalizeAvailabilitySlots, slugError, type IdentityErrors, type FreelancerInboxReview } from '../freelancer/workspace/freelancerWorkspacePresentation';
 import { ViewHeading, secondaryButton } from '../freelancer/workspace/WorkspaceUI';
 
@@ -185,15 +187,19 @@ function FreelancerWorkspaceData({ uid, displayName, view, onLogout }: {
   const publicUrl = savedProfile ? publicFreelancerUrl(window.location.origin, savedProfile) : null;
   if (loading) return <div role="status" className="grid min-h-screen place-items-center bg-[#090b0c] text-white"><div className="flex items-center gap-3"><Loader2 className="h-6 w-6 animate-spin text-[#D4AF37]" />Chargement de votre espace…</div></div>;
   if (loadError) return <div role="alert" className="grid min-h-screen place-items-center bg-[#090b0c] p-6 text-white"><div><p>Impossible de charger votre profil. Aucun changement n’a été enregistré.</p><button type="button" className={secondaryButton + ' mt-5'} onClick={() => setLoadRevision(value => value + 1)}>Réessayer</button></div></div>;
-  // Before the first successful save, operational views stay unpublished and have no configured slots.
+  // Operational areas use only a saved profile. The overview instead guides a first-time
+  // freelancer through the real setup work, so no fictional metrics or bookings appear.
   const operationalProfile = savedProfile ?? emptyFreelancerProfile(displayName);
+  const showOnboarding = !savedProfile || needsFreelancerOnboarding(operationalProfile);
   return <FreelancerShell view={view} profile={operationalProfile} publicUrl={publicUrl} onLogout={onLogout}>
     {dirty && <div role="status" className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#D4AF37]/25 bg-[#D4AF37]/5 p-4 text-sm text-[#E4C76B]"><p>Modifications non enregistrées.</p>{view !== 'settings' && <Link to="/freelancer/settings" className="font-semibold underline underline-offset-4">Enregistrer dans Paramètres</Link>}</div>}
     {bookingsLoading && <p role="status" className="mb-5 text-sm text-white/50">Chargement des réservations…</p>}
     {bookingsError && <div role="alert" className="mb-5 rounded-xl border border-red-400/20 p-4 text-sm text-red-200">Les réservations ne sont pas à jour. <button type="button" onClick={() => setBookingRevision(value => value + 1)} className="ml-3 underline">Réessayer</button></div>}
     {addressError && <div role="alert" className="mb-5 rounded-xl border border-red-400/20 p-4 text-sm text-red-200">Une adresse confirmée n’a pas pu être chargée. <button type="button" onClick={() => setAddressRevision(value => value + 1)} className="ml-3 underline">Réessayer</button></div>}
     {answerError && <p role="alert" className="mb-5 rounded-xl border border-red-400/20 p-4 text-sm text-red-200">Impossible de traiter cette demande. Vérifiez son statut puis réessayez.</p>}
-    {view === 'overview' && <FreelancerOverviewView profile={operationalProfile} bookings={bookings} addresses={bookingAddresses} now={now} />}
+    {view === 'overview' && (showOnboarding
+      ? <FreelancerOnboardingView profile={draft} />
+      : <FreelancerOverviewView profile={operationalProfile} bookings={bookings} addresses={bookingAddresses} now={now} />)}
     {view === 'calendar' && <FreelancerCalendarView profile={operationalProfile} bookings={bookings} addresses={bookingAddresses} now={now} />}
     {view === 'bookings' && <FreelancerBookingsView bookings={bookings} addresses={bookingAddresses} busyId={busyId} onAnswer={(id, decision) => void answer(id, decision)} onComplete={id => void complete(id)} />}
     {view === 'services' && <><ViewHeading eyebrow="Votre carte" title="Services" description="Définissez vos prestations, leurs tarifs et le temps nécessaire à chaque rendez-vous." action={null} /><fieldset disabled={saving} className="min-w-0"><ServiceCatalog value={draft} onChange={changeDraft} /></fieldset></>}

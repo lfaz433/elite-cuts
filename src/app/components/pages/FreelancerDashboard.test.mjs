@@ -346,8 +346,10 @@ test('a first visible draft stays unpublished and unavailable until its save suc
     const assertUnpublished = () => {
       const overviewTree = rerender('overview');
       assert.equal(overviewTree.props.publicUrl, null);
-      const overview = nodes(overviewTree).find(node => node.type?.name === 'FreelancerOverviewView');
-      const text = nodes(overview.type(overview.props)).flatMap(node => [node.props.children].flat(Infinity)).filter(value => typeof value === 'string').join(' ');
+      const onboarding = nodes(overviewTree).find(node => node.type?.name === 'FreelancerOnboardingView');
+      assert.ok(onboarding);
+      const text = nodes(onboarding.type(onboarding.props)).flatMap(node => [node.props.children].flat(Infinity)).filter(value => typeof value === 'string').join(' ');
+      assert.match(text, /Aucun client ni rendez-vous n’est créé automatiquement/);
       assert.doesNotMatch(text, /Votre profil est visible|Partager mon activité/);
       const calendar = nodes(rerender('calendar')).find(node => node.type?.name === 'FreelancerCalendarView');
       assert.deepEqual(helpers.calendarEntries(calendar.props.profile, [], 'all'), []);
@@ -367,6 +369,7 @@ test('a first visible draft stays unpublished and unavailable until its save suc
     const savedTree = rerender('overview');
     assert.equal(savedTree.props.publicUrl, 'https://preview.example/b/ada-cuts');
     assert.equal(savedTree.props.profile.visible, true);
+    assert.ok(nodes(savedTree).some(node => node.type?.name === 'FreelancerOverviewView'));
     const calendar = nodes(rerender('calendar')).find(node => node.type?.name === 'FreelancerCalendarView');
     assert.deepEqual(helpers.calendarEntries(calendar.props.profile, [], 'all').map(entry => entry.slot), ['2099-01-05T10:00']);
   } finally {
