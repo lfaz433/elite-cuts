@@ -1,7 +1,7 @@
 import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions';
 import { createHash } from 'node:crypto';
-import { europeFunctions } from './runtime';
+import { createEuropeFunctions, europeFunctions } from './runtime';
 import { normalizePublicSlug, AppointmentMode, FreelancerWorkplace } from './freelancers';
 import { isReferralEligibleCompletion } from './bookingStatus';
 import { processReferralBookingCompletion } from './referrals';
@@ -1169,7 +1169,7 @@ export const publicFreelancerBookingCallableOptions = {
   maxInstances: 2,
 };
 
-export const requestBookingFunction = europeFunctions
+export const requestBookingFunction = createEuropeFunctions()
   .runWith(publicFreelancerBookingCallableOptions).https.onCall((data, context) => {
     if (!context.auth?.uid) throw new functions.https.HttpsError('unauthenticated', 'Authentication is required');
     if (!context.app) throw new functions.https.HttpsError('failed-precondition', 'Firebase App Check is required');
@@ -1179,7 +1179,7 @@ export const requestBookingFunction = europeFunctions
     return createMarketplaceBooking(context.auth.uid, data);
   });
 
-export const requestPublicFreelancerBookingFunction = europeFunctions
+export const requestPublicFreelancerBookingFunction = createEuropeFunctions()
   .runWith(publicFreelancerBookingCallableOptions).https.onCall((data, context) => {
     if (!context.auth?.uid) throw new functions.https.HttpsError('unauthenticated', 'Authentication is required');
     if (!context.app) throw new functions.https.HttpsError('failed-precondition', 'Firebase App Check is required');
@@ -1196,13 +1196,13 @@ export const respondToBookingFunction = europeFunctions.https.onCall(async (data
 export const completeFreelancerBookingFunction = europeFunctions.https.onCall((data, context) => (
   completeFreelancerBooking(context.auth?.uid ?? null, data)
 ));
-export const getGuestFreelancerBookingFunction = europeFunctions.runWith({ enforceAppCheck: true, maxInstances: 2 }).https.onCall((data, context) => {
+export const getGuestFreelancerBookingFunction = createEuropeFunctions().runWith({ enforceAppCheck: true, maxInstances: 2 }).https.onCall((data, context) => {
   if (!context.auth?.uid) throw new functions.https.HttpsError('unauthenticated', 'Authentication is required');
   if (!context.app) throw new functions.https.HttpsError('failed-precondition', 'Firebase App Check is required');
   return getGuestFreelancerBooking(context.auth.uid, data);
 });
 
-export const cancelBookingFunction = europeFunctions.runWith(publicFreelancerBookingCallableOptions).https.onCall(async (data, context) => {
+export const cancelBookingFunction = createEuropeFunctions().runWith(publicFreelancerBookingCallableOptions).https.onCall(async (data, context) => {
   if (!context.auth?.uid) throw new functions.https.HttpsError('unauthenticated', 'Authentication is required');
   if (!context.app) throw new functions.https.HttpsError('failed-precondition', 'Firebase App Check is required');
   if (context.app.alreadyConsumed) {

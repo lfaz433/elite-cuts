@@ -1,6 +1,6 @@
 import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions';
-import { europeFunctions } from './runtime';
+import { createEuropeFunctions, europeFunctions } from './runtime';
 
 export type PublicFreelancerReview = {
   rating: number;
@@ -138,7 +138,7 @@ export async function listMyFreelancerReviews(
     .map(({ createdAtOrderMs: _order, ...review }) => review);
 }
 
-export const submitFreelancerReviewFunction = europeFunctions.runWith({
+export const submitFreelancerReviewFunction = createEuropeFunctions().runWith({
   enforceAppCheck: true, consumeAppCheckToken: true, maxInstances: 2,
 }).https.onCall(async (data, context) => {
   requireCaller(context.auth?.uid ?? '');

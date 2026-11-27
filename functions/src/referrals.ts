@@ -1,6 +1,6 @@
 import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions';
-import { europeFunctions } from './runtime';
+import { createEuropeFunctions, europeFunctions } from './runtime';
 import { createHash, randomBytes } from 'node:crypto';
 
 type Firestore = admin.firestore.Firestore;
@@ -2707,7 +2707,7 @@ export const getPublicReferralCodeFunction = europeFunctions.https.onCall(data =
   getPublicReferralCode(data)
 ));
 
-export const recordReferralVisitFunction = europeFunctions.runWith(referralVisitCallableOptions).https.onCall((data, context) => {
+export const recordReferralVisitFunction = createEuropeFunctions().runWith(referralVisitCallableOptions).https.onCall((data, context) => {
   if (!context.app) {
     error('unauthenticated', 'Firebase App Check is required for referral telemetry');
   }
