@@ -10,7 +10,7 @@
     "deploy:launch": "node ../scripts/guard-firebase-target.mjs launch && firebase deploy --only firestore:rules,firestore:indexes,functions --project launch"
   },
   "engines": {
-    "node": "20"
+    "node": "22"
   },
   "main": "lib/index.js",
   "dependencies": {
