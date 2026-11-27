@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
-import { Building2, LayoutDashboard, LockKeyhole, LogOut, Plus, ShieldCheck, UserPlus } from 'lucide-react';
+import { Building2, LayoutDashboard, LockKeyhole, LogOut, Plus, Scissors, ShieldCheck, UserPlus } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { db, functions } from '../../lib/firebase';
@@ -14,6 +14,7 @@ import MembershipPermissionManager, { type PermissionMember } from '../brand/Mem
 import PermissionEditor from '../brand/PermissionEditor';
 import SalonBookingManager from '../brand/SalonBookingManager';
 import SalonHiringManager from '../brand/SalonHiringManager';
+import SalonServiceCatalog from '../brand/SalonServiceCatalog';
 import WorkerInviteDialog from '../brand/WorkerInviteDialog';
 import ReferralCard from '../referrals/ReferralCard';
 import { useAuth } from '../context/AuthContext';
@@ -190,6 +191,8 @@ export default function BrandDashboard() {
     ...(selectedMembership?.permissions ?? {}),
   } as Record<PermissionKey, boolean>;
   const permissionsView = route.pathname.endsWith('/permissions');
+  const servicesView = route.pathname.endsWith('/services');
+  const canManageServices = isPrincipal || permissionValue.manageServices;
 
   const selectPermissionMember = (membershipId: string) => {
     const member = permissionMembers.find(item => item.id === membershipId);
@@ -293,17 +296,22 @@ export default function BrandDashboard() {
                     )}
                   </div>
                 </div>
-                <nav className="flex gap-2 p-3" aria-label="Navigation du salon">
-                  <button type="button" onClick={() => navigate(`/brand/locations/${selectedLocation.id}`)} className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold ${!permissionsView ? 'bg-[#D4AF37] text-black' : 'text-white/55 hover:bg-white/5'}`}>
+                <nav className="flex flex-wrap gap-2 p-3" aria-label="Navigation du salon">
+                  <button type="button" onClick={() => navigate(`/brand/locations/${selectedLocation.id}`)} className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold ${!permissionsView && !servicesView ? 'bg-[#D4AF37] text-black' : 'text-white/55 hover:bg-white/5'}`}>
                     <LayoutDashboard className="h-4 w-4" /> Vue d’ensemble
                   </button>
+                  {canManageServices && <button type="button" onClick={() => navigate(`/brand/locations/${selectedLocation.id}/services`)} aria-current={servicesView ? 'page' : undefined} className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold ${servicesView ? 'bg-[#D4AF37] text-black' : 'text-white/55 hover:bg-white/5'}`}>
+                    <Scissors className="h-4 w-4" /> Prestations
+                  </button>}
                   <button type="button" onClick={() => navigate(`/brand/locations/${selectedLocation.id}/permissions`)} className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold ${permissionsView ? 'bg-[#D4AF37] text-black' : 'text-white/55 hover:bg-white/5'}`}>
                     <LockKeyhole className="h-4 w-4" /> Permissions
                   </button>
                 </nav>
               </section>
 
-              {permissionsView ? (
+              {servicesView ? (
+                canManageServices ? <SalonServiceCatalog key={selectedLocation.id} locationId={selectedLocation.id} /> : <p role="alert">Votre accès ne permet pas de modifier les prestations.</p>
+              ) : permissionsView ? (
                 <section className="rounded-3xl border border-white/10 bg-[#111] p-6 sm:p-8">
                   <div className="mb-6 flex items-start gap-3">
                     <ShieldCheck className="mt-0.5 h-5 w-5 text-[#D4AF37]" />

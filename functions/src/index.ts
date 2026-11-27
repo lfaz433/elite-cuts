@@ -72,6 +72,7 @@ if (admin.apps.length === 0) {
 }
 const db = admin.firestore();
 
+export { saveSalonServiceCatalogFunction as saveSalonServiceCatalog } from './salonServices';
 export { requireMembership } from './authz';
 export { assertTransition, BookingStatus, isBookingStatus } from './bookingStatus';
 export { verifyFirebaseIdToken } from './httpAuth';
